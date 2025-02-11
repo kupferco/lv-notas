@@ -85,7 +85,8 @@ export const CheckInForm = () => {
             <Picker.Item key={patient.id} label={patient.name} value={patient.id} />
           ))}
         </Picker>
-
+          <br/>
+          <br/>
         <Text style={styles.label}>Sessão</Text>
         <Picker
           selectedValue={selectedSession}
@@ -118,9 +119,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+    alignItems: 'center',
   },
   formContainer: {
     padding: 20,
+    width: '100%',
+    maxWidth: 400,
+    marginTop: 40,
   },
   centerContainer: {
     flex: 1,
