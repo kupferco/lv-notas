@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import { config } from '../config';
 import { airtableService } from '../services/airtable';
 import type { Patient, Session } from '../types';
 
@@ -19,7 +18,10 @@ export const CheckInForm = () => {
 
   useEffect(() => {
     if (selectedPatient) {
-      loadPatientSessions(selectedPatient);
+      const patient = patients.find(p => p.id === selectedPatient);
+      if (patient) {
+        loadPatientSessions(patient.name);
+      }
     } else {
       setSessions([]);
     }
@@ -30,22 +32,16 @@ export const CheckInForm = () => {
       const data = await airtableService.getPatients();
       setPatients(data);
       setIsLoading(false);
-      
-      // Check for patient in URL params
-      const urlParams = new URLSearchParams(window.location.search);
-      const patientId = urlParams.get('paciente');
-      if (patientId) {
-        setSelectedPatient(patientId);
-      }
     } catch (error) {
       console.error('Error loading patients:', error);
       setIsLoading(false);
     }
   };
 
-  const loadPatientSessions = async (patientId: string) => {
+  const loadPatientSessions = async (patientName: string) => {
     try {
-      const data = await airtableService.getPatientSessions(patientId);
+      console.log('Loading sessions for patient name:', patientName);
+      const data = await airtableService.getPatientSessions(patientName);
       setSessions(data);
     } catch (error) {
       console.error('Error loading sessions:', error);
@@ -84,7 +80,7 @@ export const CheckInForm = () => {
         <Picker
           selectedValue={selectedPatient}
           onValueChange={(value) => setSelectedPatient(value)}>
-          <Picker.Item label="Selecione o paciente" value="\" />
+          <Picker.Item label="Selecione o paciente" value="" />
           {patients.map(patient => (
             <Picker.Item key={patient.id} label={patient.name} value={patient.id} />
           ))}
@@ -95,7 +91,7 @@ export const CheckInForm = () => {
           selectedValue={selectedSession}
           enabled={!!selectedPatient}
           onValueChange={(value) => setSelectedSession(value)}>
-          <Picker.Item label="Selecione a sessão" value="\" />
+          <Picker.Item label="Selecione a sessão" value="" />
           {sessions.map(session => (
             <Picker.Item 
               key={session.id} 

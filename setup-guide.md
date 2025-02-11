@@ -22,3 +22,7 @@ npm install airtable axios @react-native-async-storage/async-storage
 npm install airt
 npm install airtable @types/airtable
 ```
+
+- More config stuff
+```bash
+npm install expo-constants
