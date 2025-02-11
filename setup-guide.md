@@ -13,3 +13,12 @@ npm install -D @types/react @types/react-native
 ```
 
 3. Rename _App.js_ to _App.tsx_.
+
+
+## Install AirTable
+
+```bash
+npm install airtable axios @react-native-async-storage/async-storage
+npm install airt
+npm install airtable @types/airtable
+```

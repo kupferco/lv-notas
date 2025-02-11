@@ -6,7 +6,6 @@ export interface Patient {
 export interface Session {
   id: string;
   date: string;
-  time: string;
 }
 
 export interface CheckInForm {
