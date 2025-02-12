@@ -1,5 +1,5 @@
 console.log('Environment variables:', {
-  // direct: process.env.EXPO_PUBLIC_AIRTABLE_API_KEY,
+  direct_api: (process.env.EXPO_PUBLIC_AIRTABLE_API_KEY) ? 'Present' : 'Missing',
   direct_base: process.env.EXPO_PUBLIC_AIRTABLE_BASE_ID,
 });
 
@@ -11,7 +11,7 @@ const config = {
 console.log('Config being used:', {
   apiKey: config.airtableApiKey ? 'Present' : 'Missing',
   baseId: config.airtableBaseId ? 'Present' : 'Missing',
-  actualApiKey: config.airtableApiKey,
+  actualApiKey: 'Not telling you.',
   actualBaseId: config.airtableBaseId
 });
 
