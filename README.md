@@ -37,7 +37,7 @@ Secrets managed via Google Cloud Secret Manager
 
 - Start development server:
 ```bash
-expo start -c
+npm start
 ```
 
 ### Deployment
@@ -64,7 +64,7 @@ To run the local proxy server:
 ```bash
 cd safe-proxy
 npm install
-npm run dev
+node server.js
 ```
 
 ## Deployment Commands

@@ -68,3 +68,11 @@ declare module '@env' {
   }
 }
 ```
+
+
+## Deploying
+
+```bash
+expo build:web
+firebase deploy --only hosting
+```
