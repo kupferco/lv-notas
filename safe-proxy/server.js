@@ -32,7 +32,7 @@ app.use(express.json());
 const authenticateRequest = (req, res, next) => {
     const clientApiKey = req.header('X-API-Key');
 
-    if (!clientApiKey || clientApiKey !== process.env.CLIENT_API_KEY) {
+    if (!clientApiKey || clientApiKey !== process.env.SAFE_PROXY_KEY) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     next();

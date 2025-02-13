@@ -85,8 +85,8 @@ export const CheckInForm = () => {
             <Picker.Item key={patient.id} label={patient.name} value={patient.id} />
           ))}
         </Picker>
-          <br/>
-          <br/>
+        <br />
+        <br />
         <Text style={styles.label}>Sessão</Text>
         <Picker
           selectedValue={selectedSession}
@@ -94,15 +94,16 @@ export const CheckInForm = () => {
           onValueChange={(value) => setSelectedSession(value)}>
           <Picker.Item label="Selecione a sessão" value="" />
           {sessions.map(session => (
-            <Picker.Item 
-              key={session.id} 
-              label={session.date} 
-              value={session.id} 
+            <Picker.Item
+              key={session.id}
+              label={session.date}
+              value={session.id}
             />
           ))}
         </Picker>
-
-        <Pressable 
+        <br />
+        <br />
+        <Pressable
           style={[styles.button, (!selectedPatient || !selectedSession) && styles.buttonDisabled]}
           onPress={handleSubmit}
           disabled={!selectedPatient || !selectedSession || isSubmitting}>

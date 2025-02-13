@@ -1,4 +1,4 @@
 declare module '@env' {
-    export const CLIENT_API_KEY: string;
+    export const SAFE_PROXY_API_KEY: string;
     // Add other environment variables you want to use
 }
