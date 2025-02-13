@@ -74,5 +74,5 @@ declare module '@env' {
 
 ```bash
 expo build:web
-firebase deploy --only hosting
+FIREBASE_API_KEY=your-actual-api-key firebase deploy --only hosting
 ```

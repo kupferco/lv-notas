@@ -43,16 +43,6 @@ gcloud projects add-iam-policy-binding lv-notas \
     --role=roles/secretmanager.secretAccessor
 ```
 
-
-```bash
-gcloud run deploy safe-proxy \
-  --image gcr.io/lv-notas/safe-proxy \
-  --platform managed \
-  --region us-central1 \
-  --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,AIRTABLE_API_KEY=airtable-api-key:latest \
-  --env-vars-file env.yaml
-```
-
 ### 3. Local Development
 Install Dependencies
 ```bash
@@ -77,10 +67,11 @@ docker push gcr.io/lv-notas/safe-proxy
 2. Deploy to Google Cloud Run
 ```bash
 gcloud run deploy safe-proxy \
-  --image safe-proxy \
+  --image gcr.io/lv-notas/safe-proxy \
   --platform managed \
-  --region YOUR_REGION \
-  --allow-unauthenticated
+  --region us-central1 \
+  --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,AIRTABLE_API_KEY=airtable-api-key:latest \
+  --env-vars-file env.yaml
 ```
 
 

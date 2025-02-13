@@ -11,20 +11,21 @@ const limiter = rateLimit({
     max: 100 // limit each IP to 100 requests per windowMs
 });
 
-console.log(process.env.ALLOWED_ORIGINS)
+// Updated CORS configuration
+const corsOptions = {
+    origin: [
+        'https://lv-notas.web.app',
+        'https://lv-notas.firebaseapp.com',
+        'http://localhost:8081',
+        'http://localhost:19006'
+    ],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'X-API-Key'],
+    credentials: true
+};
 
 // Middleware
-app.use(cors({
-    origin: (origin, callback) => {
-        const allowedOrigins = process.env.ALLOWED_ORIGINS.split(',');
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    }
-}));
+app.use(cors(corsOptions));
 app.use(limiter);
 app.use(express.json());
 
