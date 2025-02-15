@@ -69,10 +69,10 @@ declare module '@env' {
 }
 ```
 
+(There's been a lot of configuration changes which haven't been recorded here)
 
 ## Deploying
 
 ```bash
-expo build:web
-FIREBASE_API_KEY=your-actual-api-key firebase deploy --only hosting
+npm run deploy
 ```

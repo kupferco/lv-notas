@@ -23,5 +23,5 @@ gcloud run deploy safe-proxy \
   --region us-central1 \
   --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,AIRTABLE_API_KEY=airtable-api-key:latest \
   --env-vars-file env.yaml
-
+    
 echo "Deployment completed successfully!"

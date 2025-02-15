@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } fr
 import { Picker } from '@react-native-picker/picker';
 import { airtableService } from '../services/airtable';
 import type { Patient, Session } from '../types';
+import { getPatientFromUrl } from '../utils/url-helper';
 
 export const CheckInForm = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -31,6 +32,18 @@ export const CheckInForm = () => {
     try {
       const data = await airtableService.getPatients();
       setPatients(data);
+
+      // Get patient from URL
+      const urlPatient = getPatientFromUrl();
+      console.log(urlPatient)
+      if (urlPatient) {
+        // Find the patient that matches the URL parameter
+        const matchingPatient = data.find(p => p.id === urlPatient);
+        if (matchingPatient) {
+          setSelectedPatient(matchingPatient.id);
+        }
+      }
+
       setIsLoading(false);
     } catch (error) {
       console.error('Error loading patients:', error);

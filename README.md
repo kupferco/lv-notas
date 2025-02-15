@@ -73,6 +73,5 @@ node server.js
 - Deploy frontend to Firebase Hosting
 
 ```bash
-expo build:web
-FIREBASE_API_KEY=your-actual-api-key firebase deploy --only hosting
+npm run deploy
 ```
