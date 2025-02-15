@@ -1,7 +1,7 @@
 import { SAFE_PROXY_API_KEY } from "@env";
 import { auth, initializeFirebase } from './firebase';
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import { Platform } from "react-native";
+// import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+// import { Platform } from "react-native";
 
 
 const PROXY_URL = window.location.hostname === 'localhost'
@@ -10,6 +10,7 @@ const PROXY_URL = window.location.hostname === 'localhost'
 
 // Log environment info
 console.log("Environment variables:", {
+  deployment_version: '1.0.0',
   proxy_url: PROXY_URL,
   direct_base: process.env.EXPO_PUBLIC_AIRTABLE_BASE_ID,
   client_key: SAFE_PROXY_API_KEY ? "Present" : "Missing"
@@ -40,7 +41,7 @@ const getGoogleToken = async () => {
     const tokenClaims = await user.getIdTokenResult();
     console.log("Token Claims:", {
       email: tokenClaims.claims.email,
-      google_cloud_platform_scope: tokenClaims.claims['https://www.googleapis.com/auth/cloud-platform']
+      // google_cloud_platform_scope: tokenClaims.claims['https://www.googleapis.com/auth/cloud-platform']
     });
 
     return token;

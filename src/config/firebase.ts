@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import { getAuth, signInWithPopup, GoogleAuthProvider, setPersistence, browserLocalPersistence, onAuthStateChanged } from "firebase/auth";
 
 const isFirebaseHosting = () => {
     return window.location.hostname.includes("web.app") ||
@@ -20,24 +20,52 @@ const initializeFirebase = async () => {
         app = initializeApp(firebaseConfig);
         auth = getAuth(app);
 
-        // Sign in with Google if not already signed in
-        if (!auth.currentUser) {
-            const provider = new GoogleAuthProvider();
+        // Set persistence to local
+        try {
+            await setPersistence(auth, browserLocalPersistence);
+            console.log("Authentication persistence set to local");
+        } catch (error) {
+            console.error("Error setting authentication persistence:", error);
+        }
 
-            // Reset scopes to only essential ones
-            provider.setCustomParameters({
-                'prompt': 'select_account'
+        // Check if user is already signed in
+        return new Promise((resolve) => {
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    console.log("User is already signed in:", user.email);
+                    resolve(user);
+                } else {
+                    // Sign in with Google if not already signed in
+                    const provider = new GoogleAuthProvider();
+
+                    // Reset scopes to only essential ones
+                    provider.setCustomParameters({
+                        'prompt': 'select_account'
+                    });
+
+                    try {
+                        const result = await signInWithPopup(auth, provider);
+                        console.log("Authentication successful:", result.user.email);
+                        resolve(result.user);
+                    } catch (error) {
+                        console.error("Error signing in with Google:", error);
+                        resolve(null);
+                    }
+                }
             });
+        });
+    }
+};
 
-            try {
-                const result = await signInWithPopup(auth, provider);
-                console.log("Authentication successful:", result.user.email);
-            } catch (error) {
-                console.error("Error signing in with Google:", error);
-                throw error;
-            }
+const signOut = async () => {
+    if (auth) {
+        try {
+            await auth.signOut();
+            console.log("User signed out successfully");
+        } catch (error) {
+            console.error("Error signing out:", error);
         }
     }
 };
 
-export { app, auth, initializeFirebase };
+export { app, auth, initializeFirebase, signOut };
