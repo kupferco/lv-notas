@@ -3,6 +3,15 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 
+const admin = require('firebase-admin');
+
+// Initialize Firebase Admin with your service account
+const serviceAccount = require('./service-account-key.json');
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
+
+
 const app = express();
 
 // Rate limiting
@@ -20,7 +29,7 @@ const corsOptions = {
         'http://localhost:19006'
     ],
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-API-Key'],
+    allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization'],
     credentials: true
 };
 
@@ -30,13 +39,44 @@ app.use(limiter);
 app.use(express.json());
 
 // Authentication middleware
-const authenticateRequest = (req, res, next) => {
+const authenticateRequest = async (req, res, next) => {
     const clientApiKey = req.header('X-API-Key');
+    const firebaseToken = req.header('Authorization')?.split('Bearer ')[1];
 
+    // Check API key
     if (!clientApiKey || clientApiKey !== process.env.SAFE_PROXY_KEY) {
-        return res.status(401).json({ error: 'Unauthorized' });
+        return res.status(401).json({ error: `Unauthorized - Invalid API Key` });
     }
-    next();
+
+    // Skip Firebase token verification for localhost
+    const isLocalhost = req.headers.origin &&
+        (req.headers.origin.includes('localhost:8081') ||
+            req.headers.origin.includes('localhost:19006'));
+
+    if (isLocalhost) {
+        return next();
+    }
+
+    // Verify Firebase token for production
+    try {
+        if (!firebaseToken) {
+            return res.status(401).json({ error: 'Unauthorized - Missing Firebase Token' });
+        }
+
+        const decodedToken = await admin.auth().verifyIdToken(firebaseToken);
+
+        // Optional: additional verification
+        if (decodedToken.email !== 'daniel@kupfer.co') {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+
+        // Attach user info to request if needed
+        req.user = decodedToken;
+        next();
+    } catch (error) {
+        console.error('Token verification error:', error);
+        return res.status(401).json({ error: 'Unauthorized - Invalid Token' });
+    }
 };
 
 // Protected endpoint example

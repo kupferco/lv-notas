@@ -36,6 +36,11 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# deploy bash
-deploy.sh
+# Ignore deploy.sh in the root directory
+/deploy.sh
 
+# But include deploy.sh in the safe-proxy folder
+!/safe-proxy/deploy.sh
+
+# Service account key
+**/service-account-key.json
