@@ -1,94 +1,130 @@
-# Safe Proxy Server
+# Clinic API
 
-## Overview
-A secure proxy server designed to protect sensitive API credentials and provide controlled access to data sources.
+A Node.js/TypeScript REST API for managing a therapy clinic's sessions and check-ins.
 
 ## Prerequisites
-- Node.js (version 18+)
-- npm or yarn
-- Google Cloud Account
-- Access to source API (e.g., Airtable)
 
-## Local Development Setup
+- Node.js v18.x
+- PostgreSQL 14.x
+- Google Calendar API credentials (service-account-key.json)
+- Firebase Admin credentials (service-account-key.json)
 
-### 1. Environment Variables
-Create a `.env.local` file in the project root:
-```bash
-AIRTABLE_API_KEY=AIRTABLE_KEY
-CLIENT_API_KEY=SAFE_PROXY_KEY
-ALLOWED_ORIGINS=ALLOWED_DOMAINS
+## Environment Setup
+
+Create a .env file in the root directory:
+
+```env
+POSTGRES_USER=your_postgres_user
+POSTGRES_HOST=localhost
+POSTGRES_DB=clinic_db
+POSTGRES_PASSWORD=your_postgres_password
+POSTGRES_PORT=5432
+SAFE_PROXY_KEY=your_proxy_key
+GOOGLE_CALENDAR_ID=your_calendar_id
 ```
 
-### 2. Google Cloud Secret Manager Setup
-1. Set up Google Cloud Project
-```bash
-# Set the project
-gcloud config set project lv-notas
-
-# Enable Secret Manager API
-gcloud services enable secretmanager.googleapis.com
-
-# Create the secret
-gcloud secrets create safe-proxy-key \
-  --replication-policy="automatic"
-
-# Add a version to the secret
-echo -n "your_proxy_api_key" | gcloud secrets versions add safe-proxy-key --data-file=-
-echo "your-airtable-api-key" | gcloud secrets create airtable-api-key --data-file=-
-```
+## Installation
 
 ```bash
-gcloud projects add-iam-policy-binding lv-notas \
-    --member=serviceAccount:141687742631-compute@developer.gserviceaccount.com \
-    --role=roles/secretmanager.secretAccessor
-```
-
-### 3. Local Development
-Install Dependencies
-```bash
+# Install dependencies
 npm install
+
+# Install global dependencies
+npm install -g typescript ts-node-esm
 ```
 
-Run Development Server
+## Database Setup
+
+1. Create the database:
 ```bash
-node server.js
+createdb clinic_db
 ```
 
-## Deployment
-## Google Cloud Run Deployment
-
-1. Build the Docker image
+2. Create database schema:
 ```bash
-docker build -t safe-proxy .
-docker tag safe-proxy gcr.io/lv-notas/safe-proxy
-docker push gcr.io/lv-notas/safe-proxy
+psql -h localhost -U your_postgres_user clinic_db < db/001_initial_schema.sql
 ```
 
-2. Deploy to Google Cloud Run
+3. Seed test data:
 ```bash
-gcloud run deploy safe-proxy \
-  --image gcr.io/lv-notas/safe-proxy \
-  --platform managed \
-  --region us-central1 \
-  --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,AIRTABLE_API_KEY=airtable-api-key:latest \
-  --env-vars-file env.yaml
+psql -h localhost -U your_postgres_user clinic_db < db/seed/001_insert_basic_data.sql
+```
+
+## Development
+
+```bash
+# Start development server with hot reload
+npm run dev
+
+# Build for production
+npm run build
+
+# Start production server
+npm start
+```
+
+## Database Commands
+
+Quick check of therapists and patients:
+\`\`\`bash
+psql -h localhost -U your_postgres_user clinic_db < db/seed/check_data.sql
+\`\`\`
+
+Check current data in tables:
+```bash
+# View therapists
+psql -h localhost -U your_postgres_user clinic_db -c 'SELECT * FROM therapists;'
+
+# View patients
+psql -h localhost -U your_postgres_user clinic_db -c 'SELECT * FROM patients;'
+
+# View sessions
+psql -h localhost -U your_postgres_user clinic_db -c 'SELECT * FROM sessions;'
+```
+
+## Database Management Script
+
+A convenient script is provided to manage database operations:
+
+```bash
+# Make the script executable (first time only)
+chmod +x db/manage.sh
+
+# View usage instructions
+./db/manage.sh
+
+# Create schema
+./db/manage.sh schema
+
+# Seed test data
+./db/manage.sh seed
+
+# Check current data
+./db/manage.sh check
+
+# Run all operations
+./db/manage.sh all
 ```
 
 
-### Security Considerations
+## API Endpoints
 
-- API keys are stored in Google Cloud Secret Manager
-- Implement Firebase Authentication for accessing endpoints
-- Use environment-specific configurations
-- Rotate secrets periodically
+- POST /api/checkin - Register a patient check-in for a session
+- GET /api/proxy - Test authenticated connection
+- GET /api/key - Get API key (requires authentication)
 
-### Endpoints
+## Authentication
 
-- /patients: Retrieve patient information
-- Other endpoints as defined in the application
+The API uses Firebase Authentication. Requests need to include:
+- X-API-Key header with SAFE_PROXY_KEY
+- Authorization header with Firebase token
 
-### Troubleshooting
+## Project Structure
 
-- Verify environment variables
-- Check Google Cloud IAM permissions
-- Validate Firebase Authentication setup
+- `/src` - Source code
+  - `/config` - Configuration files
+  - `/routes` - API routes
+  - `/services` - Business logic
+- `/db` - Database scripts and migrations
+  - `/seed` - Test data scripts
+

@@ -17,6 +17,7 @@ declare global {
 
 // Import routes explicitly
 import checkinRoute from './routes/checkin.js';
+import pool from './config/database.js';
 
 const app = express();
 
@@ -97,6 +98,16 @@ const setupRoutes = () => {
 
 // Initialize app
 const initializeApp = async () => {
+    // Test database connection first
+    try {
+        const client = await pool.connect();
+        console.log('Successfully connected to PostgreSQL');
+        await client.release();
+    } catch (err) {
+        console.error('Error connecting to PostgreSQL:', err);
+        process.exit(1); // Exit if we can't connect to the database
+    }
+    
     // Load service account key
     const serviceAccount = JSON.parse(
         await readFile(path.resolve('./service-account-key.json'), 'utf8')
