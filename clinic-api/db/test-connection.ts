@@ -1,5 +1,5 @@
 
-import pool from '../config/database';
+import pool from '../src/config/database.js';
 
 async function testConnection() {
   try {

@@ -2,8 +2,11 @@
   "name": "safe-proxy",
   "version": "1.0.0",
   "main": "index.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node dist/server.js",
+    "build": "tsc",
+    "dev": "nodemon --exec tsx src/server.ts"
   },
   "keywords": [],
   "author": "",
@@ -17,6 +20,17 @@
     "firebase-admin": "^13.1.0",
     "googleapis": "^144.0.0",
     "pg": "^8.13.3",
-    "pg-pool": "^3.7.1"
+    "pg-pool": "^3.7.1",
+    "ts-node-dev": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.4",
+    "@types/pg": "^8.11.11",
+    "nodemon": "^3.1.9",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
   }
 }
