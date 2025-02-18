@@ -1,18 +1,59 @@
-import express, { Router, Request, Response } from "express";
+import express, { Router, Request, Response, NextFunction } from "express";
+import { ParamsDictionary } from "express-serve-static-core";
 import pool from "../config/database.js";
 
 const router: Router = Router();
 
-router.post("/", async (req: Request, res: Response) => {
-  // Verify the request is from Google
+// Define type for our webhook payload
+interface WebhookBody {
+  id?: string;
+  start?: {
+    dateTime?: string;
+    date?: string;
+  };
+  creator?: {
+    email?: string;
+  };
+}
+
+// Type-safe handler
+const asyncHandler = (
+  handler: (
+    req: Request<ParamsDictionary, any, WebhookBody>,
+    res: Response
+  ) => Promise<Response | void>
+) => {
+  return async (
+    req: Request<ParamsDictionary, any, WebhookBody>,
+    res: Response,
+    next: NextFunction
+  ) => {
+    try {
+      await handler(req, res);
+    } catch (error) {
+      next(error);
+    }
+  };
+};
+
+router.post("/", asyncHandler(async (req, res) => {
+  // Verify headers from Google
   const channelId = req.headers["x-goog-channel-id"];
   const resourceId = req.headers["x-goog-resource-id"];
-  const state = req.headers["x-goog-resource-state"];
-  
+  const resourceState = req.headers["x-goog-resource-state"];
+  const messageNumber = req.headers["x-goog-message-number"];
+
+  // Verify required headers are present
+  if (!channelId || !resourceId || !resourceState) {
+    console.error("Missing required headers");
+    return res.status(400).send("Missing required headers");
+  }
+
   console.log("Received webhook:", {
     channelId,
     resourceId,
-    state,
+    resourceState,
+    messageNumber,
     body: req.body
   });
 
@@ -25,7 +66,7 @@ router.post("/", async (req: Request, res: Response) => {
       `INSERT INTO calendar_events (event_type, google_event_id, session_date, email) 
        VALUES ($1, $2, $3, $4)`,
       [
-        state === "exists" ? "update" : state === "sync" ? "new" : "cancel",
+        resourceState === "exists" ? "update" : resourceState === "sync" ? "new" : "cancel",
         req.body.id,
         new Date(req.body.start?.dateTime || req.body.start?.date),
         req.body.creator?.email
@@ -34,6 +75,6 @@ router.post("/", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error storing calendar event:", error);
   }
-});
+}));
 
 export default router;

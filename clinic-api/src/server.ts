@@ -17,7 +17,10 @@ declare global {
 
 // Import routes explicitly
 import checkinRoute from './routes/checkin.js';
+import calendarWebhookRoute from './routes/calendar-webhook.js';
+import { calendarWebhookService } from './services/calendar-webhook.js';
 import pool from './config/database.js';
+
 
 const app = express();
 
@@ -76,6 +79,17 @@ export default authenticateRequest;
 const setupRoutes = () => {
     // Use routes explicitly
     app.use('/api/checkin', authenticateRequest, checkinRoute);
+    app.use('/api/calendar-webhook', calendarWebhookRoute);
+
+    app.post('/api/setup-webhook', authenticateRequest, async (req: Request, res: Response) => {
+        try {
+            const result = await calendarWebhookService.createWebhook();
+            res.json({ message: 'Webhook setup successful', result });
+        } catch (error) {
+            console.error('Webhook setup failed:', error);
+            res.status(500).json({ error: 'Failed to setup webhook' });
+        }
+    });
 
     // Protected endpoint example
     app.get('/api/proxy', authenticateRequest, (req: Request, res: Response) => {
