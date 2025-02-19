@@ -6,6 +6,7 @@ CREATE TABLE therapists (
     nome VARCHAR(255) NOT NULL,
     email VARCHAR(255),
     telefone VARCHAR(20),
+    google_calendar_id VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

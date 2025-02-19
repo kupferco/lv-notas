@@ -15,10 +15,12 @@ declare global {
     }
 }
 
+const webhookUrl = process.env.WEBHOOK_URL || 'https://your-ngrok-url.com/api/calendar-webhook';
+
 // Import routes explicitly
 import checkinRoute from './routes/checkin.js';
 import calendarWebhookRoute from './routes/calendar-webhook.js';
-import { CalendarWebhookService } from './services/calendar-webhook.js';
+// import { CalendarWebhookService } from './services/calendar-webhook.js';
 import { googleCalendarService } from './services/google-calendar.js';
 import pool from './config/database.js';
 
@@ -89,7 +91,7 @@ const setupRoutes = () => {
 
     app.post('/api/setup-webhook', authenticateRequest, async (req: Request, res: Response) => {
         try {
-            const result = await CalendarWebhookService.createWebhook();
+            const result = await googleCalendarService.createWebhook(webhookUrl);
             res.json({ message: 'Webhook setup successful', result });
         } catch (error) {
             console.error('Webhook setup failed:', error);
@@ -107,7 +109,6 @@ const setupRoutes = () => {
     // In setupRoutes()
     app.post('/api/debug-webhook', async (req: Request, res: Response) => {
         try {
-            const webhookUrl = process.env.WEBHOOK_URL || 'https://your-ngrok-url.com/api/calendar-webhook';
             await googleCalendarService.debugWebhookWatch(webhookUrl);
             res.json({ message: 'Webhook debug completed' });
         } catch (error) {
