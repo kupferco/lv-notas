@@ -20,9 +20,11 @@ const webhookUrl = process.env.WEBHOOK_URL || 'https://your-ngrok-url.com/api/ca
 // Import routes explicitly
 import checkinRoute from './routes/checkin.js';
 import calendarWebhookRoute from './routes/calendar-webhook.js';
-// import { CalendarWebhookService } from './services/calendar-webhook.js';
+import patientsRoute from './routes/patients.js';
+import sessionsRoute from './routes/sessions.js';
 import { googleCalendarService } from './services/google-calendar.js';
 import pool from './config/database.js';
+
 
 
 const app = express();
@@ -35,13 +37,23 @@ const authenticateRequest = (
     next: NextFunction
 ) => {
     const handler = async () => {
+
         const clientApiKey = req.header('X-API-Key')?.normalize();
-
-        // console.log('Received API Key:', clientApiKey);
-        // console.log('Expected API Key:', process.env.SAFE_PROXY_KEY);
-
         const firebaseToken = req.header('Authorization')?.split('Bearer ')[1];
 
+        console.log('=== Auth Request ===');
+        console.log('Path:', req.path);
+        console.log('API Key received:', clientApiKey ? 'Yes' : 'No');
+        console.log('Firebase token received:', firebaseToken ? 'Yes' : 'No');
+        console.log('Expected API Key:', process.env.SAFE_PROXY_KEY);
+        console.log('Headers:', req.headers);
+
+        // Check API key
+        if (!clientApiKey || clientApiKey !== process.env.SAFE_PROXY_KEY) {
+            console.log('API Key mismatch');
+            return res.status(401).json({ error: `Unauthorized - Invalid API Key` });
+        }
+        // ... rest of the function
         // Check API key
         if (!clientApiKey || clientApiKey !== process.env.SAFE_PROXY_KEY) {
             return res.status(401).json({ error: `Unauthorized - Invalid API Key` });
@@ -86,6 +98,8 @@ export default authenticateRequest;
 // Set up routes
 const setupRoutes = () => {
     // Use routes explicitly
+    app.use('/api/patients', authenticateRequest, patientsRoute);
+    app.use('/api/sessions', authenticateRequest, sessionsRoute);
     app.use('/api/checkin', authenticateRequest, checkinRoute);
     app.use('/api/calendar-webhook', calendarWebhookRoute);
 
@@ -99,14 +113,6 @@ const setupRoutes = () => {
         }
     });
 
-    // app.post('/api/test-webhook', (req: Request, res: Response) => {
-    //     console.log('TEST WEBHOOK RECEIVED');
-    //     console.log('Headers:', req.headers);
-    //     console.log('Body:', req.body);
-    //     res.status(200).send('Webhook test received');
-    // });
-
-    // In setupRoutes()
     app.post('/api/debug-webhook', async (req: Request, res: Response) => {
         try {
             await googleCalendarService.debugWebhookWatch(webhookUrl);

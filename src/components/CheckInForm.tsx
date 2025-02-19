@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import { airtableService } from '../services/airtable';
 import type { Patient, Session } from '../types';
 import { getPatientFromUrl } from '../utils/url-helper';
+
+import { apiService } from '../services/api'
+import { initializeFirebase } from '../config/firebase';
 
 export const CheckInForm = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -14,15 +16,22 @@ export const CheckInForm = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    loadPatients();
+    const init = async () => {
+      try {
+        await initializeFirebase(); // Add this line
+        await loadPatients();
+      } catch (error) {
+        console.error('Error initializing:', error);
+        setIsLoading(false);
+      }
+    };
+
+    init();
   }, []);
 
   useEffect(() => {
     if (selectedPatient) {
-      const patient = patients.find(p => p.id === selectedPatient);
-      if (patient) {
-        loadPatientSessions(patient.name);
-      }
+      loadPatientSessions(selectedPatient);
     } else {
       setSessions([]);
     }
@@ -30,20 +39,10 @@ export const CheckInForm = () => {
 
   const loadPatients = async () => {
     try {
-      const data = await airtableService.getPatients();
+      console.log('Starting to load patients...');
+      const data = await apiService.getPatients();
+      console.log('Patients loaded:', data);
       setPatients(data);
-
-      // Get patient from URL
-      const urlPatient = getPatientFromUrl();
-      console.log(urlPatient)
-      if (urlPatient) {
-        // Find the patient that matches the URL parameter
-        const matchingPatient = data.find(p => p.id === urlPatient);
-        if (matchingPatient) {
-          setSelectedPatient(matchingPatient.id);
-        }
-      }
-
       setIsLoading(false);
     } catch (error) {
       console.error('Error loading patients:', error);
@@ -51,10 +50,9 @@ export const CheckInForm = () => {
     }
   };
 
-  const loadPatientSessions = async (patientName: string) => {
+  const loadPatientSessions = async (patientId: string) => {
     try {
-      console.log('Loading sessions for patient name:', patientName);
-      const data = await airtableService.getPatientSessions(patientName);
+      const data = await apiService.getPatientSessions(patientId);
       setSessions(data);
     } catch (error) {
       console.error('Error loading sessions:', error);
@@ -66,7 +64,7 @@ export const CheckInForm = () => {
 
     setIsSubmitting(true);
     try {
-      await airtableService.submitCheckIn(selectedPatient, selectedSession);
+      await apiService.submitCheckIn(selectedPatient, selectedSession);
       setSelectedPatient('');
       setSelectedSession('');
       alert('Presença confirmada com sucesso!');

@@ -1,6 +1,6 @@
 # Clinic API
 
-A Node.js/TypeScript REST API for managing a therapy clinic's sessions and check-ins.
+A Node.js/TypeScript REST API for managing a therapy clinic's sessions and check-ins, with Google Calendar integration.
 
 ## Prerequisites
 
@@ -131,10 +131,18 @@ chmod +x db/manage.sh
 ./db/manage.sh all
 ```
 
-
 ## API Endpoints
 
+### Check-in Management
 - POST /api/checkin - Register a patient check-in for a session
+
+### Calendar Integration
+- POST /api/calendar-webhook - Webhook endpoint for Google Calendar events
+  - Automatically syncs calendar events with sessions
+  - Handles new sessions, updates, and cancellations
+  - Matches events by Google Calendar event ID
+
+### Authentication
 - GET /api/proxy - Test authenticated connection
 - GET /api/key - Get API key (requires authentication)
 
@@ -144,12 +152,36 @@ The API uses Firebase Authentication. Requests need to include:
 - X-API-Key header with SAFE_PROXY_KEY
 - Authorization header with Firebase token
 
+## Calendar Integration
+
+The system maintains synchronization between Google Calendar events and the sessions database:
+
+1. Calendar Event Handling:
+   - New events create corresponding session records
+   - Updated events modify existing session details
+   - Cancelled events mark sessions as cancelled
+
+2. Event Matching:
+   - Sessions are matched to calendar events using the Google Calendar event ID
+   - Therapists are identified by their calendar ID
+   - Patients are matched by their email address
+
+3. Session Status:
+   - New events: status = 'agendada'
+   - Cancelled events: status = 'cancelada'
+   - Check-ins: status = 'compareceu'
+
 ## Project Structure
 
 - `/src` - Source code
   - `/config` - Configuration files
   - `/routes` - API routes
+    - `checkin.ts` - Check-in endpoint
+    - `calendar-webhook.ts` - Calendar webhook handler
   - `/services` - Business logic
+    - `google-calendar.ts` - Google Calendar service
+    - `session-sync.ts` - Session synchronization logic
+  - `/types` - TypeScript interfaces
+    - `calendar.ts` - Calendar-related types
 - `/db` - Database scripts and migrations
   - `/seed` - Test data scripts
-
