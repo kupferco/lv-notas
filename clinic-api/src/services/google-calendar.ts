@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import pool from '../config/database';
+// import { fileURLToPath } from 'url';
+import pool from '../config/database.js';
 
 // Use process.cwd() or a fixed path if import.meta is problematic
 const serviceAccountPath = path.join(process.cwd(), 'service-account-key.json');
@@ -52,15 +52,30 @@ export class GoogleCalendarService {
         }
     }
 
+    // In GoogleCalendarService class
+    public async getRecentEvents(): Promise<any> {
+        try {
+            const response = await this.calendar.events.list({
+                calendarId: process.env.GOOGLE_CALENDAR_ID,
+                updatedMin: new Date(Date.now() - 5000).toISOString(), // events updated in last 5 seconds
+                orderBy: 'updated'
+            });
+            return response.data.items;
+        } catch (error) {
+            console.error('Error fetching recent events:', error);
+            throw error;
+        }
+    }
+
     async stopAllWebhooks(): Promise<void> {
         try {
             // Get all active webhooks from our database
             const result = await pool.query(
                 'SELECT channel_id, resource_id FROM calendar_webhooks'
             );
-    
+
             console.log(`Found ${result.rows.length} webhooks to stop`);
-            
+
             for (const webhook of result.rows) {
                 try {
                     await this.stopWebhook(webhook.channel_id, webhook.resource_id);
@@ -78,11 +93,11 @@ export class GoogleCalendarService {
             console.error('Error stopping webhooks:', error);
         }
     }
-    
+
     async createWebhook(webhookUrl: string): Promise<any> {
         try {
             await this.stopAllWebhooks();
-    
+
             const channelId = `lv-calendar-webhook-${Date.now()}`;
             const response = await this.calendar.events.watch({
                 calendarId: process.env.GOOGLE_CALENDAR_ID,
@@ -93,7 +108,7 @@ export class GoogleCalendarService {
                     expiration: (Date.now() + 7 * 24 * 60 * 60 * 1000).toString(), // 7 days
                 },
             });
-    
+
             // Store the webhook in our database
             await pool.query(
                 'INSERT INTO calendar_webhooks (channel_id, resource_id, expiration) VALUES ($1, $2, $3)',
@@ -103,7 +118,7 @@ export class GoogleCalendarService {
                     new Date(parseInt(response.data.expiration))
                 ]
             );
-    
+
             console.log('Webhook created successfully:', response.data);
             return response.data;
         } catch (error) {

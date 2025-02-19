@@ -97,12 +97,12 @@ const setupRoutes = () => {
         }
     });
 
-    app.post('/api/test-webhook', (req: Request, res: Response) => {
-        console.log('TEST WEBHOOK RECEIVED');
-        console.log('Headers:', req.headers);
-        console.log('Body:', req.body);
-        res.status(200).send('Webhook test received');
-    });
+    // app.post('/api/test-webhook', (req: Request, res: Response) => {
+    //     console.log('TEST WEBHOOK RECEIVED');
+    //     console.log('Headers:', req.headers);
+    //     console.log('Body:', req.body);
+    //     res.status(200).send('Webhook test received');
+    // });
 
     // In setupRoutes()
     app.post('/api/debug-webhook', async (req: Request, res: Response) => {

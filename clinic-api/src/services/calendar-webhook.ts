@@ -3,17 +3,14 @@ import path from 'path';
 
 export class CalendarWebhookService {
   static createWebhook() {
-      throw new Error('Method not implemented.');
+    throw new Error('Method not implemented.');
   }
   private calendar: calendar_v3.Calendar;
 
   constructor() {
-    this._initializeAuth();
-  }
-
-  private _initializeAuth(): void {
+    // Initialize in constructor
     const auth = new google.auth.GoogleAuth({
-      keyFile: path.join(process.cwd(), "service-account-key.json"),
+      keyFile: path.join(process.cwd(), 'service-account-key.json'),
       scopes: ["https://www.googleapis.com/auth/calendar.events"],
     });
     this.calendar = google.calendar({ version: "v3", auth });
@@ -32,7 +29,7 @@ export class CalendarWebhookService {
         requestBody: {
           id: channelId,
           type: "web_hook",
-          address: webhookUrl,
+          address: `${webhookUrl}/api/calendar-webhook`,
           expiration: (Date.now() + 7 * 24 * 60 * 60 * 1000).toString(), // 7 days
         },
       });
@@ -53,7 +50,7 @@ export class CalendarWebhookService {
           resourceId: resourceId,
         },
       });
-      
+
       console.log("Webhook stopped successfully");
     } catch (error) {
       console.error("Error stopping webhook:", error);
