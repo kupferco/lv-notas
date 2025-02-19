@@ -2,6 +2,8 @@ import express, { Router, Request, Response, NextFunction } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
 import pool from "../config/database.js";
 import { googleCalendarService } from "../services/google-calendar.js";
+import { sessionSyncService } from "../services/session-sync.js";
+import { GoogleCalendarEvent } from "../types/calendar.js";
 
 type EventType = 'new' | 'update' | 'cancel';
 
@@ -41,8 +43,8 @@ const asyncHandler = (
 
 router.post("/", asyncHandler(async (req, res) => {
   console.log("===== WEBHOOK RECEIVED =====");
-  console.log("Full Headers:", JSON.stringify(req.headers, null, 2));
-  console.log("Full Body:", JSON.stringify(req.body, null, 2));
+  // console.log("Full Headers:", JSON.stringify(req.headers, null, 2));
+  // console.log("Full Body:", JSON.stringify(req.body, null, 2));
 
   const channelId = req.headers["x-goog-channel-id"];
   const resourceId = req.headers["x-goog-resource-id"];
@@ -64,32 +66,92 @@ router.post("/", asyncHandler(async (req, res) => {
       const events = await googleCalendarService.getRecentEvents();
 
       if (events && events.length > 0) {
-        const event = events[0];  // Most recently updated event
+        const event = events[0] as GoogleCalendarEvent;  // Most recently updated event
 
-        // Check if this event already exists in our database
-        const existingEvent = await pool.query(
-          'SELECT id FROM calendar_events WHERE google_event_id = $1',
-          [event.id]
-        );
+        // Process the event using our new service
+        const result = await sessionSyncService.processCalendarEvent(event);
 
-        let eventType: EventType;
-        if (event.status === 'cancelled') {
-          eventType = 'cancel';
-        } else {
-          eventType = existingEvent.rows.length === 0 ? 'new' : 'update';
-        }
-
-        const result = await pool.query(
-          `INSERT INTO calendar_events (event_type, google_event_id, session_date, email) 
-                 VALUES ($1, $2, $3, $4) RETURNING *`,
+        // Log the event in calendar_events table
+        const eventResult = await pool.query(
+          `INSERT INTO calendar_events (
+                    event_type, 
+                    google_event_id, 
+                    session_date, 
+                    email
+                ) VALUES ($1, $2, $3, $4) RETURNING *`,
           [
-            eventType,
+            result.eventType,
             event.id,
             new Date(event.start?.dateTime || event.start?.date || ''),
             event.creator?.email
           ]
         );
-        console.log("Event Logged to Database:", result.rows[0]);
+
+        // Now handle the session based on the event type
+        if (result.error) {
+          console.log("Event processing error:", result.error);
+          return;
+        }
+
+        console.log(result)
+        switch (result.eventType) {
+          case 'new':
+            if (!result.sessionId) {
+              // Create new session
+              await pool.query(
+                `INSERT INTO sessions (
+                                date, 
+                                google_calendar_event_id,
+                                patient_id,
+                                therapist_id,
+                                status
+                            ) VALUES ($1, $2, $3, $4, $5)`,
+                [
+                  new Date(event.start?.dateTime || event.start?.date || ''),
+                  event.id,
+                  result.patientId,
+                  result.therapistId,
+                  'agendada'
+                ]
+              );
+            }
+            break;
+
+          case 'update':
+            if (result.sessionId) {
+              // Update existing session
+              await pool.query(
+                `UPDATE sessions 
+                             SET date = $1,
+                                 google_calendar_event_id = $2,
+                                 patient_id = $3,
+                                 therapist_id = $4
+                             WHERE id = $5`,
+                [
+                  new Date(event.start?.dateTime || event.start?.date || ''),
+                  event.id,
+                  result.patientId,
+                  result.therapistId,
+                  result.sessionId
+                ]
+              );
+            }
+            break;
+
+          case 'cancel':
+            if (result.sessionId) {
+              // Update session status to cancelled
+              await pool.query(
+                `UPDATE sessions 
+                             SET status = $1 
+                             WHERE id = $2`,
+                ['cancelada', result.sessionId]
+              );
+            }
+            break;
+        }
+
+        console.log(`Successfully processed ${result.eventType} event for session ${result.sessionId}`);
       }
     } catch (error) {
       console.error("Error processing calendar event:", error);

@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import path from 'path';
 // import { fileURLToPath } from 'url';
 import pool from '../config/database.js';
+import { GoogleCalendarEvent } from '../types/calendar.js';
 
 // Use process.cwd() or a fixed path if import.meta is problematic
 const serviceAccountPath = path.join(process.cwd(), 'service-account-key.json');
@@ -52,14 +53,17 @@ export class GoogleCalendarService {
         }
     }
 
-    // In GoogleCalendarService class
-    public async getRecentEvents(includeDeleted: boolean = true): Promise<any> {
+    async getRecentEvents(includeDeleted: boolean = true): Promise<GoogleCalendarEvent[]> {
         try {
             const response = await this.calendar.events.list({
                 calendarId: process.env.GOOGLE_CALENDAR_ID,
                 updatedMin: new Date(Date.now() - 30000).toISOString(), // Look back 30 seconds
-                showDeleted: includeDeleted, // Include deleted events
-                orderBy: 'updated'
+                showDeleted: includeDeleted,
+                orderBy: 'updated',
+                singleEvents: true,
+                maxResults: 10,
+                // Request all fields we need
+                fields: `items(id,status,summary,description,start,end,attendees,organizer,creator)`
             });
             return response.data.items;
         } catch (error) {
