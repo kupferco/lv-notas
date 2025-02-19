@@ -1,15 +1,14 @@
-import { google } from "googleapis";
-import path from "path";
+import { calendar_v3, google } from 'googleapis';
+import path from 'path';
 
 export class CalendarWebhookService {
-  private calendar: any;
-  private channelId: string;
-  private webhookUrl: string;
+  static createWebhook() {
+      throw new Error('Method not implemented.');
+  }
+  private calendar: calendar_v3.Calendar;
 
-  constructor(webhookUrl: string) {
+  constructor() {
     this._initializeAuth();
-    this.channelId = "calendar-" + Date.now();
-    this.webhookUrl = webhookUrl;
   }
 
   private _initializeAuth(): void {
@@ -20,14 +19,21 @@ export class CalendarWebhookService {
     this.calendar = google.calendar({ version: "v3", auth });
   }
 
-  async createWebhook() {
+  async createWebhook(webhookUrl: string): Promise<calendar_v3.Schema$Channel> {
+    if (!webhookUrl) {
+      throw new Error("Webhook URL is required");
+    }
+
     try {
+      const channelId = `calendar-webhook-${Date.now()}`;
+
       const response = await this.calendar.events.watch({
         calendarId: process.env.GOOGLE_CALENDAR_ID,
         requestBody: {
-          id: this.channelId,
+          id: channelId,
           type: "web_hook",
-          address: this.webhookUrl,
+          address: webhookUrl,
+          expiration: (Date.now() + 7 * 24 * 60 * 60 * 1000).toString(), // 7 days
         },
       });
 
@@ -39,17 +45,16 @@ export class CalendarWebhookService {
     }
   }
 
-  async stopWebhook(channelId: string, resourceId: string) {
+  async stopWebhook(channelId: string, resourceId: string): Promise<void> {
     try {
-      const response = await this.calendar.channels.stop({
+      await this.calendar.channels.stop({
         requestBody: {
           id: channelId,
           resourceId: resourceId,
         },
       });
       
-      console.log("Webhook stopped successfully:", response.data);
-      return response.data;
+      console.log("Webhook stopped successfully");
     } catch (error) {
       console.error("Error stopping webhook:", error);
       throw error;
@@ -57,6 +62,4 @@ export class CalendarWebhookService {
   }
 }
 
-export const calendarWebhookService = new CalendarWebhookService(
-  process.env.WEBHOOK_URL || "https://your-domain.com/api/calendar-webhook"
-);
+export const createCalendarWebhookService = () => new CalendarWebhookService();

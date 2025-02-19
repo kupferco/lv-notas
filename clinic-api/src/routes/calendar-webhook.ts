@@ -37,44 +37,44 @@ const asyncHandler = (
 };
 
 router.post("/", asyncHandler(async (req, res) => {
-  // Verify headers from Google
+  console.log("===== WEBHOOK RECEIVED =====");
+  console.log("Full Headers:", JSON.stringify(req.headers, null, 2));
+  console.log("Full Body:", JSON.stringify(req.body, null, 2));
+
   const channelId = req.headers["x-goog-channel-id"];
   const resourceId = req.headers["x-goog-resource-id"];
-  const resourceState = req.headers["x-goog-resource-state"];
-  const messageNumber = req.headers["x-goog-message-number"];
+  const resourceState = req.headers["x-goog-resource-state"] as string;
+  const resourceUri = req.headers["x-goog-resource-uri"] as string;
 
-  // Verify required headers are present
-  if (!channelId || !resourceId || !resourceState) {
-    console.error("Missing required headers");
-    return res.status(400).send("Missing required headers");
-  }
-
-  console.log("Received webhook:", {
+  console.log("Webhook Details:", {
     channelId,
     resourceId,
     resourceState,
-    messageNumber,
-    body: req.body
+    resourceUri
   });
 
   // Always respond quickly to webhook
   res.status(200).send("OK");
 
-  try {
-    // Store the event
-    await pool.query(
-      `INSERT INTO calendar_events (event_type, google_event_id, session_date, email) 
-       VALUES ($1, $2, $3, $4)`,
-      [
-        resourceState === "exists" ? "update" : resourceState === "sync" ? "new" : "cancel",
-        req.body.id,
-        new Date(req.body.start?.dateTime || req.body.start?.date),
-        req.body.creator?.email
-      ]
-    );
-  } catch (error) {
-    console.error("Error storing calendar event:", error);
+  // Only process if we have a body with event data
+  if (resourceState === 'exists' && Object.keys(req.body).length > 0) {
+    try {
+      const result = await pool.query(
+        `INSERT INTO calendar_events (event_type, google_event_id, session_date, email) 
+         VALUES ($1, $2, $3, $4) RETURNING *`,
+        [
+          "update",
+          req.body.id,
+          new Date(req.body.start?.dateTime || req.body.start?.date),
+          req.body.creator?.email
+        ]
+      );
+      console.log("Event Logged to Database:", result.rows[0]);
+    } catch (error) {
+      console.error("Error storing calendar event:", error);
+    }
+  } else {
+    console.log(`Skipping database insert - ${resourceState} notification with ${Object.keys(req.body).length === 0 ? 'empty' : 'non-empty'} body`);
   }
 }));
-
 export default router;

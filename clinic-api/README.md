@@ -63,12 +63,37 @@ npm run build
 npm start
 ```
 
+## Development Webhook
+
+During development, the project includes a convenient script to create a temporary public webhook URL using ngrok:
+
+```bash
+# Start development server with ngrok tunnel
+npm run dev:webhook
+```
+
+This script does the following:
+- Starts the development server
+- Creates a secure ngrok tunnel to localhost
+- Automatically updates the .env file with the new webhook URL
+- Manages port conflicts
+
+### Features
+- Generates a temporary public URL for your local server
+- Useful for testing webhooks and external integrations
+- Automatically handles port conflicts
+- Easy to use with a single command
+
+### Requirements
+- Ngrok account (optional, but recommended for best experience)
+- Ngrok authtoken (can be set in your ngrok configuration)
+
 ## Database Commands
 
 Quick check of therapists and patients:
-\`\`\`bash
+```bash
 psql -h localhost -U your_postgres_user clinic_db < db/seed/check_data.sql
-\`\`\`
+```
 
 Check current data in tables:
 ```bash

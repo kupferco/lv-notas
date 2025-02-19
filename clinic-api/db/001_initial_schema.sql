@@ -1,4 +1,3 @@
-
 CREATE TYPE session_status AS ENUM ('agendada', 'compareceu', 'cancelada');
 CREATE TYPE event_type AS ENUM ('new', 'update', 'cancel');
 
@@ -47,4 +46,13 @@ CREATE TABLE check_ins (
     created_by VARCHAR(255) NOT NULL,
     date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(10) DEFAULT 'compareceu'
+);
+
+CREATE TABLE calendar_webhooks (
+    id SERIAL PRIMARY KEY,
+    channel_id VARCHAR(255) NOT NULL,
+    resource_id VARCHAR(255) NOT NULL,
+    expiration TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(channel_id)
 );
