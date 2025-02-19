@@ -8,6 +8,11 @@ import { apiService } from '../services/api'
 import { initializeFirebase } from '../config/firebase';
 
 export const CheckInForm = () => {
+  const getPatientIdFromUrl = () => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('paciente');
+  };
+
   const [patients, setPatients] = useState<Patient[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedPatient, setSelectedPatient] = useState('');
@@ -18,8 +23,15 @@ export const CheckInForm = () => {
   useEffect(() => {
     const init = async () => {
       try {
-        await initializeFirebase(); // Add this line
+        await initializeFirebase();
         await loadPatients();
+
+        // Check for patient ID in URL
+        const patientId = getPatientIdFromUrl();
+        if (patientId) {
+          console.log('Pre-selecting patient:', patientId);
+          setSelectedPatient(patientId);
+        }
       } catch (error) {
         console.error('Error initializing:', error);
         setIsLoading(false);
