@@ -53,11 +53,12 @@ export class GoogleCalendarService {
     }
 
     // In GoogleCalendarService class
-    public async getRecentEvents(): Promise<any> {
+    public async getRecentEvents(includeDeleted: boolean = true): Promise<any> {
         try {
             const response = await this.calendar.events.list({
                 calendarId: process.env.GOOGLE_CALENDAR_ID,
-                updatedMin: new Date(Date.now() - 5000).toISOString(), // events updated in last 5 seconds
+                updatedMin: new Date(Date.now() - 30000).toISOString(), // Look back 30 seconds
+                showDeleted: includeDeleted, // Include deleted events
                 orderBy: 'updated'
             });
             return response.data.items;

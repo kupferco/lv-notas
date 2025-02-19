@@ -3,6 +3,8 @@ import { ParamsDictionary } from "express-serve-static-core";
 import pool from "../config/database.js";
 import { googleCalendarService } from "../services/google-calendar.js";
 
+type EventType = 'new' | 'update' | 'cancel';
+
 const router: Router = Router();
 
 // Define type for our webhook payload
@@ -57,7 +59,6 @@ router.post("/", asyncHandler(async (req, res) => {
   }
 
   // For actual calendar changes, fetch the event data
-  // In calendar-webhook.ts
   if (resourceState === 'exists') {
     try {
       const events = await googleCalendarService.getRecentEvents();
@@ -65,11 +66,24 @@ router.post("/", asyncHandler(async (req, res) => {
       if (events && events.length > 0) {
         const event = events[0];  // Most recently updated event
 
+        // Check if this event already exists in our database
+        const existingEvent = await pool.query(
+          'SELECT id FROM calendar_events WHERE google_event_id = $1',
+          [event.id]
+        );
+
+        let eventType: EventType;
+        if (event.status === 'cancelled') {
+          eventType = 'cancel';
+        } else {
+          eventType = existingEvent.rows.length === 0 ? 'new' : 'update';
+        }
+
         const result = await pool.query(
           `INSERT INTO calendar_events (event_type, google_event_id, session_date, email) 
-               VALUES ($1, $2, $3, $4) RETURNING *`,
+                 VALUES ($1, $2, $3, $4) RETURNING *`,
           [
-            "update",
+            eventType,
             event.id,
             new Date(event.start?.dateTime || event.start?.date || ''),
             event.creator?.email
