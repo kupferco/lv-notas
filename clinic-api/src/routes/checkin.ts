@@ -48,9 +48,6 @@ router.post("/", asyncHandler(async (req, res) => {
   if (!patient.rows[0] || !session.rows[0]) {
     return res.status(404).json({ error: "Patient or session not found" });
   }
-
-  // Create calendar event
-  await googleCalendarService.createEvent(patient.rows[0].nome, session.rows[0].date);
   
   // Record check-in in our database
   await pool.query(
