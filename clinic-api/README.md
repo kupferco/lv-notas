@@ -13,14 +13,25 @@ A Node.js/TypeScript REST API for managing a therapy clinic's sessions and check
 
 Create a .env file in the root directory:
 
-```env
-POSTGRES_USER=your_postgres_user
+```bash
+AIRTABLE_API_KEY=secret_key_airtable
+SAFE_PROXY_KEY=secret_key_api
+ALLOWED_ORIGINS=https://endpoint-goes-here
+
+# Database
+POSTGRES_USER=user
 POSTGRES_HOST=localhost
 POSTGRES_DB=clinic_db
-POSTGRES_PASSWORD=your_postgres_password
-POSTGRES_PORT=5432
-SAFE_PROXY_KEY=your_proxy_key
-GOOGLE_CALENDAR_ID=your_calendar_id
+POSTGRES_PASSWORD=postgres_secret
+POSTGRES_PORT=port
+
+# Keep other variables as needed
+NODE_ENV=development
+PORT=3000
+
+# Google Calendar ID
+GOOGLE_CALENDAR_ID=g_calendar_id
+WEBHOOK_URL=ngrok_url
 ```
 
 ## Installation
@@ -130,6 +141,114 @@ chmod +x db/manage.sh
 # Run all operations
 ./db/manage.sh all
 ```
+
+## Google Cloud Deployment
+
+### Setup Google Cloud Project
+
+```bash
+# Set the project
+gcloud config set project lv-notas
+
+# Enable Secret Manager API
+gcloud services enable secretmanager.googleapis.com
+
+# Create secrets
+gcloud secrets create safe-proxy-key --replication-policy="automatic"
+gcloud secrets create postgres-password --replication-policy="automatic"
+gcloud secrets create firebase-key --replication-policy="automatic"
+gcloud secrets create google-calendar-id --replication-policy="automatic"
+
+# Add secret values
+echo -n "your_proxy_api_key" | gcloud secrets versions add safe-proxy-key --data-file=-
+echo -n "your_postgres_password" | gcloud secrets versions add postgres-password --data-file=-
+echo -n "your_calendar_id" | gcloud secrets versions add google-calendar-id --data-file=-
+
+# Upload Firebase service account key
+gcloud secrets create firebase-service-account --data-file=./service-account-key.json
+```
+
+### Set IAM Permissions
+
+```bash
+gcloud projects add-iam-policy-binding lv-notas \
+    --member=serviceAccount:141687742631-compute@developer.gserviceaccount.com \
+    --role=roles/secretmanager.secretAccessor
+```
+
+### Deploy to Google Cloud Run
+
+1. Build and push Docker image:
+```bash
+docker build -t clinic-api .
+docker tag clinic-api gcr.io/lv-notas/clinic-api
+docker push gcr.io/lv-notas/clinic-api
+```
+
+2. Deploy to Cloud Run:
+```bash
+gcloud run deploy clinic-api \
+  --image gcr.io/lv-notas/clinic-api \
+  --platform managed \
+  --region us-central1 \
+  --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,\
+POSTGRES_PASSWORD=postgres-password:latest,\
+GOOGLE_CALENDAR_ID=google-calendar-id:latest \
+  --set-env-vars=POSTGRES_USER=postgres,\
+POSTGRES_HOST=/cloudsql/lv-notas:us-central1:clinic-db,\
+POSTGRES_DB=clinic_db,\
+POSTGRES_PORT=5432
+```
+
+### Database Setup in Cloud SQL
+
+1. Create Cloud SQL instance:
+```bash
+gcloud sql instances create clinic-db \
+  --database-version=POSTGRES_14 \
+  --cpu=1 \
+  --memory=3840MB \
+  --region=us-central1 \
+  --root-password=[YOUR-PASSWORD]
+```
+
+2. Create database:
+```bash
+gcloud sql databases create clinic_db --instance=clinic-db
+```
+
+3. Connect to database through Cloud SQL proxy:
+
+```bash
+# First, ensure you have authentication set up
+gcloud auth application-default login
+
+# Start the Cloud SQL proxy (keep this running in a separate terminal)
+cloud-sql-proxy lv-notas:us-central1:clinic-db --port 5433
+
+# In a new terminal, connect via psql
+psql -h localhost -p 5433 -U postgres -d postgres
+
+# Create and connect to the database
+CREATE DATABASE clinic_db;
+\c clinic_db
+
+# Run the schema from 001_initial_schema.sql
+# You can copy and paste the contents of the file here
+
+# After setup, you can reconnect directly to clinic_db using:
+psql -h localhost -p 5433 -U postgres -d clinic_db
+```
+
+Note: If port 5433 is in use, you can use a different port number. Just make sure to use the same port in your connection commands.
+
+### Security Considerations
+* All sensitive data is stored in Google Cloud Secret Manager
+* Firebase Authentication is required for accessing endpoints
+* Database credentials are managed securely
+* Service account keys are stored as secrets
+* Environment-specific configurations are used
+* Regular secret rotation is recommended
 
 ## API Endpoints
 
