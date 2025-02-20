@@ -191,13 +191,18 @@ gcloud run deploy clinic-api \
   --image gcr.io/lv-notas/clinic-api \
   --platform managed \
   --region us-central1 \
-  --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,\
-POSTGRES_PASSWORD=postgres-password:latest,\
-GOOGLE_CALENDAR_ID=google-calendar-id:latest \
-  --set-env-vars=POSTGRES_USER=postgres,\
-POSTGRES_HOST=/cloudsql/lv-notas:us-central1:clinic-db,\
-POSTGRES_DB=clinic_db,\
-POSTGRES_PORT=5432
+  --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,POSTGRES_PASSWORD=postgres-password:latest \
+  --set-env-vars=POSTGRES_USER=postgres,POSTGRES_HOST=/cloudsql/lv-notas:us-central1:clinic-db,POSTGRES_DB=clinic_db,POSTGRES_PORT=5432,CLOUD_SQL_CONNECTION_NAME=lv-notas:us-central1:clinic-db
+
+
+
+ gcloud run deploy clinic-api \
+  --image gcr.io/lv-notas/clinic-api \
+  --platform managed \
+  --region us-central1 \
+  --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,AIRTABLE_API_KEY=airtable-api-key:latest \
+  --env-vars-file env.yaml
+
 ```
 
 ### Database Setup in Cloud SQL

@@ -2,15 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import type { Patient, Session } from '../types';
-import { getPatientFromUrl } from '../utils/url-helper';
-
 import { apiService } from '../services/api'
 import { initializeFirebase } from '../config/firebase';
+import { testConnection } from '../utils/test-connection';
 
 export const CheckInForm = () => {
-  const getPatientIdFromUrl = () => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('paciente');
+  // URL parsing function
+  const getPatientIdFromUrl = (): string | null => {
+    try {
+      // For web environments
+      if (typeof window !== 'undefined' && window.location) {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('paciente');
+      }
+      // For React Native, it might need to use a different approach
+      return null;
+    } catch (error) {
+      console.error('Error parsing URL:', error);
+      return null;
+    }
   };
 
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -20,6 +30,8 @@ export const CheckInForm = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [testResult, setTestResult] = useState<string>('');
+
   useEffect(() => {
     const init = async () => {
       try {
@@ -28,8 +40,9 @@ export const CheckInForm = () => {
 
         // Check for patient ID in URL
         const patientId = getPatientIdFromUrl();
+        console.log('Patient ID from URL:', patientId);
+        
         if (patientId) {
-          console.log('Pre-selecting patient:', patientId);
           setSelectedPatient(patientId);
         }
       } catch (error) {
@@ -134,6 +147,29 @@ export const CheckInForm = () => {
             {isSubmitting ? 'Enviando...' : 'Confirmar Presença'}
           </Text>
         </Pressable>
+
+
+        <Pressable
+          style={[styles.button, styles.testButton]}
+          onPress={async () => {
+            try {
+              const result = await testConnection();
+              setTestResult(
+                `Test ${result.success ? 'successful' : 'failed'}\n` +
+                `Environment: ${result.environment}\n` +
+                `${result.success ? `Patients found: ${result.patientsCount}` : `Error: ${result.error}`}`
+              );
+            } catch (error) {
+              setTestResult(`Test failed: ${error.message}`);
+            }
+          }}>
+          <Text style={styles.buttonText}>Test Connection</Text>
+        </Pressable>
+        {testResult ? (
+          <Text style={styles.testResult}>{testResult}</Text>
+        ) : null}
+
+
       </View>
     </SafeAreaView>
   );
@@ -174,4 +210,17 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
   },
+
+
+  testButton: {
+    backgroundColor: '#2196F3',  // Different color to distinguish from main button
+  },
+  testResult: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 5,
+    backgroundColor: '#f0f0f0',
+    color: '#333',
+  }
+
 });

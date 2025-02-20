@@ -65,9 +65,9 @@ async function updateEnvFile(webhookUrl: string) {
 }
 
 async function startServices() {
-  const PORT = 3000;
+  const PORT = 8080;
   
-  // Kill any existing process on port 3000
+  // Kill any existing process on port 8080
   await killProcessOnPort(PORT);
   
   // Wait a moment for the port to be fully released

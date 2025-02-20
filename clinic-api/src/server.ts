@@ -140,25 +140,32 @@ const setupRoutes = () => {
             res.status(500).json({ error: 'Internal server error' });
         }
     });
+
+    app.get('/api/test', (req, res) => {
+        res.json({ message: 'API is working' });
+    });
 };
 
 // Initialize app
 const initializeApp = async () => {
     // Test database connection first
     try {
-        const client = await pool.connect();
-        console.log('Successfully connected to PostgreSQL');
-        await client.release();
+        console.log('NOT initializing sql')
+        // const client = await pool.connect();
+        // console.log('Successfully connected to PostgreSQL');
+        // await client.release();
     } catch (err) {
-        console.error('Error connecting to PostgreSQL:', err);
+        console.error('Error connecting to PostgreSQL ::::', err);
         process.exit(1); // Exit if we can't connect to the database
     }
 
     // Automatically set up webhook if WEBHOOK_URL is available
     if (process.env.WEBHOOK_URL) {
         try {
-            await googleCalendarService.createWebhook(process.env.WEBHOOK_URL);
-            console.log('Webhook automatically set up');
+            console.log('NOT setting up webhook')
+
+            // await googleCalendarService.createWebhook(process.env.WEBHOOK_URL);
+            // console.log('Webhook automatically set up');
         } catch (error) {
             console.error('Failed to automatically set up webhook:', error);
         }
@@ -199,7 +206,7 @@ const initializeApp = async () => {
     // Start server
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
-        console.log(`Server running on port ${PORT}`);
+        console.log(`🌐 Server running on port ${PORT}`);
     });
 };
 

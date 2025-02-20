@@ -5,8 +5,8 @@ import { auth, initializeFirebase } from './firebase';
 
 
 const PROXY_URL = window.location.hostname === 'localhost'
-  ? "http://localhost:3000"
-  : (process.env.EXPO_PUBLIC_SAFE_PROXY_URL || "http://localhost:3000");
+  ? process.env.EXPO_PUBLIC_LOCAL_URL
+  : (process.env.EXPO_PUBLIC_SAFE_PROXY_URL || process.env.EXPO_PUBLIC_LOCAL_URL);
 
 // Log environment info
 console.log("Environment variables:", {
@@ -58,7 +58,7 @@ const getSecretFromManager = async () => {
 
 const getLocalAirtableApiKey = async () => {
   console.log("Fetching local proxy key");
-  const response = await fetch('http://localhost:3000/api/key', {
+  const response = await fetch(`${process.env.EXPO_PUBLIC_LOCAL_URL}/api/key`, {
     headers: {
       "X-API-Key": SAFE_PROXY_API_KEY
     }

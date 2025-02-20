@@ -3,7 +3,7 @@ import { auth } from "../config/firebase";
 
 // For development, use localhost
 const isDevelopment = window.location.hostname.includes('localhost');
-const API_URL = isDevelopment ? "http://localhost:3000" : process.env.EXPO_PUBLIC_SAFE_PROXY_URL;
+const API_URL = isDevelopment ? process.env.EXPO_PUBLIC_LOCAL_URL : process.env.EXPO_PUBLIC_SAFE_PROXY_URL;
 const API_KEY = process.env.SAFE_PROXY_API_KEY;
 
 const getAuthHeaders = async () => {
@@ -14,7 +14,7 @@ const getAuthHeaders = async () => {
     const token = user ? await user.getIdToken() : "";
     authHeader = token ? `Bearer ${token}` : "";
   }
-  
+
   // console.log('API URL:', API_URL);
   // console.log('API Key:', API_KEY ? 'Present' : 'Missing');
 
@@ -28,8 +28,15 @@ const getAuthHeaders = async () => {
 export const apiService = {
   async getPatients(): Promise<Patient[]> {
     const headers = await getAuthHeaders();
+    console.log('API URL:', `${API_URL}/api/patients`);
+    console.log('Headers:', headers);
     const response = await fetch(`${API_URL}/api/patients`, { headers });
-    if (!response.ok) throw new Error("Failed to fetch patients");
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error response:', errorText);
+      throw new Error(`Failed to fetch patients. Status: ${response.status}, Error: ${errorText}`);
+    }
     return response.json();
   },
 

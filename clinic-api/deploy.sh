@@ -5,23 +5,22 @@ set -e
 
 # Build Docker image
 echo "Building Docker image..."
-docker build -t safe-proxy .
+docker build -t clinic-api .
 
 # Tag the image
 echo "Tagging image..."
-docker tag safe-proxy gcr.io/lv-notas/safe-proxy
+docker tag clinic-api gcr.io/lv-notas/clinic-api
 
 # Push to Google Container Registry
 echo "Pushing image to GCR..."
-docker push gcr.io/lv-notas/safe-proxy
+docker push gcr.io/lv-notas/clinic-api
 
 # Deploy to Google Cloud Run
-echo "Deploying to Google Cloud Run..."
-gcloud run deploy safe-proxy \
-  --image gcr.io/lv-notas/safe-proxy \
+gcloud run deploy clinic-api \
+  --image gcr.io/lv-notas/clinic-api \
   --platform managed \
   --region us-central1 \
-  --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,AIRTABLE_API_KEY=airtable-api-key:latest \
+  --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,POSTGRES_PASSWORD=postgres-password:latest \
   --env-vars-file env.yaml
-    
+      
 echo "Deployment completed successfully!"

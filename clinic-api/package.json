@@ -1,5 +1,5 @@
 {
-  "name": "safe-proxy",
+  "name": "clinic-api",
   "version": "1.0.0",
   "main": "index.js",
   "type": "module",
@@ -7,7 +7,8 @@
     "start": "node dist/server.js",
     "build": "tsc",
     "dev": "nodemon --exec tsx src/server.ts",
-    "dev:webhook": "tsx scripts/start-dev.ts"
+    "dev:webhook": "tsx scripts/start-dev.ts",
+    "deploy": "npm run build && ./deploy.sh"
   },
   "keywords": [],
   "author": "",
