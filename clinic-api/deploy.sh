@@ -21,6 +21,8 @@ gcloud run deploy clinic-api \
   --platform managed \
   --region us-central1 \
   --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,POSTGRES_PASSWORD=postgres-password:latest \
-  --env-vars-file env.yaml
-      
+  --env-vars-file env.yaml \
+  --add-cloudsql-instances lv-notas:us-central1:clinic-db \
+  --service-account lv-notas-service-account@lv-notas.iam.gserviceaccount.com
+
 echo "Deployment completed successfully!"

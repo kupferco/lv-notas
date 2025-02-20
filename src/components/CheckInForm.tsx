@@ -149,7 +149,7 @@ export const CheckInForm = () => {
         </Pressable>
 
 
-        <Pressable
+        {/* <Pressable
           style={[styles.button, styles.testButton]}
           onPress={async () => {
             try {
@@ -167,7 +167,7 @@ export const CheckInForm = () => {
         </Pressable>
         {testResult ? (
           <Text style={styles.testResult}>{testResult}</Text>
-        ) : null}
+        ) : null} */}
 
 
       </View>

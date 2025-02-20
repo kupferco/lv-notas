@@ -44,9 +44,10 @@ const authenticateRequest = (
         console.log('=== Auth Request ===');
         console.log('Path:', req.path);
         console.log('API Key received:', clientApiKey ? 'Yes' : 'No');
+        // console.log('API Key received value:', clientApiKey);
         console.log('Firebase token received:', firebaseToken ? 'Yes' : 'No');
-        console.log('Expected API Key:', process.env.SAFE_PROXY_KEY);
-        console.log('Headers:', req.headers);
+        // console.log('Expected API Key:', process.env.SAFE_PROXY_KEY);
+        // console.log('Headers:', req.headers);
 
         // Check API key
         if (!clientApiKey || clientApiKey !== process.env.SAFE_PROXY_KEY) {
@@ -150,10 +151,10 @@ const setupRoutes = () => {
 const initializeApp = async () => {
     // Test database connection first
     try {
-        console.log('NOT initializing sql')
-        // const client = await pool.connect();
-        // console.log('Successfully connected to PostgreSQL');
-        // await client.release();
+        console.log('Initializing sql...');
+        const client = await pool.connect();
+        console.log('Successfully connected to PostgreSQL');
+        await client.release();
     } catch (err) {
         console.error('Error connecting to PostgreSQL ::::', err);
         process.exit(1); // Exit if we can't connect to the database
@@ -162,10 +163,9 @@ const initializeApp = async () => {
     // Automatically set up webhook if WEBHOOK_URL is available
     if (process.env.WEBHOOK_URL) {
         try {
-            console.log('NOT setting up webhook')
-
-            // await googleCalendarService.createWebhook(process.env.WEBHOOK_URL);
-            // console.log('Webhook automatically set up');
+            console.log('Setting up webhook...');
+            await googleCalendarService.createWebhook(process.env.WEBHOOK_URL);
+            console.log('Webhook automatically set up');
         } catch (error) {
             console.error('Failed to automatically set up webhook:', error);
         }
