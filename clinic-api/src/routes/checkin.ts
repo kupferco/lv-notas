@@ -1,7 +1,7 @@
 import express, { Router, Request, Response, NextFunction } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
 import pool from "../config/database.js";
-import { googleCalendarService } from "../services/google-calendar.js";
+// import { googleCalendarService } from "../services/google-calendar.js";
 
 const router: Router = Router();
 

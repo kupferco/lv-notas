@@ -1,6 +1,7 @@
 import { spawn, exec } from "child_process";
 import ngrok from "ngrok";
 import fs from "fs/promises";
+import 'dotenv/config';
 
 function killProcessOnPort(port: number): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -46,15 +47,15 @@ async function updateEnvFile(webhookUrl: string) {
     let webhookFound = false;
     
     const updatedLines = lines.map(line => {
-      if (line.startsWith("WEBHOOK_URL=")) {
+      if (line.startsWith("WEBHOOK_URL_LOCAL=")) {
         webhookFound = true;
-        return `WEBHOOK_URL=${webhookUrl}`;
+        return `WEBHOOK_URL_LOCAL=${webhookUrl}`;
       }
       return line;
     });
     
     if (!webhookFound) {
-      updatedLines.push(`WEBHOOK_URL=${webhookUrl}`);
+      updatedLines.push(`WEBHOOK_URL_LOCAL=${webhookUrl}`);
     }
     
     await fs.writeFile(".env", updatedLines.join("\n"));
@@ -65,7 +66,7 @@ async function updateEnvFile(webhookUrl: string) {
 }
 
 async function startServices() {
-  const PORT = 8080;
+  const PORT = parseInt(process.env.PORT || '3000');
   
   // Kill any existing process on port 8080
   await killProcessOnPort(PORT);

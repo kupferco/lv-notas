@@ -29,7 +29,7 @@ export const apiService = {
   async getPatients(): Promise<Patient[]> {
     const headers = await getAuthHeaders();
     console.log('API URL:', `${API_URL}/api/patients`);
-    console.log('Headers:', headers);
+    // console.log('Headers:', headers);
     const response = await fetch(`${API_URL}/api/patients`, { headers });
 
     if (!response.ok) {

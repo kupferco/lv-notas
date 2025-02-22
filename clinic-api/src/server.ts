@@ -15,7 +15,21 @@ declare global {
     }
 }
 
-const webhookUrl = process.env.WEBHOOK_URL || 'https://your-ngrok-url.com/api/calendar-webhook';
+const getWebhookUrl = () => {
+    if (process.env.NODE_ENV === 'production') {
+        if (!process.env.WEBHOOK_URL_LIVE) {
+            throw new Error('WEBHOOK_URL_LIVE is not set in production environment');
+        }
+        return process.env.WEBHOOK_URL_LIVE;
+    }
+
+    if (!process.env.WEBHOOK_URL_LOCAL) {
+        throw new Error('WEBHOOK_URL_LOCAL is not set in development environment');
+    }
+    return process.env.WEBHOOK_URL_LOCAL;
+};
+
+const webhookUrl = getWebhookUrl();
 
 // Import routes explicitly
 import checkinRoute from './routes/checkin.js';
@@ -161,10 +175,11 @@ const initializeApp = async () => {
     }
 
     // Automatically set up webhook if WEBHOOK_URL is available
-    if (process.env.WEBHOOK_URL) {
+    if (webhookUrl) {
         try {
             console.log('Setting up webhook...');
-            await googleCalendarService.createWebhook(process.env.WEBHOOK_URL);
+            console.log('Webhook Url: ', webhookUrl);
+            await googleCalendarService.createWebhook(webhookUrl);
             console.log('Webhook automatically set up');
         } catch (error) {
             console.error('Failed to automatically set up webhook:', error);

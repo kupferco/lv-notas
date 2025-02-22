@@ -31,7 +31,8 @@ PORT=3000
 
 # Google Calendar ID
 GOOGLE_CALENDAR_ID=g_calendar_id
-WEBHOOK_URL=ngrok_url
+WEBHOOK_URL_LIVE=google_cloud_run_url
+WEBHOOK_URL_LOCAL=ngrok_url
 ```
 
 ## Installation
@@ -98,6 +99,26 @@ This script does the following:
 ### Requirements
 - Ngrok account (optional, but recommended for best experience)
 - Ngrok authtoken (can be set in your ngrok configuration)
+
+### Cleaning Up Webhooks
+If you need to clean up all existing Google Calendar webhooks, you can use the provided cleanup script:
+
+```bash
+# Run the webhook cleanup script
+npx tsx scripts/cleanup-webhooks.ts
+```
+
+This script will:
+
+1. Find all existing webhooks
+2. Stop them on Google Calendar's side
+3. Clean up related database records
+
+This is useful when:
+
+1. Debugging webhook issues
+2. Switching between environments
+3. Resolving duplicate event notifications
 
 ## Database Commands
 
@@ -178,31 +199,36 @@ gcloud projects add-iam-policy-binding lv-notas \
 
 ### Deploy to Google Cloud Run
 
-1. Build and push Docker image:
+1. The command below will be typescript and run the deploy script.
+
+```bash
+npm run deploy
+```
+
+2. The command above is the same as doing all this other manually
+
+1. Build the typescript
+```bash
+npm run build
+```
+
+2. Build and push Docker image:
 ```bash
 docker build -t clinic-api .
 docker tag clinic-api gcr.io/lv-notas/clinic-api
 docker push gcr.io/lv-notas/clinic-api
 ```
 
-2. Deploy to Cloud Run:
+3. Deploy to Cloud Run:
 ```bash
 gcloud run deploy clinic-api \
   --image gcr.io/lv-notas/clinic-api \
   --platform managed \
   --region us-central1 \
   --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,POSTGRES_PASSWORD=postgres-password:latest \
-  --set-env-vars=POSTGRES_USER=postgres,POSTGRES_HOST=/cloudsql/lv-notas:us-central1:clinic-db,POSTGRES_DB=clinic_db,POSTGRES_PORT=5432,CLOUD_SQL_CONNECTION_NAME=lv-notas:us-central1:clinic-db
-
-
-
- gcloud run deploy clinic-api \
-  --image gcr.io/lv-notas/clinic-api \
-  --platform managed \
-  --region us-central1 \
-  --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,AIRTABLE_API_KEY=airtable-api-key:latest \
-  --env-vars-file env.yaml
-
+  --env-vars-file env.yaml \
+  --add-cloudsql-instances lv-notas:us-central1:clinic-db \
+  --service-account lv-notas-service-account@lv-notas.iam.gserviceaccount.com
 ```
 
 ### Database Setup in Cloud SQL

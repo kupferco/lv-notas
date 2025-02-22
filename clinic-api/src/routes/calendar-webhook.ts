@@ -42,14 +42,13 @@ const asyncHandler = (
 };
 
 router.post("/", asyncHandler(async (req, res) => {
-  console.log("===== WEBHOOK RECEIVED =====");
-  // console.log("Full Headers:", JSON.stringify(req.headers, null, 2));
-  // console.log("Full Body:", JSON.stringify(req.body, null, 2));
-
   const channelId = req.headers["x-goog-channel-id"];
-  const resourceId = req.headers["x-goog-resource-id"];
   const resourceState = req.headers["x-goog-resource-state"] as string;
-  const resourceUri = req.headers["x-goog-resource-uri"] as string;
+  
+  console.log("\n=== WEBHOOK EVENT RECEIVED ===");
+  console.log("Channel ID:", channelId);
+  console.log("Resource State:", resourceState);
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
 
   // Always respond quickly to webhook
   res.status(200).send("OK");
