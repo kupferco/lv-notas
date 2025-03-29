@@ -8,7 +8,10 @@
     "build": "tsc",
     "dev": "nodemon --exec tsx src/server.ts",
     "dev:webhook": "tsx scripts/start-dev.ts",
-    "deploy": "npm run build && ./deploy.sh"
+    "deploy": "npm run build && ./deploy.sh",
+    "db:start": "gcloud sql instances patch clinic-db --activation-policy=ALWAYS",
+    "db:stop": "gcloud sql instances patch clinic-db --activation-policy=NEVER",
+    "db:status": "gcloud sql instances describe clinic-db --format=\"value(state)\""
   },
   "keywords": [],
   "author": "",

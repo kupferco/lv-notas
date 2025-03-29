@@ -75,6 +75,23 @@ npm run build
 npm start
 ```
 
+## Google Cloud SQL Management
+
+The project includes convenient scripts to manage your Google Cloud SQL instance and save costs:
+
+```bash
+# Start the Cloud SQL instance
+npm run db:start
+
+# Stop the Cloud SQL instance (to avoid unnecessary charges)
+npm run db:stop
+
+# Check the current status of the Cloud SQL instance
+npm run db:status
+```
+
+When not actively developing or using the application, it's recommended to stop the CloudSQL instance using `npm run db:stop` to minimize costs. This will keep your data stored but stop charging for compute resources. You'll only pay for storage (typically a few pennies per day instead of pounds).
+
 ## Development Webhook
 
 During development, the project includes a convenient script to create a temporary public webhook URL using ngrok:
