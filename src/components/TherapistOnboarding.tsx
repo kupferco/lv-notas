@@ -1,13 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } from 'react-native';
 import { initializeFirebase, auth } from '../config/firebase';
-import type { Auth } from 'firebase/auth';
 import { apiService } from '../services/api';
 import type { Therapist, OnboardingState } from '../types';
 
-export const TherapistOnboarding = () => {
+interface TherapistOnboardingProps {
+  onComplete?: (therapistEmail: string) => void;
+}
+
+export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({ onComplete }) => {
   const [state, setState] = useState<OnboardingState>({ step: 'welcome' });
   const [isLoading, setIsLoading] = useState(false);
+
+  const getProgressPercentage = (): number => {
+    const stepMap: Record<string, number> = {
+      welcome: 25,
+      auth: 50,
+      calendar: 75,
+      success: 100
+    };
+    return stepMap[state.step] || 25;
+  };
 
   const handleGetStarted = async () => {
     setIsLoading(true);
@@ -28,7 +41,7 @@ export const TherapistOnboarding = () => {
       }
 
       await initializeFirebase();
-      const user = auth?.currentUser;
+      const user = (auth as any)?.currentUser;
       
       if (user) {
         // User is already authenticated, move to calendar setup
@@ -61,6 +74,11 @@ export const TherapistOnboarding = () => {
           step: 'success', 
           therapist: existingTherapist 
         });
+        
+        // Call onComplete callback if provided
+        if (onComplete) {
+          onComplete(existingTherapist.email);
+        }
       } else {
         // Create new therapist
         const newTherapist = await apiService.createTherapist({
@@ -73,6 +91,11 @@ export const TherapistOnboarding = () => {
           step: 'success', 
           therapist: newTherapist 
         });
+        
+        // Call onComplete callback if provided
+        if (onComplete) {
+          onComplete(newTherapist.email);
+        }
       }
     } catch (error) {
       console.error('Therapist creation error:', error);
@@ -176,7 +199,7 @@ export const TherapistOnboarding = () => {
   // Listen for auth state changes
   useEffect(() => {
     if (auth) {
-      const unsubscribe = auth.onAuthStateChanged((user) => {
+      const unsubscribe = (auth as any).onAuthStateChanged((user: any) => {
         if (user && state.step === 'auth') {
           handleAuthSuccess(user);
         }
@@ -207,7 +230,7 @@ export const TherapistOnboarding = () => {
           <View 
             style={[
               styles.progressFill, 
-              { width: `${(Object.keys({ welcome: 1, auth: 2, calendar: 3, success: 4 })[state.step] || 1) * 25}%` }
+              { width: `${getProgressPercentage()}%` }
             ]} 
           />
         </View>
