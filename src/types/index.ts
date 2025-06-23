@@ -12,3 +12,17 @@ export interface CheckInForm {
   patientId: string;
   sessionId: string;
 }
+
+export interface Therapist {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  googleCalendarId?: string;
+}
+
+export interface OnboardingState {
+  step: 'welcome' | 'auth' | 'calendar' | 'success';
+  therapist?: Therapist;
+  error?: string;
+}

@@ -15,19 +15,17 @@ declare global {
     }
 }
 
-const getWebhookUrl = () => {
-    if (process.env.NODE_ENV === 'production') {
-        if (!process.env.WEBHOOK_URL_LIVE) {
-            throw new Error('WEBHOOK_URL_LIVE is not set in production environment');
+function getWebhookUrl(): string {
+    if (process.env.NODE_ENV === 'development') {
+        const webhookUrl = process.env.WEBHOOK_URL_LOCAL;
+        if (!webhookUrl) {
+            throw new Error('WEBHOOK_URL_LOCAL is not set in development environment');
         }
-        return process.env.WEBHOOK_URL_LIVE;
+        return webhookUrl;
+    } else {
+        return process.env.WEBHOOK_URL_LIVE || 'https://clinic-api-141687742631.us-central1.run.app';
     }
-
-    if (!process.env.WEBHOOK_URL_LOCAL) {
-        throw new Error('WEBHOOK_URL_LOCAL is not set in development environment');
-    }
-    return process.env.WEBHOOK_URL_LOCAL;
-};
+}
 
 const webhookUrl = getWebhookUrl();
 
@@ -36,10 +34,9 @@ import checkinRoute from './routes/checkin.js';
 import calendarWebhookRoute from './routes/calendar-webhook.js';
 import patientsRoute from './routes/patients.js';
 import sessionsRoute from './routes/sessions.js';
+import therapistsRoute from './routes/therapists.js';
 import { googleCalendarService } from './services/google-calendar.js';
 import pool from './config/database.js';
-
-
 
 const app = express();
 app.set('trust proxy', 1);
@@ -58,10 +55,9 @@ const authenticateRequest = (
         console.log('=== Auth Request ===');
         console.log('Path:', req.path);
         console.log('API Key received:', clientApiKey ? 'Yes' : 'No');
-        // console.log('API Key received value:', clientApiKey);
         console.log('Firebase token received:', firebaseToken ? 'Yes' : 'No');
-        // console.log('Expected API Key:', process.env.SAFE_PROXY_KEY);
-        // console.log('Headers:', req.headers);
+        console.log('Expected API Key:', process.env.SAFE_PROXY_KEY);
+        console.log('Headers:', req.headers);
 
         // Check API key
         if (!clientApiKey || clientApiKey !== process.env.SAFE_PROXY_KEY) {
@@ -115,6 +111,7 @@ const setupRoutes = () => {
     // Use routes explicitly
     app.use('/api/patients', authenticateRequest, patientsRoute);
     app.use('/api/sessions', authenticateRequest, sessionsRoute);
+    app.use('/api/therapists', authenticateRequest, therapistsRoute);
     app.use('/api/checkin', authenticateRequest, checkinRoute);
     app.use('/api/calendar-webhook', calendarWebhookRoute);
 
@@ -163,22 +160,22 @@ const setupRoutes = () => {
 
 // Initialize app
 const initializeApp = async () => {
+    console.log('Initializing sql...');
     // Test database connection first
     try {
-        console.log('Initializing sql...');
         const client = await pool.connect();
         console.log('Successfully connected to PostgreSQL');
         await client.release();
     } catch (err) {
-        console.error('Error connecting to PostgreSQL ::::', err);
+        console.error('Error connecting to PostgreSQL:', err);
         process.exit(1); // Exit if we can't connect to the database
     }
 
+    console.log('Setting up webhook...');
+    console.log('Webhook Url: ', webhookUrl);
     // Automatically set up webhook if WEBHOOK_URL is available
     if (webhookUrl) {
         try {
-            console.log('Setting up webhook...');
-            console.log('Webhook Url: ', webhookUrl);
             await googleCalendarService.createWebhook(webhookUrl);
             console.log('Webhook automatically set up');
         } catch (error) {

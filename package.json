@@ -1,5 +1,5 @@
 {
-  "name": "notas-lv",
+  "name": "lv-notas",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
@@ -41,7 +41,8 @@
     "os-browserify": "^0.3.0",
     "path-browserify": "^1.0.1",
     "stream-browserify": "^3.0.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "webpack-dev-server": "^4.15.1"
   },
   "private": true
 }
