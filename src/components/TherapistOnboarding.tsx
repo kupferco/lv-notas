@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } from 'react-native';
 import { initializeFirebase, auth } from '../config/firebase';
+import type { Auth } from 'firebase/auth';
 import { apiService } from '../services/api';
 import type { Therapist, OnboardingState } from '../types';
 
@@ -13,6 +14,19 @@ export const TherapistOnboarding = () => {
     setState({ step: 'auth' });
     
     try {
+      // For localhost development, skip Firebase auth
+      if (window.location.hostname === 'localhost') {
+        console.log('Local development: skipping Firebase auth');
+        // Simulate a user for local testing
+        const mockUser = {
+          email: 'test@example.com',
+          displayName: 'Test Therapist',
+          getIdToken: () => Promise.resolve('mock-token')
+        };
+        await handleAuthSuccess(mockUser);
+        return;
+      }
+
       await initializeFirebase();
       const user = auth?.currentUser;
       
@@ -147,7 +161,12 @@ export const TherapistOnboarding = () => {
 
       <Pressable 
         style={styles.primaryButton}
-        onPress={() => window.location.href = '/checkin'}
+        onPress={() => {
+          // For web, redirect to check-in page
+          if (typeof window !== 'undefined') {
+            window.location.href = '/checkin';
+          }
+        }}
       >
         <Text style={styles.buttonText}>Go to Check-in Page</Text>
       </Pressable>

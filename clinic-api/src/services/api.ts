@@ -35,16 +35,11 @@ export const apiService = {
     const headers = await getAuthHeaders();
     const therapistEmail = getCurrentTherapistEmail();
     
-    console.log("Getting patients for therapist:", therapistEmail);
-    
     if (!therapistEmail) {
       throw new Error("No therapist email available");
     }
     
-    const url = `${API_URL}/api/patients?therapistEmail=${encodeURIComponent(therapistEmail)}`;
-    console.log("Making request to:", url);
-    
-    const response = await fetch(url, { headers });
+    const response = await fetch(`${API_URL}/api/patients?therapistEmail=${encodeURIComponent(therapistEmail)}`, { headers });
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Error response:", errorText);
@@ -61,8 +56,7 @@ export const apiService = {
       throw new Error("No therapist email available");
     }
     
-    const url = `${API_URL}/api/sessions/${patientId}?therapistEmail=${encodeURIComponent(therapistEmail)}`;
-    const response = await fetch(url, { headers });
+    const response = await fetch(`${API_URL}/api/sessions/${patientId}?therapistEmail=${encodeURIComponent(therapistEmail)}`, { headers });
     if (!response.ok) throw new Error("Failed to fetch sessions");
     return response.json();
   },
