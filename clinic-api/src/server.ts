@@ -203,7 +203,7 @@ const initializeApp = async () => {
             'http://localhost:8081',
             'http://localhost:19006'
         ],
-        methods: ['GET', 'POST', 'OPTIONS'],
+        methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization'],
         credentials: true
     }));

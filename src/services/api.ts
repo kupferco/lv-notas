@@ -1,22 +1,30 @@
 import type { Patient, Session, Therapist } from "../types";
-import { auth } from "../config/firebase";
+import { auth, getCurrentUser, isDevelopment } from "../config/firebase";
 
-// For development, use localhost
-const isDevelopment = window.location.hostname.includes("localhost");
 const API_URL = isDevelopment ? "http://localhost:3000" : process.env.EXPO_PUBLIC_SAFE_PROXY_URL;
 const API_KEY = process.env.SAFE_PROXY_API_KEY;
 
 const getAuthHeaders = async () => {
-  // Skip Firebase auth for local development
-  let authHeader = '';
-  if (!isDevelopment) {
-    const user = auth?.currentUser;
-    const token = user ? await user.getIdToken() : "";
-    authHeader = token ? `Bearer ${token}` : '';
+  let authHeader = "";
+  
+  if (isDevelopment) {
+    // In development, skip Firebase token but keep API key
+    console.log("Development mode: skipping Firebase token");
+  } else {
+    // For production, get real Firebase token
+    const user = getCurrentUser();
+    if (user) {
+      try {
+        const token = await user.getIdToken();
+        authHeader = `Bearer ${token}`;
+      } catch (error) {
+        console.error("Error getting Firebase token:", error);
+      }
+    }
   }
 
   const headers: Record<string, string> = {
-    "X-API-Key": API_KEY || '',
+    "X-API-Key": API_KEY || "",
     "Content-Type": "application/json",
   };
 
@@ -32,21 +40,25 @@ const getAuthHeaders = async () => {
 const getCurrentTherapistEmail = () => {
   if (isDevelopment) {
     // In development, get from localStorage (set during onboarding)
-    return localStorage.getItem('currentTherapist') || null;
+    return localStorage.getItem("therapist_email") || localStorage.getItem("currentTherapist") || null;
   }
-  return auth?.currentUser?.email || null;
+  
+  // In production, get from Firebase auth
+  const user = getCurrentUser();
+  return user?.email || null;
 };
 
 export const apiService = {
-  async getPatients(therapistEmail: string): Promise<Patient[]> {
+  async getPatients(therapistEmail?: string): Promise<Patient[]> {
     const headers = await getAuthHeaders();
+    const email = therapistEmail || getCurrentTherapistEmail();
 
-    if (!therapistEmail) {
+    if (!email) {
       throw new Error("No therapist email provided");
     }
 
-    console.log('getPatients API call with email:', therapistEmail);
-    const response = await fetch(`${API_URL}/api/patients?therapistEmail=${encodeURIComponent(therapistEmail)}`, { headers });
+    console.log("getPatients API call with email:", email);
+    const response = await fetch(`${API_URL}/api/patients?therapistEmail=${encodeURIComponent(email)}`, { headers });
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Error response:", errorText);
@@ -86,47 +98,72 @@ export const apiService = {
   },
 
   // Therapist methods
-  async getTherapistByEmail(email: string): Promise<any> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(email)}`, { headers });
-    if (!response.ok) {
+  async getTherapistByEmail(email: string): Promise<Therapist | null> {
+    try {
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(email)}`, { headers });
       if (response.status === 404) {
-        return null; // Therapist doesn't exist
+        return null; // Therapist doesnt exist
       }
-      throw new Error("Failed to fetch therapist");
+      if (!response.ok) {
+        throw new Error("Failed to fetch therapist");
+      }
+      return response.json();
+    } catch (error) {
+      console.error("Error fetching therapist:", error);
+      return null;
     }
-    return response.json();
   },
 
-  async createTherapist(therapist: { name: string; email: string; googleCalendarId: string }): Promise<any> {
+  async createTherapist(therapist: { name: string; email: string; googleCalendarId: string }): Promise<Therapist> {
     const headers = await getAuthHeaders();
     const response = await fetch(`${API_URL}/api/therapists`, {
       method: "POST",
       headers,
       body: JSON.stringify(therapist),
     });
-    if (!response.ok) throw new Error("Failed to create therapist");
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to create therapist: ${errorText}`);
+    }
     return response.json();
   },
 
   async updateTherapistCalendar(email: string, calendarId: string): Promise<void> {
     const headers = await getAuthHeaders();
     const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(email)}/calendar`, {
-      method: "PUT",
+      method: "PUT", 
       headers,
       body: JSON.stringify({ googleCalendarId: calendarId }),
     });
-    if (!response.ok) throw new Error("Failed to update therapist calendar");
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to update therapist calendar: ${errorText}`);
+    }
   },
 
-  async createPatient(patient: { nome: string; email: string; telefone: string; therapistEmail: string }): Promise<any> {
+  async createPatient(patient: { nome: string; email: string; telefone: string; therapistEmail: string }): Promise<Patient> {
     const headers = await getAuthHeaders();
     const response = await fetch(`${API_URL}/api/patients`, {
       method: "POST",
       headers,
       body: JSON.stringify(patient),
     });
-    if (!response.ok) throw new Error("Failed to create patient");
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to create patient: ${errorText}`);
+    }
     return response.json();
   },
+
+  // Test connection endpoint
+  async testConnection(): Promise<{ message: string }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/test`, { headers });
+    if (!response.ok) throw new Error("Failed to test connection");
+    return response.json();
+  },
+
+  // Helper method to get current therapist email
+  getCurrentTherapistEmail,
 };

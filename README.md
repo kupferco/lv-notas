@@ -1,19 +1,21 @@
 # LV Notas - Therapist Management System
 
-A complete Node.js/TypeScript system for managing therapy clinics with Google Calendar integration, patient management, and real-time session tracking.
+A complete Node.js/TypeScript system for managing therapy clinics with **real Google authentication**, Google Calendar integration, patient management, and real-time session tracking.
 
 ## ✨ Features
 
-### 🔐 Authentication & Onboarding
-- **Universal therapist onboarding** with Portuguese interface
-- **Google Calendar integration** with calendar selection during setup
+### 🔐 **NEW: Real Google Authentication**
+- **Complete Google Sign-In integration** with Chrome account detection
+- **Development mode** with mock authentication for testing
+- **Production mode** with real Firebase authentication
+- **Persistent sessions** with localStorage and Firebase tokens
+- **Secure sign-out** with proper state cleanup
 - **Multi-tenant support** - each therapist sees only their data
-- **Persistent sessions** with localStorage
-- **Development mode** with mock authentication
 
 ### 📅 Google Calendar Integration
 - **Real-time webhook integration** for automatic session creation
-- **Calendar selection** during onboarding - therapists choose which calendar to use
+- **Calendar selection during onboarding** - therapists choose which calendar to use
+- **Persistent calendar selection** - no re-selection required
 - **Automatic event synchronization** - calendar events create therapy sessions
 - **Session status tracking** (scheduled, attended, cancelled)
 
@@ -34,26 +36,34 @@ A complete Node.js/TypeScript system for managing therapy clinics with Google Ca
   - `/` - Dashboard (home)
   - `/check-in` - Patient check-in
   - `/pacientes` - Patient management  
-  - `/configuracoes` - Settings
+  - `/configuracoes` - Settings with logout functionality
 - **Browser navigation support** (back/forward buttons work)
 - **Bookmarkable URLs** for each section
 - **Clean navigation bar** with active state indicators
 
 ### ⚙️ Settings & Administration
 - **Account management** with therapist details
-- **Google Calendar status** and reconnection
-- **Data export** capabilities (coming soon)
-- **Secure logout** functionality
+- **Google Calendar status** and reconnection options
+- **Secure logout functionality** with complete state cleanup
+- **Development mode indicators**
 
 ## 🏗️ Technical Architecture
+
+### Authentication System
+- **Firebase Authentication** for production with Google Sign-In
+- **Mock authentication** for development with localStorage
+- **Automatic environment detection** (localhost vs production)
+- **Persistent authentication state** across page refreshes
+- **Secure token management** with automatic refresh
 
 ### Backend (Node.js + TypeScript)
 - **Express.js** REST API with type-safe routes
 - **PostgreSQL** database with proper foreign key relationships
 - **Google Calendar API** integration with service account
-- **Firebase Authentication** for secure access
+- **Firebase Authentication verification** for secure access
 - **Real-time webhooks** for calendar synchronization
-- **Rate limiting** and CORS protection
+- **CORS protection** with PUT method support
+- **Rate limiting** and security headers
 
 ### Frontend (React Native Web + TypeScript)
 - **React Native Web** for cross-platform compatibility
@@ -61,6 +71,7 @@ A complete Node.js/TypeScript system for managing therapy clinics with Google Ca
 - **Custom routing system** with URL-based navigation
 - **Responsive design** with modern Portuguese interface
 - **Real-time state management**
+- **Authentication state persistence**
 
 ### Database Schema
 - **Multi-tenant architecture** with therapist relationships
@@ -74,18 +85,17 @@ A complete Node.js/TypeScript system for managing therapy clinics with Google Ca
 lv-notas/
 ├── src/                              # Frontend source code
 │   ├── components/                   # React components
-│   │   ├── AppNavigation.tsx         # Main app navigation (deprecated)
+│   │   ├── Router.tsx               # URL routing with authentication
+│   │   ├── NavigationBar.tsx         # Main navigation
+│   │   ├── TherapistOnboarding.tsx   # Complete auth + onboarding flow
 │   │   ├── CalendarSelection.tsx     # Google Calendar selection UI
 │   │   ├── CheckInForm.tsx           # Patient check-in interface
-│   │   ├── NavigationBar.tsx         # URL-based navigation bar
 │   │   ├── PatientManagement.tsx     # Patient management interface
-│   │   ├── Router.tsx               # URL routing component
-│   │   ├── Settings.tsx             # Settings and account management
-│   │   └── TherapistOnboarding.tsx  # Complete onboarding flow
+│   │   └── Settings.tsx             # Settings with logout functionality
 │   ├── config/                      # Configuration files
 │   │   └── firebase.ts              # Firebase authentication setup
 │   ├── services/                    # API service layer
-│   │   └── api.ts                   # API client with all endpoints
+│   │   └── api.ts                   # API client with authentication
 │   ├── types/                       # TypeScript type definitions
 │   │   └── index.ts                 # Shared types and interfaces
 │   └── utils/                       # Utility functions
@@ -124,30 +134,6 @@ lv-notas/
 └── README.md                       # This documentation
 ```
 
-### Key Components
-
-#### Frontend Components
-- **`Router.tsx`** - URL-based routing with Portuguese endpoints
-- **`NavigationBar.tsx`** - Navigation with active state management
-- **`TherapistOnboarding.tsx`** - Complete onboarding with calendar selection
-- **`CalendarSelection.tsx`** - Google Calendar picker interface
-- **`PatientManagement.tsx`** - Multi-tenant patient management
-- **`CheckInForm.tsx`** - Real-time patient check-in system
-- **`Settings.tsx`** - Account management and logout
-
-#### Backend Routes
-- **`therapists.ts`** - Account creation and management
-- **`patients.ts`** - Multi-tenant patient operations
-- **`calendars.ts`** - Google Calendar integration
-- **`sessions.ts`** - Session management from calendar events
-- **`checkin.ts`** - Patient attendance tracking
-- **`calendar-webhook.ts`** - Real-time calendar synchronization
-
-#### Services
-- **`google-calendar.ts`** - Google Calendar API wrapper
-- **`session-sync.ts`** - Calendar event to session conversion
-- **`api.ts`** - Frontend API client with authentication
-
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -177,7 +163,10 @@ POSTGRES_PORT=5432
 SAFE_PROXY_KEY=your_secure_api_key
 GOOGLE_CALENDAR_ID=your_default_calendar_id
 
-# Frontend
+# Frontend (.env)
+EXPO_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
 SAFE_PROXY_API_KEY=your_secure_api_key
 EXPO_PUBLIC_SAFE_PROXY_URL=your_backend_url
 ```
@@ -190,6 +179,11 @@ psql -U your_postgres_user clinic_db < clinic-api/db/001_initial_schema.sql
 
 4. **Add Google Calendar credentials:**
    - Place `service-account-key.json` in the clinic-api root directory
+
+5. **Configure Firebase:**
+   - Create Firebase project with Google Sign-In enabled
+   - Add localhost to authorized domains
+   - Update environment variables with your Firebase config
 
 ### Development
 
@@ -205,25 +199,33 @@ npm start
 ```
 
 3. **Access the application:**
-   - **New therapist onboarding:** `localhost:19006/?setup=true`
-   - **Main application:** `localhost:19006/`
+   - **New therapist onboarding:** `localhost:19006/` (automatic)
+   - **Main application:** `localhost:19006/` (after onboarding)
    - **Patient management:** `localhost:19006/pacientes`
    - **Settings:** `localhost:19006/configuracoes`
 
 ## 📱 Usage
 
 ### First Time Setup
-1. Go to `/?setup=true` for therapist onboarding
-2. Authenticate with Google (mock auth in development)
-3. Select your Google Calendar for session management
-4. Add your first patients
-5. Start using the check-in system
+1. Navigate to the app - authentication happens automatically
+2. **Development:** Mock user created automatically
+3. **Production:** Google Sign-In popup appears
+4. Select your Google Calendar for session management
+5. Add your first patients
+6. Start using the check-in system
 
 ### Daily Workflow
-1. **Dashboard** - Overview of sessions and statistics
+1. **Dashboard** - Overview and quick actions
 2. **Check-in** - Patients confirm attendance
 3. **Pacientes** - Manage patient roster
-4. **Configurações** - Account and calendar settings
+4. **Configurações** - Account settings and logout
+
+### Authentication Features
+- **Automatic sign-in detection** - uses existing Chrome/Google sessions
+- **Persistent sessions** - stays logged in across browser sessions
+- **Secure logout** - clears all authentication data
+- **Calendar persistence** - remembers calendar selection
+- **Development mode** - works offline with mock authentication
 
 ### Calendar Integration
 - Create events in your selected Google Calendar
@@ -257,12 +259,13 @@ npm start
 
 ## 🔐 Security Features
 
-- **Firebase Authentication** with Google sign-in
+- **Firebase Authentication** with Google Sign-In
 - **API key validation** for all requests
 - **Multi-tenant data isolation** 
 - **Rate limiting** on API endpoints
-- **CORS protection** with allowlist
+- **CORS protection** with PUT method support
 - **SQL injection prevention** with parameterized queries
+- **Secure token management** with automatic refresh
 
 ## 🌍 Internationalization
 
@@ -277,30 +280,47 @@ npm start
 - Backend: Google Cloud Run or similar container platform
 - Frontend: Firebase Hosting or Netlify
 - Database: Google Cloud SQL (PostgreSQL)
-- File Storage: Google Cloud Storage for credentials
+- Authentication: Firebase Authentication with Google Sign-In
 
 ### Environment Configuration
-- Production Firebase Authentication
+- Production Firebase Authentication with real Google Sign-In
 - Real Google Calendar API integration
 - Secure environment variable management
 - SSL/TLS encryption for all endpoints
 
-## 🔄 Development Features
+## 🔄 Development vs Production
 
-- **Hot reload** for both frontend and backend
-- **Mock authentication** for local development
-- **Automatic ngrok tunnels** for webhook testing
-- **Database management scripts** for easy setup
-- **TypeScript** for compile-time error catching
-- **Comprehensive logging** for debugging
+### Development Mode (localhost)
+- **Mock authentication** - automatic test user creation
+- **localStorage persistence** - sessions persist across refreshes
+- **No Firebase required** - works completely offline
+- **Debug logging** - detailed console output
+- **CORS bypass** - simplified development setup
 
-## 📝 Contributing
+### Production Mode
+- **Real Firebase Authentication** - Google Sign-In popup
+- **Firebase token management** - secure token refresh
+- **Production security** - all authentication checks enabled
+- **Error handling** - user-friendly error messages
+- **Performance optimized** - minimal logging
 
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m 'Add amazing feature'`
-4. Push to branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
+## 📝 Authentication Enhancement Summary
+
+### ✅ What Was Implemented
+1. **Real Google Sign-In** - Complete Firebase integration
+2. **Chrome account detection** - Uses existing Google sessions
+3. **Persistent authentication** - localStorage + Firebase tokens
+4. **Secure logout** - Complete state cleanup
+5. **Calendar selection persistence** - No re-selection required
+6. **Development mode** - Mock authentication for testing
+7. **Production ready** - Real authentication for deployment
+
+### 🎯 Key Benefits
+- **Seamless user experience** - Automatic authentication detection
+- **Production security** - Enterprise-grade Firebase authentication
+- **Developer friendly** - Works offline with mock authentication
+- **Persistent sessions** - Users stay logged in
+- **Multi-tenant safe** - Each therapist sees only their data
 
 ## 📄 License
 
@@ -309,3 +329,5 @@ This project is proprietary software for LV Notas therapy practice management.
 ---
 
 **Built with ❤️ for modern therapy practice management**
+
+*Now featuring real Google authentication for seamless, secure access!*
