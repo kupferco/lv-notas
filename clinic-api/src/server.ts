@@ -76,6 +76,7 @@ const authenticateRequest = (
                 req.headers.origin.includes('localhost:19006'));
 
         if (isLocalhost) {
+            console.log('Localhost detected - skipping Firebase auth');
             return next();
         }
 

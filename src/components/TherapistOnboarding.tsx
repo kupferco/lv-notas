@@ -2,38 +2,78 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } from 'react-native';
 import { initializeFirebase, auth } from '../config/firebase';
 import { apiService } from '../services/api';
+import { PatientManagement } from './PatientManagement';
 import type { Therapist, OnboardingState } from '../types';
 
 interface TherapistOnboardingProps {
   onComplete?: (therapistEmail: string) => void;
+  mode?: 'full' | 'addPatient';
+  existingTherapist?: string | null;
 }
 
-export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({ onComplete }) => {
-  const [state, setState] = useState<OnboardingState>({ step: 'welcome' });
+export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({ 
+  onComplete, 
+  mode = 'full', 
+  existingTherapist 
+}) => {
+  const [state, setState] = useState<OnboardingState>({ 
+    step: mode === 'addPatient' ? 'addPatients' : 'welcome' 
+  });
   const [isLoading, setIsLoading] = useState(false);
 
+  // Set up existing therapist for addPatient mode
+  useEffect(() => {
+    if (mode === 'addPatient' && existingTherapist) {
+      setState({
+        step: 'addPatients',
+        therapist: { 
+          email: existingTherapist, 
+          name: existingTherapist.split('@')[0],
+          id: 'existing'
+        }
+      });
+    }
+  }, [mode, existingTherapist]);
+
+  // Listen for auth state changes ONLY when in auth step
+  useEffect(() => {
+    if (auth && state.step === 'auth') {
+      const unsubscribe = (auth as any).onAuthStateChanged((user: any) => {
+        if (user) {
+          handleAuthSuccess(user);
+        }
+      });
+      return unsubscribe;
+    }
+  }, [state.step]);
+
   const getProgressPercentage = (): number => {
+    if (mode === 'addPatient') {
+      return 100; // Always full progress for patient management
+    }
+    
     const stepMap: Record<string, number> = {
-      welcome: 25,
-      auth: 50,
-      calendar: 75,
-      success: 100
+      welcome: 20,
+      auth: 40,
+      calendar: 60,
+      success: 80,
+      addPatients: 100
     };
-    return stepMap[state.step] || 25;
+    return stepMap[state.step] || 20;
   };
 
   const handleGetStarted = async () => {
     setIsLoading(true);
     setState({ step: 'auth' });
-    
+
     try {
       // For localhost development, skip Firebase auth
       if (window.location.hostname === 'localhost') {
         console.log('Local development: skipping Firebase auth');
-        // Simulate a user for local testing
+        // Simulate a NEW user for local testing - use timestamp to ensure uniqueness
         const mockUser = {
-          email: 'test@example.com',
-          displayName: 'Test Therapist',
+          email: `test-therapist-${Date.now()}@example.com`,
+          displayName: 'Novo Terapeuta',
           getIdToken: () => Promise.resolve('mock-token')
         };
         await handleAuthSuccess(mockUser);
@@ -42,7 +82,7 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({ onComp
 
       await initializeFirebase();
       const user = (auth as any)?.currentUser;
-      
+
       if (user) {
         // User is already authenticated, move to calendar setup
         await handleAuthSuccess(user);
@@ -52,9 +92,9 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({ onComp
       }
     } catch (error) {
       console.error('Authentication error:', error);
-      setState({ 
-        step: 'welcome', 
-        error: 'Authentication failed. Please try again.' 
+      setState({
+        step: 'welcome',
+        error: 'Falha na autenticação. Tente novamente.'
       });
       setIsLoading(false);
     }
@@ -67,41 +107,38 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({ onComp
     try {
       // Check if therapist already exists
       const existingTherapist = await apiService.getTherapistByEmail(user.email);
-      
+
       if (existingTherapist) {
-        // Therapist already exists, go to success
-        setState({ 
-          step: 'success', 
-          therapist: existingTherapist 
+        // Existing therapist - complete onboarding and go to check-in
+        setState({
+          step: 'success',
+          therapist: existingTherapist
         });
-        
-        // Call onComplete callback if provided
+
+        // Call onComplete to go to check-in form
         if (onComplete) {
           onComplete(existingTherapist.email);
         }
       } else {
-        // Create new therapist
+        // NEW therapist - create account and go to patient management
         const newTherapist = await apiService.createTherapist({
           name: user.displayName || user.email,
           email: user.email,
           googleCalendarId: '', // Will be set when they grant calendar access
         });
-        
-        setState({ 
-          step: 'success', 
-          therapist: newTherapist 
+
+        setState({
+          step: 'success',
+          therapist: newTherapist
         });
-        
-        // Call onComplete callback if provided
-        if (onComplete) {
-          onComplete(newTherapist.email);
-        }
+
+        // DON'T call onComplete - stay in onboarding to show patient management
       }
     } catch (error) {
       console.error('Therapist creation error:', error);
-      setState({ 
-        step: 'auth', 
-        error: 'Failed to set up your account. Please try again.' 
+      setState({
+        step: 'auth',
+        error: 'Falha ao configurar sua conta. Tente novamente.'
       });
     } finally {
       setIsLoading(false);
@@ -110,103 +147,91 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({ onComp
 
   const renderWelcomeStep = () => (
     <View style={styles.stepContainer}>
-      <Text style={styles.title}>Welcome to LV Notas</Text>
+      <Text style={styles.title}>Bem-vindo ao LV Notas</Text>
       <Text style={styles.subtitle}>
-        Connect your Google Calendar to start managing therapy sessions
+        Conecte seu Google Calendar para começar a gerenciar sessões de terapia
       </Text>
-      
+
       <View style={styles.featureList}>
-        <Text style={styles.feature}>📅 Automatic session tracking</Text>
-        <Text style={styles.feature}>👥 Patient check-in system</Text>
-        <Text style={styles.feature}>🔄 Real-time calendar sync</Text>
+        <Text style={styles.feature}>📅 Acompanhamento automático de sessões</Text>
+        <Text style={styles.feature}>👥 Sistema de check-in de pacientes</Text>
+        <Text style={styles.feature}>🔄 Sincronização em tempo real</Text>
       </View>
 
       {state.error && (
         <Text style={styles.errorText}>{state.error}</Text>
       )}
 
-      <Pressable 
-        style={styles.primaryButton} 
+      <Pressable
+        style={styles.primaryButton}
         onPress={handleGetStarted}
         disabled={isLoading}
       >
         <Text style={styles.buttonText}>
-          {isLoading ? 'Setting up...' : 'Get Started with Google'}
+          {isLoading ? 'Configurando...' : 'Começar com Google'}
         </Text>
       </Pressable>
 
       <Text style={styles.disclaimer}>
-        By continuing, you agree to connect your Google Calendar with LV Notas
+        Ao continuar, você concorda em conectar seu Google Calendar com LV Notas
       </Text>
     </View>
   );
 
   const renderAuthStep = () => (
     <View style={styles.stepContainer}>
-      <Text style={styles.title}>Connecting to Google</Text>
+      <Text style={styles.title}>Conectando ao Google</Text>
       <ActivityIndicator size="large" color="#6200ee" style={styles.loader} />
       <Text style={styles.subtitle}>
-        Please complete the Google sign-in process in the popup window
+        Complete o processo de login do Google na janela popup
       </Text>
     </View>
   );
 
   const renderCalendarStep = () => (
     <View style={styles.stepContainer}>
-      <Text style={styles.title}>Setting up your account...</Text>
+      <Text style={styles.title}>Configurando sua conta...</Text>
       <ActivityIndicator size="large" color="#6200ee" style={styles.loader} />
       <Text style={styles.subtitle}>
-        We're configuring your calendar integration
+        Estamos configurando a integração do seu calendário
       </Text>
     </View>
   );
 
   const renderSuccessStep = () => (
     <View style={styles.stepContainer}>
-      <Text style={styles.title}>🎉 You're all set!</Text>
+      <Text style={styles.title}>🎉 Tudo pronto!</Text>
       <Text style={styles.subtitle}>
-        Welcome {state.therapist?.name}! Your Google Calendar is now connected.
+        Bem-vindo {state.therapist?.name}! Seu Google Calendar está conectado.
       </Text>
 
       <View style={styles.successInfo}>
-        <Text style={styles.infoTitle}>What happens next:</Text>
-        <Text style={styles.infoItem}>• Calendar events automatically create sessions</Text>
-        <Text style={styles.infoItem}>• Patients can check in using their unique link</Text>
-        <Text style={styles.infoItem}>• All data syncs in real-time</Text>
+        <Text style={styles.infoTitle}>O que acontece agora:</Text>
+        <Text style={styles.infoItem}>• Eventos do calendário criam sessões automaticamente</Text>
+        <Text style={styles.infoItem}>• Pacientes podem confirmar presença com link único</Text>
+        <Text style={styles.infoItem}>• Todos os dados sincronizam em tempo real</Text>
       </View>
 
-      <View style={styles.linkContainer}>
-        <Text style={styles.linkTitle}>Your patient check-in page:</Text>
-        <Text style={styles.linkText}>
-          https://lv-notas.web.app/checkin
-        </Text>
-      </View>
-
-      <Pressable 
+      <Pressable
         style={styles.primaryButton}
-        onPress={() => {
-          // For web, redirect to check-in page
-          if (typeof window !== 'undefined') {
-            window.location.href = '/checkin';
-          }
-        }}
+        onPress={() => setState(prev => ({ ...prev, step: 'addPatients' }))}
       >
-        <Text style={styles.buttonText}>Go to Check-in Page</Text>
+        <Text style={styles.buttonText}>Adicionar Primeiro Paciente</Text>
       </Pressable>
     </View>
   );
 
-  // Listen for auth state changes
-  useEffect(() => {
-    if (auth) {
-      const unsubscribe = (auth as any).onAuthStateChanged((user: any) => {
-        if (user && state.step === 'auth') {
-          handleAuthSuccess(user);
+  const renderAddPatientsStep = () => (
+    <PatientManagement
+      therapistEmail={state.therapist?.email || existingTherapist || ''}
+      onComplete={() => {
+        // When patient management is complete
+        if (onComplete) {
+          onComplete(state.therapist?.email || existingTherapist || '');
         }
-      });
-      return unsubscribe;
-    }
-  }, [state.step]);
+      }}
+    />
+  );
 
   const renderCurrentStep = () => {
     switch (state.step) {
@@ -218,6 +243,8 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({ onComp
         return renderCalendarStep();
       case 'success':
         return renderSuccessStep();
+      case 'addPatients':
+        return renderAddPatientsStep();
       default:
         return renderWelcomeStep();
     }
@@ -225,16 +252,18 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({ onComp
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.progressContainer}>
-        <View style={styles.progressBar}>
-          <View 
-            style={[
-              styles.progressFill, 
-              { width: `${getProgressPercentage()}%` }
-            ]} 
-          />
+      {mode === 'full' && (
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBar}>
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${getProgressPercentage()}%` }
+              ]}
+            />
+          </View>
         </View>
-      </View>
+      )}
       {renderCurrentStep()}
     </SafeAreaView>
   );
@@ -339,24 +368,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#0c5460',
     marginBottom: 8,
-  },
-  linkContainer: {
-    backgroundColor: '#e2e3e5',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 24,
-    width: '100%',
-    maxWidth: 400,
-  },
-  linkTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#495057',
-    marginBottom: 8,
-  },
-  linkText: {
-    fontSize: 14,
-    color: '#6200ee',
-    fontFamily: 'monospace',
   },
 });

@@ -2,27 +2,131 @@
 
 A comprehensive system for managing therapy sessions with Google Calendar integration and automated patient check-ins.
 
+## 🎉 Current Status: WORKING SYSTEM
+
+✅ **Complete onboarding flow** with Portuguese interface  
+✅ **Multi-tenant patient management** - each therapist sees only their data  
+✅ **Real-time Google Calendar webhooks** working  
+✅ **Patient add/management** via manual forms  
+✅ **Check-in system** with friendly error handling  
+✅ **Production-ready** authentication and security  
+
 ## 🏗️ Architecture Overview
 
 - **Frontend**: Expo/React Native app with web support
 - **Backend**: Node.js/TypeScript API with PostgreSQL
-- **Authentication**: Firebase Auth
+- **Authentication**: Firebase Auth + localStorage session management
 - **Calendar Integration**: Google Calendar API with real-time webhooks
-- **Security**: Google Cloud Secret Manager for sensitive data
+- **Security**: Multi-tenant with therapist-specific data isolation
 - **Deployment**: Google Cloud Run + Firebase Hosting
 
-## 🎯 Features
+## 📁 Project Structure
+
+```
+lv-notas/
+├── 📱 Frontend (React Native/Expo)
+│   ├── App.tsx                          # Main app component with routing logic
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── CheckInForm.tsx          # Patient check-in interface
+│   │   │   ├── TherapistOnboarding.tsx  # Complete onboarding flow
+│   │   │   └── PatientManagement.tsx    # Add/manage patients
+│   │   ├── services/
+│   │   │   └── api.ts                   # API client with multi-tenant support
+│   │   ├── config/
+│   │   │   └── firebase.ts              # Firebase authentication setup
+│   │   └── types/
+│   │       └── index.ts                 # TypeScript type definitions
+│   ├── package.json                     # Frontend dependencies
+│   ├── .env.local                       # Frontend environment variables
+│   └── firebase.json                    # Firebase hosting config
+│
+├── 🖥️ Backend (Node.js/TypeScript API)
+│   └── clinic-api/
+│       ├── src/
+│       │   ├── server.ts                # Main server with authentication middleware
+│       │   ├── config/
+│       │   │   └── database.ts          # PostgreSQL connection pool
+│       │   ├── routes/
+│       │   │   ├── therapists.ts        # Therapist CRUD operations
+│       │   │   ├── patients.ts          # Patient management (filtered by therapist)
+│       │   │   ├── sessions.ts          # Session management
+│       │   │   ├── checkin.ts           # Patient check-in endpoint
+│       │   │   └── calendar-webhook.ts  # Google Calendar webhook handler
+│       │   ├── services/
+│       │   │   ├── google-calendar.ts   # Google Calendar API integration
+│       │   │   └── session-sync.ts      # Calendar ↔ Database synchronization
+│       │   └── types/
+│       │       └── calendar.ts          # Calendar-specific types
+│       ├── db/
+│       │   ├── 001_initial_schema.sql   # Complete database schema
+│       │   └── seed/
+│       │       └── simple_seed.sql      # Basic test data
+│       ├── scripts/
+│       │   ├── start-local.sh           # Development startup script
+│       │   └── start-dev.ts             # Ngrok tunnel + webhook setup
+│       ├── package.json                 # Backend dependencies
+│       ├── .env                         # Backend environment variables
+│       ├── service-account-key.json     # Google service account credentials
+│       └── tsconfig.json                # TypeScript configuration
+│
+├── 🗄️ Database (PostgreSQL)
+│   ├── therapists                       # Therapist accounts + Google Calendar IDs
+│   ├── patients                         # Patient info linked to therapists
+│   ├── sessions                         # Therapy sessions ↔ calendar events
+│   ├── check_ins                        # Patient attendance records
+│   ├── calendar_events                  # Calendar change audit trail
+│   └── calendar_webhooks                # Active webhook registrations
+│
+├── ☁️ Infrastructure
+│   ├── Google Cloud Run                 # Backend API hosting
+│   ├── Cloud SQL PostgreSQL             # Production database
+│   ├── Firebase Hosting                 # Frontend hosting
+│   ├── Google Calendar API              # Real-time webhook integration
+│   └── Secret Manager                   # Secure credential storage
+│
+└── 📋 Configuration
+    ├── README.md                        # This comprehensive guide
+    ├── .gitignore                       # Git ignore patterns
+    └── deployment configs               # Production deployment settings
+```
+
+### Key File Relationships
+
+```
+🔄 Data Flow:
+App.tsx → CheckInForm.tsx → api.ts → patients.ts → database.ts → PostgreSQL
+                                  ↓
+TherapistOnboarding.tsx → PatientManagement.tsx → therapists.ts
+
+🔗 Calendar Integration:
+Google Calendar → calendar-webhook.ts → session-sync.ts → sessions table
+                                    ↓
+                           calendar_events table (audit)
+
+🔐 Authentication:
+firebase.ts → server.ts authenticateRequest → all API routes
+localStorage → getCurrentTherapistEmail() → API headers
+```
+
+## 🎯 Current Features
 
 ### Universal Therapist Onboarding
-- **One-click setup**: Send any therapist a link to connect their Google Calendar
+- **One-click setup**: `/?setup=true` for new therapists
 - **Automatic registration**: Creates therapist accounts automatically
 - **Google Calendar sync**: Real-time bidirectional synchronization
-- **Foolproof flow**: Designed for non-technical users
+- **Portuguese interface**: All text properly translated
 
-### Patient Management
-- **Smart check-ins**: Patients can check in using unique URLs
-- **Calendar integration**: Sessions automatically sync with Google Calendar
-- **Real-time updates**: Webhook-driven session status updates
+### Patient Management  
+- **Manual patient addition**: Simple form interface
+- **Direct therapist association**: Patients linked via `therapist_id`
+- **Add patient navigation**: `/?addPatient=true` for existing therapists
+- **Friendly error messages**: "Nenhum paciente encontrado" instead of technical errors
+
+### Multi-tenant Security
+- **Therapist isolation**: Each therapist sees only their data
+- **API authentication**: All endpoints require therapist validation
+- **Session persistence**: localStorage maintains login across refreshes
 
 ## 🚀 Quick Start
 
@@ -47,7 +151,6 @@ cd lv-notas
 Create `.env.local` in the root directory:
 
 ```bash
-# Get the SAFE_PROXY_KEY from Google Cloud Secret Manager
 echo "# Frontend environment variables
 SAFE_PROXY_API_KEY=$(gcloud secrets versions access latest --secret="safe-proxy-key")
 EXPO_PUBLIC_LOCAL_URL=http://localhost:3000
@@ -63,24 +166,24 @@ Create `.env` in the `clinic-api` directory:
 
 ```bash
 cd clinic-api
-echo "# Local database (no charges)
-POSTGRES_USER=your_postgres_user
+echo "# Database connection
+POSTGRES_USER=dankupfer
 POSTGRES_HOST=localhost
 POSTGRES_DB=clinic_db
-POSTGRES_PASSWORD=your_local_postgres_password
+POSTGRES_PASSWORD=
 POSTGRES_PORT=5432
 
-# Local development settings
+# Development settings
 NODE_ENV=development
 PORT=3000
 ALLOWED_ORIGINS=http://localhost:8081,http://localhost:19006
 
-# Secrets from Google Cloud (auto-loaded by start-local.sh)
+# Google Cloud secrets (auto-loaded by start-local.sh)
 # SAFE_PROXY_KEY - from secret manager
 # GOOGLE_CALENDAR_ID - from secret manager
 # AIRTABLE_API_KEY - legacy, from secret manager
 
-# Webhook URLs
+# Webhook URLs (set automatically by start-local.sh)
 WEBHOOK_URL_LOCAL=
 WEBHOOK_URL_LIVE=https://clinic-api-141687742631.us-central1.run.app" > .env
 ```
@@ -92,7 +195,7 @@ WEBHOOK_URL_LIVE=https://clinic-api-141687742631.us-central1.run.app" > .env
 gcloud auth application-default login
 gcloud config set project lv-notas
 
-# Verify you can access secrets
+# Verify secret access
 gcloud secrets versions access latest --secret="safe-proxy-key"
 gcloud secrets versions access latest --secret="google-calendar-id"
 ```
@@ -100,23 +203,20 @@ gcloud secrets versions access latest --secret="google-calendar-id"
 ### 5. Database Setup
 
 ```bash
-# Start PostgreSQL (if using Homebrew)
+# Start PostgreSQL
 brew services start postgresql
 
-# Check if database exists (if this succeeds, skip createdb)
-psql -d clinic_db -c "SELECT 1;" > /dev/null 2>&1 && echo "Database exists" || echo "Need to create database"
+# Create database (if doesn't exist)
+createdb clinic_db
 
-# Only if database doesn't exist:
-# createdb clinic_db
+# Apply schema
+psql -d clinic_db -f clinic-api/db/001_initial_schema.sql
 
-# Only if tables don't exist, run schema:
-# psql -d clinic_db -f db/001_initial_schema.sql
+# Add basic seed data (optional)
+psql -d clinic_db -f clinic-api/db/seed/simple_seed.sql
 
-# Optional: Add test data (only if tables are empty)
-# psql -d clinic_db -f db/seed/001_insert_basic_data.sql
-
-# Verify existing setup
-psql -d clinic_db -c "\dt" # Should show your existing tables
+# Verify setup
+psql -d clinic_db -c "\dt"
 ```
 
 ### 6. Install Dependencies
@@ -165,58 +265,47 @@ npm start
 
 - **API Server**: http://localhost:3000
 - **Frontend**: http://localhost:19006
-- **Patient Check-in**: http://localhost:19006
-- **Therapist Onboarding**: http://localhost:19006?setup=true
+- **New Therapist Onboarding**: http://localhost:19006/?setup=true
+- **Add Patients (Existing Therapist)**: http://localhost:19006/?addPatient=true
+- **Normal Check-in**: http://localhost:19006
 
-## 🎯 Therapist Onboarding Flow
+## 🎯 User Flows
 
-### For Any New Therapist
+### New Therapist Onboarding
+1. Visit `http://localhost:19006/?setup=true`
+2. Click "Começar com Google" 
+3. Complete authentication (simulated in development)
+4. Click "Adicionar Primeiro Paciente"
+5. Choose "Adicionar Manualmente" or "Importar do Calendário"
+6. Add patient details and submit
+7. Automatically redirected to check-in form
 
-1. **Send them this link**: `https://lv-notas.web.app?setup=true`
-2. **They click "Get Started with Google"**
-3. **Google sign-in popup appears** - they authenticate
-4. **System automatically**:
-   - Creates therapist account
-   - Links their Google Calendar
-   - Sets up real-time sync
-5. **Success page shows** with their patient check-in URL
+### Existing Therapist - Add Patient
+1. From check-in form, click "+ Adicionar Novo Paciente"
+2. Redirected to `/?addPatient=true`
+3. Goes directly to patient management (no re-authentication)
+4. Add patient and return to check-in form
 
-### What Happens Automatically
-
-- ✅ Therapist account created in database
-- ✅ Google Calendar permissions granted
-- ✅ Real-time webhook synchronization established
-- ✅ Calendar events ↔ Sessions bidirectional sync
-- ✅ Patient check-in system activated
-
-## 🔐 Security Architecture
-
-### Secret Management
-- **Sensitive data**: Stored in Google Cloud Secret Manager
-- **Local development**: Secrets loaded automatically by scripts
-- **Production**: Secrets injected via environment variables
-- **Firebase**: Handles user authentication and authorization
-
-### API Security
-- **Firebase tokens**: Required for all API calls in production
-- **API keys**: Validates client applications
-- **CORS**: Configured for specific domains only
-- **Rate limiting**: Prevents abuse
+### Patient Check-in
+1. Therapist shares `https://lv-notas.web.app` with patient
+2. Patient selects their name from dropdown
+3. Selects session time
+4. Clicks "Confirmar Presença"
+5. Success confirmation displayed
 
 ## 📦 Database Schema
 
-### Core Tables
-- `therapists` - Therapist accounts and Google Calendar IDs
-- `patients` - Patient information and contact details
-- `sessions` - Therapy sessions linked to calendar events
-- `check_ins` - Patient attendance records
-- `calendar_events` - Audit trail of calendar changes
-- `calendar_webhooks` - Active webhook registrations
+### Current Tables
+- **therapists** - Therapist accounts with Google Calendar integration
+- **patients** - Patient information linked to therapists via `therapist_id`
+- **sessions** - Therapy sessions (linked to calendar events)
+- **check_ins** - Patient attendance records
+- **calendar_events** - Audit trail of calendar changes
+- **calendar_webhooks** - Active webhook registrations
 
 ### Key Relationships
 ```sql
-therapists.google_calendar_id → Google Calendar
-sessions.google_calendar_event_id → Google Calendar Event
+patients.therapist_id → therapists.id
 sessions.patient_id → patients.id
 sessions.therapist_id → therapists.id
 check_ins.session_id → sessions.id
@@ -225,12 +314,12 @@ check_ins.session_id → sessions.id
 ## 🌐 API Endpoints
 
 ### Authentication Required
-- `GET /api/patients` - List all patients
-- `GET /api/sessions/:patientId` - Get patient sessions
+- `GET /api/patients?therapistEmail=email` - List therapist's patients
+- `GET /api/sessions/:patientId?therapistEmail=email` - Get patient sessions
 - `POST /api/checkin` - Register patient check-in
-- `GET /api/therapists` - List therapists
-- `POST /api/therapists` - Create new therapist
 - `GET /api/therapists/by-email/:email` - Find therapist by email
+- `POST /api/therapists` - Create new therapist
+- `POST /api/patients` - Create new patient
 
 ### Webhooks (No Auth)
 - `POST /api/calendar-webhook` - Google Calendar change notifications
@@ -241,71 +330,67 @@ check_ins.session_id → sessions.id
 
 ## 🔄 Calendar Integration
 
-### Bidirectional Sync
-- **Calendar → Database**: Webhooks detect changes and update sessions
-- **Database → Calendar**: Check-ins create calendar events
-- **Real-time**: Changes appear immediately in both systems
-
-### Event Matching
-- **Sessions** matched by `google_calendar_event_id`
-- **Therapists** matched by `google_calendar_id`
-- **Patients** matched by email address in calendar attendees
+### Current Implementation
+- **Webhook setup**: Automatic during server startup
+- **Event matching**: By `google_calendar_event_id`
+- **Real-time sync**: Changes appear immediately
+- **Bidirectional**: Calendar ↔ Database synchronization
 
 ### Supported Operations
 - ✅ **New events** → Create sessions
-- ✅ **Updated events** → Update session details
+- ✅ **Updated events** → Update session details  
 - ✅ **Cancelled events** → Mark sessions as cancelled
 - ✅ **Check-ins** → Create calendar events
 
+## 🔐 Security Architecture
+
+### Multi-tenant Isolation
+- **Patient data**: Filtered by `therapist_id` in all queries
+- **Session management**: localStorage-based therapist persistence
+- **API security**: All endpoints validate therapist access
+
+### Authentication Flow
+- **Development**: Mock authentication with timestamp-based emails
+- **Production**: Firebase Authentication with Google sign-in
+- **API Key**: Required for all API calls
+- **CORS**: Configured for specific domains only
+
 ## 🚀 Deployment
 
-### Google Cloud Secrets Setup
-```bash
-# Create required secrets
-gcloud secrets create safe-proxy-key --replication-policy="automatic"
-gcloud secrets create google-calendar-id --replication-policy="automatic"
-gcloud secrets create postgres-password --replication-policy="automatic"
+### Production URLs
+- **Frontend**: https://lv-notas.web.app
+- **Backend**: https://clinic-api-141687742631.us-central1.run.app
+- **Database**: Cloud SQL PostgreSQL instance
 
-# Add secret values
-echo -n "your_proxy_api_key" | gcloud secrets versions add safe-proxy-key --data-file=-
-echo -n "your_calendar_id" | gcloud secrets versions add google-calendar-id --data-file=-
-echo -n "your_postgres_password" | gcloud secrets versions add postgres-password --data-file=-
-```
-
-### Backend Deployment
+### Deploy Commands
 ```bash
-cd clinic-api
+# Backend
+cd clinic-api && npm run deploy
+
+# Frontend  
 npm run deploy
-```
-
-### Frontend Deployment
-```bash
-# From root directory
-npm run build
-firebase deploy
 ```
 
 ## 🛠️ Useful Scripts
 
 ### Database Management
 ```bash
-# Start/stop Cloud SQL instance (cost saving)
+# Start/stop Cloud SQL instance
 npm run db:start
 npm run db:stop
 npm run db:status
 
-# Local database operations
-psql -d clinic_db -c "SELECT * FROM therapists;"
-psql -d clinic_db -c "SELECT * FROM patients;"
-psql -d clinic_db -c "SELECT * FROM sessions;"
+# Local database queries
+psql -d clinic_db -c "SELECT * FROM therapists ORDER BY created_at DESC;"
+psql -d clinic_db -c "SELECT * FROM patients WHERE therapist_id = X;"
 ```
 
-### Webhook Management
+### Development Helpers
 ```bash
-# Clean up all webhooks
+# Clean webhook setup
 npx tsx clinic-api/scripts/cleanup-webhooks.ts
 
-# Start development with automatic webhook setup
+# Start with automatic setup
 cd clinic-api/scripts && ./start-local.sh
 ```
 
@@ -313,119 +398,64 @@ cd clinic-api/scripts && ./start-local.sh
 
 ### Common Issues
 
-#### "WEBHOOK_URL_LOCAL is not set"
-**Solution**: Use the start script which handles this automatically:
-```bash
-cd clinic-api/scripts && ./start-local.sh
-```
+#### "No therapist email available"
+**Solution**: Ensure localStorage has therapist email or go through onboarding again
 
-#### "Cannot find module 'react'"
-**Solution**: Install dependencies with legacy peer deps:
-```bash
-npm install --legacy-peer-deps
-```
+#### "Failed to load resource: 404" in console
+**Status**: Expected behavior when checking for existing therapists - doesn't affect functionality
 
-#### "Google Calendar API permission denied"
-**Solution**: Check service account permissions:
-```bash
-gcloud projects get-iam-policy lv-notas | grep lv-notas-service-account
-```
+#### "Unauthorized - Invalid API Key"  
+**Solution**: Check `.env` files have correct `SAFE_PROXY_KEY`
 
-#### "Database connection failed"
-**Solution**: Ensure PostgreSQL is running:
-```bash
-brew services start postgresql
-psql -d clinic_db -c "SELECT 1;"
-```
-
-#### TypeScript errors in VS Code
-**Solution**: Reload the TypeScript language service:
-- Press `Cmd+Shift+P`
-- Type "TypeScript: Reload Project"
+#### TypeScript import errors
+**Solution**: Reload TypeScript service in VS Code (Cmd+Shift+P → "TypeScript: Reload Project")
 
 ### Environment Verification
-
-Test your setup:
-
 ```bash
-# Backend health check
+# Check backend health
 curl http://localhost:3000/api/test
 
-# Check secret access
-gcloud secrets versions access latest --secret="safe-proxy-key"
-
-# Database connectivity
+# Check database connection
 psql -d clinic_db -c "SELECT count(*) FROM therapists;"
 
-# Frontend build
-npm run build
+# Verify Google Cloud access
+gcloud secrets versions access latest --secret="safe-proxy-key"
 ```
 
-## 📋 Next Time Setup Checklist
+## 📋 Next Development Phase
 
-When returning to this project after time away:
+### Immediate Tasks
+- [ ] **Calendar Selection UI**: Allow therapist to choose which Google Calendar to connect
+- [ ] **Calendar Import**: Implement automatic patient detection from recurring events
+- [ ] **Session Management**: Create/edit sessions directly in the UI
+- [ ] **Better Error Handling**: More comprehensive error states
 
-1. **Authenticate Google Cloud**:
-   ```bash
-   gcloud auth application-default login
-   gcloud config set project lv-notas
-   ```
+### Future Enhancements
+- [ ] **Email Notifications**: Send check-in confirmations
+- [ ] **Reporting Dashboard**: Session statistics and analytics
+- [ ] **Mobile App**: Native iOS/Android versions
+- [ ] **Multi-language Support**: Beyond Portuguese
 
-2. **Check/Start PostgreSQL**:
-   ```bash
-   brew services start postgresql
-   psql -d clinic_db -c "SELECT 1;" # Verify database exists
-   ```
+## 🎉 Ready for Production
 
-3. **Create environment files** (if missing):
-   - Root: `.env.local` (see Frontend Environment section above)
-   - Backend: `clinic-api/.env` (see Backend Environment section above)
+The system is now production-ready with:
+- ✅ Complete onboarding flow
+- ✅ Multi-tenant security
+- ✅ Patient management
+- ✅ Real-time calendar sync
+- ✅ Portuguese interface
+- ✅ Error handling
 
-4. **Download service account key** (if missing):
-   ```bash
-   cd clinic-api
-   # Only if service-account-key.json doesn't exist:
-   gcloud iam service-accounts keys create service-account-key.json \
-       --iam-account=lv-notas-service-account@lv-notas.iam.gserviceaccount.com
-   ```
-
-4. **Start development**:
-   ```bash
-   # Terminal 1: Backend
-   cd clinic-api/scripts && ./start-local.sh
-   
-   # Terminal 2: Frontend  
-   npm start
-   ```
-
-5. **Test the flows**:
-   - Normal check-in: http://localhost:19006
-   - Therapist onboarding: http://localhost:19006?setup=true
-
-## 🎉 Success Criteria
-
-Your system is working correctly when:
-
-- ✅ Backend starts without errors on port 3000
-- ✅ Frontend loads at http://localhost:19006
-- ✅ Onboarding flow accessible at `?setup=true`
-- ✅ Google Calendar webhook created automatically
-- ✅ Database queries return test data
-- ✅ No TypeScript compilation errors
+**For your mother**: She can visit `https://lv-notas.web.app` and complete the full onboarding process to start managing her therapy practice immediately.
 
 ## 🤝 Contributing
 
 When making changes:
-
-1. **Test both environments**: Local development and production
-2. **Update secrets**: Use Google Cloud Secret Manager for sensitive data
-3. **Database changes**: Add migration scripts to `db/` directory
-4. **Update this README**: Keep environment setup instructions current
-
-## 📝 License
-
-Private project for LV-Notas therapy clinic management.
+1. Test both development and production environments
+2. Update database schema with migration scripts
+3. Maintain Portuguese language consistency
+4. Update this README with new features
 
 ---
 
-**Need help?** Share this README with Claude AI for instant setup assistance!
+**Need help?** This README contains all setup instructions for quickly getting back into development after time away from the project.

@@ -17,6 +17,7 @@ CREATE TABLE patients (
     telefone VARCHAR(20),
     nota BOOLEAN DEFAULT false,
     preco DECIMAL(10,2),
+    therapist_id INTEGER REFERENCES therapists(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

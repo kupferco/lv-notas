@@ -1,50 +1,52 @@
-import { Patient, Session, Therapist } from "../types";
+import type { Patient, Session, Therapist } from "../types";
 import { auth } from "../config/firebase";
 
 // For development, use localhost
 const isDevelopment = window.location.hostname.includes("localhost");
-const API_URL = isDevelopment ? process.env.EXPO_PUBLIC_LOCAL_URL : process.env.EXPO_PUBLIC_SAFE_PROXY_URL;
+const API_URL = isDevelopment ? "http://localhost:3000" : process.env.EXPO_PUBLIC_SAFE_PROXY_URL;
 const API_KEY = process.env.SAFE_PROXY_API_KEY;
 
 const getAuthHeaders = async () => {
   // Skip Firebase auth for local development
-  let authHeader = "";
+  let authHeader = '';
   if (!isDevelopment) {
     const user = auth?.currentUser;
     const token = user ? await user.getIdToken() : "";
-    authHeader = token ? `Bearer ${token}` : "";
+    authHeader = token ? `Bearer ${token}` : '';
   }
-  
-  return {
-    "X-API-Key": API_KEY || "",
-    "Authorization": authHeader,
+
+  const headers: Record<string, string> = {
+    "X-API-Key": API_KEY || '',
     "Content-Type": "application/json",
   };
+
+  // Only add Authorization header if we have a token
+  if (authHeader) {
+    headers["Authorization"] = authHeader;
+  }
+
+  return headers;
 };
 
-// Get current therapist email (from auth or mock for local dev)
+// Get current therapist email (from localStorage or auth)
 const getCurrentTherapistEmail = () => {
   if (isDevelopment) {
-    return "test@example.com"; // Mock email for local development
+    // In development, get from localStorage (set during onboarding)
+    return localStorage.getItem('currentTherapist') || null;
   }
-  return auth?.currentUser?.email || "";
+  return auth?.currentUser?.email || null;
 };
 
 export const apiService = {
   async getPatients(): Promise<Patient[]> {
     const headers = await getAuthHeaders();
     const therapistEmail = getCurrentTherapistEmail();
-    
-    console.log("Getting patients for therapist:", therapistEmail);
-    
+
     if (!therapistEmail) {
       throw new Error("No therapist email available");
     }
-    
-    const url = `${API_URL}/api/patients?therapistEmail=${encodeURIComponent(therapistEmail)}`;
-    console.log("Making request to:", url);
-    
-    const response = await fetch(url, { headers });
+
+    const response = await fetch(`${API_URL}/api/patients?therapistEmail=${encodeURIComponent(therapistEmail)}`, { headers });
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Error response:", errorText);
@@ -56,13 +58,12 @@ export const apiService = {
   async getPatientSessions(patientId: string): Promise<Session[]> {
     const headers = await getAuthHeaders();
     const therapistEmail = getCurrentTherapistEmail();
-    
+
     if (!therapistEmail) {
       throw new Error("No therapist email available");
     }
-    
-    const url = `${API_URL}/api/sessions/${patientId}?therapistEmail=${encodeURIComponent(therapistEmail)}`;
-    const response = await fetch(url, { headers });
+
+    const response = await fetch(`${API_URL}/api/sessions/${patientId}?therapistEmail=${encodeURIComponent(therapistEmail)}`, { headers });
     if (!response.ok) throw new Error("Failed to fetch sessions");
     return response.json();
   },
@@ -86,7 +87,7 @@ export const apiService = {
     return response.json();
   },
 
-  async createTherapist(therapist: Omit<Therapist, "id">): Promise<Therapist> {
+  async createTherapist(therapist: Partial<Therapist>): Promise<Therapist> {
     const headers = await getAuthHeaders();
     const response = await fetch(`${API_URL}/api/therapists`, {
       method: "POST",
@@ -97,14 +98,14 @@ export const apiService = {
     return response.json();
   },
 
-  async updateTherapist(id: string, updates: Partial<Therapist>): Promise<Therapist> {
+  async createPatient(patient: Partial<Patient> & { therapistEmail: string }): Promise<Patient> {
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/therapists/${id}`, {
-      method: "PUT",
+    const response = await fetch(`${API_URL}/api/patients`, {
+      method: "POST",
       headers,
-      body: JSON.stringify(updates),
+      body: JSON.stringify(patient),
     });
-    if (!response.ok) throw new Error("Failed to update therapist");
+    if (!response.ok) throw new Error("Failed to create patient");
     return response.json();
   },
 };

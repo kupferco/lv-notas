@@ -22,7 +22,8 @@ export interface Therapist {
 }
 
 export interface OnboardingState {
-  step: 'welcome' | 'auth' | 'calendar' | 'success';
+  step: 'welcome' | 'auth' | 'calendar' | 'success' | 'addPatients';
   therapist?: Therapist;
   error?: string;
 }
+
