@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } fr
 import { initializeFirebase, auth } from '../config/firebase';
 import { apiService } from '../services/api';
 import { PatientManagement } from './PatientManagement';
+import { CalendarSelection } from './CalendarSelection';
 import type { Therapist, OnboardingState } from '../types';
 
 interface TherapistOnboardingProps {
@@ -11,23 +12,24 @@ interface TherapistOnboardingProps {
   existingTherapist?: string | null;
 }
 
-export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({ 
-  onComplete, 
-  mode = 'full', 
-  existingTherapist 
+export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
+  onComplete,
+  mode = 'full',
+  existingTherapist
 }) => {
-  const [state, setState] = useState<OnboardingState>({ 
-    step: mode === 'addPatient' ? 'addPatients' : 'welcome' 
+  const [state, setState] = useState<OnboardingState>({
+    step: mode === 'addPatient' ? 'addPatients' : 'welcome'
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedCalendarId, setSelectedCalendarId] = useState<string>('');
 
   // Set up existing therapist for addPatient mode
   useEffect(() => {
     if (mode === 'addPatient' && existingTherapist) {
       setState({
         step: 'addPatients',
-        therapist: { 
-          email: existingTherapist, 
+        therapist: {
+          email: existingTherapist,
           name: existingTherapist.split('@')[0],
           id: 'existing'
         }
@@ -51,11 +53,12 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     if (mode === 'addPatient') {
       return 100; // Always full progress for patient management
     }
-    
+
     const stepMap: Record<string, number> = {
       welcome: 20,
       auth: 40,
-      calendar: 60,
+      'calendar-selection': 60,
+      calendar: 70,
       success: 80,
       addPatients: 100
     };
@@ -102,37 +105,39 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
 
   const handleAuthSuccess = async (user: any) => {
     setIsLoading(true);
-    setState({ step: 'calendar' });
+    setState({ step: 'calendar-selection' });
+
+    console.log('=== AUTH SUCCESS ===');
+    console.log('User object:', user);
+    console.log('User email:', user.email);
 
     try {
       // Check if therapist already exists
       const existingTherapist = await apiService.getTherapistByEmail(user.email);
+      console.log('Existing therapist check result:', existingTherapist);
 
       if (existingTherapist) {
-        // Existing therapist - complete onboarding and go to check-in
-        setState({
-          step: 'success',
-          therapist: existingTherapist
+        // Existing therapist logic...
+      } else {
+        // NEW therapist - create account but wait for calendar selection
+        console.log('Creating new therapist with data:', {
+          name: user.displayName || user.email,
+          email: user.email,
+          googleCalendarId: ''
         });
 
-        // Call onComplete to go to check-in form
-        if (onComplete) {
-          onComplete(existingTherapist.email);
-        }
-      } else {
-        // NEW therapist - create account and go to patient management
         const newTherapist = await apiService.createTherapist({
           name: user.displayName || user.email,
           email: user.email,
-          googleCalendarId: '', // Will be set when they grant calendar access
+          googleCalendarId: '', // Will be set when they select calendar
         });
+
+        console.log('New therapist created:', newTherapist);
 
         setState({
-          step: 'success',
+          step: 'calendar-selection',
           therapist: newTherapist
         });
-
-        // DON'T call onComplete - stay in onboarding to show patient management
       }
     } catch (error) {
       console.error('Therapist creation error:', error);
@@ -143,6 +148,44 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleCalendarSelected = async (calendarId: string) => {
+    console.log('Calendar selected:', calendarId);
+    setSelectedCalendarId(calendarId);
+    setIsLoading(true);
+    setState({ step: 'calendar' });
+
+    try {
+      // Skip API call in development with mock email
+      if (state.therapist && !state.therapist.email.includes('test-therapist')) {
+        console.log('Updating therapist calendar for:', state.therapist.email);
+        await apiService.updateTherapistCalendar(state.therapist.email, calendarId);
+        console.log('Calendar update successful');
+      } else {
+        console.log('Skipping API call for development mock user');
+      }
+
+      setState(prev => ({
+        ...prev,
+        step: 'success',
+        therapist: prev.therapist ? { ...prev.therapist, googleCalendarId: calendarId } : undefined
+      }));
+      console.log('Set step to success');
+    } catch (error) {
+      console.error('Error saving calendar:', error);
+      setState(prev => ({
+        ...prev,
+        step: 'calendar-selection',
+        error: 'Erro ao salvar calendário. Tente novamente.'
+      }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleBackToAuth = () => {
+    setState({ step: 'auth' });
   };
 
   const renderWelcomeStep = () => (
@@ -188,9 +231,16 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     </View>
   );
 
+  const renderCalendarSelectionStep = () => (
+    <CalendarSelection
+      onCalendarSelected={handleCalendarSelected}
+      onBack={handleBackToAuth}
+    />
+  );
+
   const renderCalendarStep = () => (
     <View style={styles.stepContainer}>
-      <Text style={styles.title}>Configurando sua conta...</Text>
+      <Text style={styles.title}>Salvando calendário...</Text>
       <ActivityIndicator size="large" color="#6200ee" style={styles.loader} />
       <Text style={styles.subtitle}>
         Estamos configurando a integração do seu calendário
@@ -213,10 +263,33 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
       </View>
 
       <Pressable
-        style={styles.primaryButton}
-        onPress={() => setState(prev => ({ ...prev, step: 'addPatients' }))}
+        style={styles.secondaryButton}
+        onPress={() => {
+          console.log('Finish Onboarding clicked');
+          console.log('onComplete function exists:', !!onComplete);
+          console.log('Full therapist object:', state.therapist);
+          console.log('therapist email:', state.therapist?.email);
+
+          // Use the email from the mock user if therapist email is missing
+          let email = state.therapist?.email;
+
+          // If no email in therapist object, but we have a mock user email stored
+          if (!email && window.location.hostname === 'localhost') {
+            // For development, we need to use a valid email from the database
+            // Let's use the most recent therapist from the database
+            email = 'test-therapist-1750778998339@example.com'; // Use one from your database
+          }
+
+          console.log('Using email for completion:', email);
+
+          if (onComplete && email) {
+            onComplete(email);
+          } else {
+            console.error('Cannot complete onboarding - missing email or onComplete callback');
+          }
+        }}
       >
-        <Text style={styles.buttonText}>Adicionar Primeiro Paciente</Text>
+        <Text style={styles.secondaryButtonText}>Finalizar e Ir para App</Text>
       </Pressable>
     </View>
   );
@@ -225,9 +298,13 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     <PatientManagement
       therapistEmail={state.therapist?.email || existingTherapist || ''}
       onComplete={() => {
+        console.log('PatientManagement onComplete called');
         // When patient management is complete
         if (onComplete) {
+          console.log('Calling onComplete with email:', state.therapist?.email || existingTherapist || '');
           onComplete(state.therapist?.email || existingTherapist || '');
+        } else {
+          console.log('No onComplete callback available');
         }
       }}
     />
@@ -239,6 +316,8 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
         return renderWelcomeStep();
       case 'auth':
         return renderAuthStep();
+      case 'calendar-selection':
+        return renderCalendarSelectionStep();
       case 'calendar':
         return renderCalendarStep();
       case 'success':
@@ -368,5 +447,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#0c5460',
     marginBottom: 8,
+  },
+  secondaryButton: {
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#6200ee',
+    backgroundColor: 'transparent',
+  },
+  secondaryButtonText: {
+    color: '#6200ee',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

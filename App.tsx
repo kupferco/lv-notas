@@ -1,142 +1,68 @@
 import React, { useState, useEffect } from 'react';
 import { SafeAreaView, StyleSheet } from 'react-native';
-import { CheckInForm } from './src/components/CheckInForm';
-import { TherapistOnboarding } from './src/components/TherapistOnboarding';
-import { initializeFirebase, auth } from './src/config/firebase';
+import { Router } from './src/components/Router';
+import { NavigationBar } from './src/components/NavigationBar';
 
-export default function App() {
-  const [isOnboarding, setIsOnboarding] = useState(false);
-  const [currentTherapist, setCurrentTherapist] = useState<string | null>(null);
+const App: React.FC = () => {
+  const [therapistEmail, setTherapistEmail] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [onboardingMode, setOnboardingMode] = useState<'full' | 'addPatient'>('full');
 
   useEffect(() => {
-    const initializeApp = async () => {
-      // Check URL parameters
-      const urlParams = new URLSearchParams(window.location.search);
-      const setupMode = urlParams.get('setup');
-      const addPatientMode = urlParams.get('addPatient');
-      
-      if (setupMode !== null) {
-        // Full onboarding for new therapists
-        setOnboardingMode('full');
-        setIsOnboarding(true);
-        setIsLoading(false);
-        return;
+    const checkExistingLogin = () => {
+      const savedEmail = localStorage.getItem('therapist_email');
+      console.log('Checking localStorage for therapist_email:', savedEmail);
+      if (savedEmail) {
+        setTherapistEmail(savedEmail);
       }
-      
-      if (addPatientMode !== null) {
-        // Patient management for existing therapists
-        const storedTherapist = localStorage.getItem('currentTherapist');
-        if (storedTherapist) {
-          setCurrentTherapist(storedTherapist);
-          setOnboardingMode('addPatient');
-          setIsOnboarding(true);
-          setIsLoading(false);
-          return;
-        } else {
-          // No stored therapist, redirect to full onboarding
-          window.location.href = '/?setup=true';
-          return;
-        }
-      }
-
-      // Check for stored therapist
-      const storedTherapist = localStorage.getItem('currentTherapist');
-      
-      if (storedTherapist) {
-        // Validate stored therapist still exists in database
-        try {
-          // You could add API call here to verify therapist still exists
-          setCurrentTherapist(storedTherapist);
-          setIsLoading(false);
-        } catch (error) {
-          // Therapist not found, clear storage and onboard
-          localStorage.removeItem('currentTherapist');
-          setIsOnboarding(true);
-          setIsLoading(false);
-        }
-      } else {
-        // No stored therapist - check if we're in production with Firebase auth
-        const isDevelopment = window.location.hostname.includes('localhost');
-        
-        if (isDevelopment) {
-          // Development: require onboarding
-          setIsOnboarding(true);
-          setIsLoading(false);
-        } else {
-          // Production: check Firebase auth
-          try {
-            await initializeFirebase();
-            const user = auth?.currentUser;
-            
-            if (user?.email) {
-              localStorage.setItem('currentTherapist', user.email);
-              setCurrentTherapist(user.email);
-            } else {
-              setIsOnboarding(true);
-            }
-          } catch (error) {
-            setIsOnboarding(true);
-          }
-          setIsLoading(false);
-        }
-      }
+      setIsLoading(false);
     };
 
-    initializeApp();
+    checkExistingLogin();
   }, []);
 
-  const handleOnboardingComplete = (therapistEmail: string) => {
-    // Store therapist in localStorage
-    localStorage.setItem('currentTherapist', therapistEmail);
-    setIsOnboarding(false);
-    setCurrentTherapist(therapistEmail);
+  const handleOnboardingComplete = (email: string) => {
+    console.log('Onboarding complete with email:', email);
+    localStorage.setItem('therapist_email', email);
+    setTherapistEmail(email);
     
-    // Clear URL parameters after completion
-    if (typeof window !== 'undefined') {
-      window.history.replaceState({}, '', '/');
-    }
+    // After onboarding, redirect to check-in page
+    window.history.pushState({}, '', '/');
+    window.dispatchEvent(new Event('popstate'));
   };
 
-  const handlePatientManagementComplete = () => {
-    // Just close patient management and go back to check-in
-    setIsOnboarding(false);
-    
-    // Clear URL parameters
-    if (typeof window !== 'undefined') {
-      window.history.replaceState({}, '', '/');
-    }
+  const handleLogout = () => {
+    localStorage.removeItem('therapist_email');
+    setTherapistEmail(null);
+    window.history.pushState({}, '', '/');
+    window.dispatchEvent(new Event('popstate'));
   };
 
   if (isLoading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <div style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <p>Carregando...</p>
-        </div>
-      </SafeAreaView>
-    );
+    return null;
   }
 
+  // Check for setup parameter to force onboarding
+  const urlParams = new URLSearchParams(window.location.search);
+  const forceSetup = urlParams.has('setup');
+  
+  if (forceSetup || !therapistEmail) {
+    return <Router therapistEmail={null} onOnboardingComplete={handleOnboardingComplete} onLogout={handleLogout} />;
+  }
+
+  // Show main app with navigation
   return (
     <SafeAreaView style={styles.container}>
-      {isOnboarding ? (
-        <TherapistOnboarding 
-          onComplete={onboardingMode === 'full' ? handleOnboardingComplete : handlePatientManagementComplete}
-          mode={onboardingMode}
-          existingTherapist={onboardingMode === 'addPatient' ? currentTherapist : undefined}
-        />
-      ) : (
-        <CheckInForm therapistEmail={currentTherapist} />
-      )}
+      <NavigationBar />
+      <Router therapistEmail={therapistEmail} onOnboardingComplete={handleOnboardingComplete} onLogout={handleLogout} />
     </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f8f9fa',
   },
 });
+
+export default App;

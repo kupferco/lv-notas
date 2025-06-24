@@ -7,12 +7,15 @@ interface PatientManagementProps {
   onComplete: () => void;
 }
 
-export const PatientManagement: React.FC<PatientManagementProps> = ({ 
-  therapistEmail, 
-  onComplete 
+export const PatientManagement: React.FC<PatientManagementProps> = ({
+  therapistEmail,
+  onComplete
 }) => {
+  console.log('PatientManagement received therapistEmail:', therapistEmail);
+  
   const [isLoading, setIsLoading] = useState(false);
   const [showManualForm, setShowManualForm] = useState(false);
+  const [addedPatients, setAddedPatients] = useState<string[]>([]);
   const [patientData, setPatientData] = useState({
     nome: '',
     email: '',
@@ -21,21 +24,36 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
 
   const handleManualAdd = async () => {
     if (!patientData.nome.trim()) return;
-    
+
     setIsLoading(true);
     try {
+      console.log('Creating patient with data:', { ...patientData, therapistEmail });
       await apiService.createPatient({
         ...patientData,
         therapistEmail
       });
-      
+
+      // Add to list of added patients
+      setAddedPatients(prev => [...prev, patientData.nome]);
+
       // Reset form
       setPatientData({ nome: '', email: '', telefone: '' });
       setShowManualForm(false);
-      alert('Paciente adicionado com sucesso!');
-    } catch (error) {
+
+    } catch (error: any) {
       console.error('Error creating patient:', error);
-      alert('Erro ao adicionar paciente. Tente novamente.');
+      console.error('Full error object:', JSON.stringify(error, null, 2));
+
+      // Try to get more specific error message from the response
+      let errorMessage = 'Erro ao adicionar paciente. Tente novamente.';
+
+      if (error.message && error.message.includes('404')) {
+        errorMessage = 'Terapeuta não encontrado. Verifique se você está logado corretamente.';
+      } else if (error.message && error.message.includes('400')) {
+        errorMessage = 'Dados inválidos. Verifique se o nome foi preenchido.';
+      }
+
+      alert(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -57,14 +75,14 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     return (
       <View style={styles.container}>
         <Text style={styles.title}>Adicionar Paciente</Text>
-        
+
         <TextInput
           style={styles.input}
           placeholder="Nome do paciente *"
           value={patientData.nome}
           onChangeText={(text) => setPatientData(prev => ({ ...prev, nome: text }))}
         />
-        
+
         <TextInput
           style={styles.input}
           placeholder="Email (opcional)"
@@ -72,7 +90,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
           onChangeText={(text) => setPatientData(prev => ({ ...prev, email: text }))}
           keyboardType="email-address"
         />
-        
+
         <TextInput
           style={styles.input}
           placeholder="Telefone (opcional)"
@@ -80,8 +98,8 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
           onChangeText={(text) => setPatientData(prev => ({ ...prev, telefone: text }))}
           keyboardType="phone-pad"
         />
-        
-        <Pressable 
+
+        <Pressable
           style={[styles.primaryButton, !patientData.nome.trim() && styles.buttonDisabled]}
           onPress={handleManualAdd}
           disabled={!patientData.nome.trim() || isLoading}
@@ -90,8 +108,8 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
             {isLoading ? 'Adicionando...' : 'Adicionar Paciente'}
           </Text>
         </Pressable>
-        
-        <Pressable 
+
+        <Pressable
           style={styles.secondaryButton}
           onPress={() => setShowManualForm(false)}
         >
@@ -107,9 +125,18 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
       <Text style={styles.subtitle}>
         Como você gostaria de adicionar seus pacientes?
       </Text>
-      
+
+      {addedPatients.length > 0 && (
+        <View style={styles.successContainer}>
+          <Text style={styles.successTitle}>✅ Pacientes Adicionados:</Text>
+          {addedPatients.map((name, index) => (
+            <Text key={index} style={styles.patientName}>• {name}</Text>
+          ))}
+        </View>
+      )}
+
       <View style={styles.optionsContainer}>
-        <Pressable 
+        <Pressable
           style={styles.optionButton}
           onPress={handleCalendarImport}
           disabled={isLoading}
@@ -119,8 +146,8 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
             Recomendado: Analisamos seus eventos recorrentes e sugerimos pacientes
           </Text>
         </Pressable>
-        
-        <Pressable 
+
+        <Pressable
           style={styles.optionButton}
           onPress={() => setShowManualForm(true)}
         >
@@ -130,14 +157,15 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
           </Text>
         </Pressable>
       </View>
-      
-      <Pressable 
-        style={styles.skipButton}
-        onPress={onComplete}
-      >
-        <Text style={styles.skipButtonText}>Pular por agora</Text>
-      </Pressable>
-      
+
+      <View style={styles.actionButtons}>
+        {addedPatients.length > 0 && (
+          <Text style={styles.navigationHint}>
+            {addedPatients.length} paciente(s) adicionado(s)!
+          </Text>
+        )}
+      </View>
+
       {isLoading && (
         <ActivityIndicator size="large" color="#6200ee" style={styles.loader} />
       )}
@@ -164,6 +192,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 32,
     lineHeight: 24,
+  },
+  successContainer: {
+    backgroundColor: '#d1ecf1',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 24,
+  },
+  successTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0c5460',
+    marginBottom: 8,
+  },
+  patientName: {
+    fontSize: 14,
+    color: '#0c5460',
+    marginBottom: 4,
   },
   optionsContainer: {
     marginBottom: 32,
@@ -196,12 +241,16 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     backgroundColor: '#fff',
   },
+  actionButtons: {
+    alignItems: 'center',
+  },
   primaryButton: {
     backgroundColor: '#6200ee',
     paddingHorizontal: 32,
     paddingVertical: 16,
     borderRadius: 8,
     marginBottom: 16,
+    minWidth: 200,
   },
   buttonDisabled: {
     backgroundColor: '#ccc',
@@ -220,15 +269,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
   },
-  skipButton: {
-    paddingVertical: 12,
-  },
-  skipButtonText: {
-    color: '#6c757d',
-    fontSize: 14,
-    textAlign: 'center',
-  },
   loader: {
+    marginTop: 20,
+  },
+  navigationHint: {
+    fontSize: 14,
+    color: '#6c757d',
+    textAlign: 'center',
+    fontStyle: 'italic',
     marginTop: 20,
   },
 });

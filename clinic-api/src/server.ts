@@ -36,6 +36,7 @@ import patientsRoute from './routes/patients.js';
 import sessionsRoute from './routes/sessions.js';
 import therapistsRoute from './routes/therapists.js';
 import { googleCalendarService } from './services/google-calendar.js';
+import calendarsRoute from './routes/calendars.js';
 import pool from './config/database.js';
 
 const app = express();
@@ -115,6 +116,7 @@ const setupRoutes = () => {
     app.use('/api/therapists', authenticateRequest, therapistsRoute);
     app.use('/api/checkin', authenticateRequest, checkinRoute);
     app.use('/api/calendar-webhook', calendarWebhookRoute);
+    app.use('/api/calendars', authenticateRequest, calendarsRoute);
 
     app.post('/api/setup-webhook', authenticateRequest, async (req: Request, res: Response) => {
         try {

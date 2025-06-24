@@ -11,6 +11,12 @@ interface CheckInFormProps {
 }
 
 export const CheckInForm: React.FC<CheckInFormProps> = ({ therapistEmail }) => {
+  console.log('=== CheckInForm Debug ===');
+  console.log('therapistEmail prop received:', therapistEmail);
+  console.log('therapistEmail type:', typeof therapistEmail);
+  console.log('therapistEmail length:', therapistEmail?.length);
+
+
   const [patients, setPatients] = useState<Patient[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedPatient, setSelectedPatient] = useState('');
@@ -44,15 +50,19 @@ export const CheckInForm: React.FC<CheckInFormProps> = ({ therapistEmail }) => {
 
   const loadPatients = async () => {
     try {
-      console.log('Starting to load patients...');
-      const data = await apiService.getPatients();
+      if (!therapistEmail) {
+        console.error('No therapist email available for loading patients');
+        setIsLoading(false);
+        return;
+      }
+
+      console.log('Loading patients for therapist:', therapistEmail);
+      const data = await apiService.getPatients(therapistEmail); // Now TypeScript knows it's not null
       console.log('Patients loaded:', data);
       setPatients(data);
-      setError(null);
-      setIsLoading(false);
     } catch (error) {
       console.error('Error loading patients:', error);
-      setError('Nenhum paciente encontrado');
+    } finally {
       setIsLoading(false);
     }
   };
@@ -86,7 +96,7 @@ export const CheckInForm: React.FC<CheckInFormProps> = ({ therapistEmail }) => {
 
   const handleAddPatient = () => {
     if (typeof window !== 'undefined') {
-      window.location.href = '/?addPatient=true';
+      window.location.href = '/pacientes';
     }
   };
 

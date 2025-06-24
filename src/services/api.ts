@@ -38,14 +38,14 @@ const getCurrentTherapistEmail = () => {
 };
 
 export const apiService = {
-  async getPatients(): Promise<Patient[]> {
+  async getPatients(therapistEmail: string): Promise<Patient[]> {
     const headers = await getAuthHeaders();
-    const therapistEmail = getCurrentTherapistEmail();
 
     if (!therapistEmail) {
-      throw new Error("No therapist email available");
+      throw new Error("No therapist email provided");
     }
 
+    console.log('getPatients API call with email:', therapistEmail);
     const response = await fetch(`${API_URL}/api/patients?therapistEmail=${encodeURIComponent(therapistEmail)}`, { headers });
     if (!response.ok) {
       const errorText = await response.text();
@@ -68,6 +68,13 @@ export const apiService = {
     return response.json();
   },
 
+  async getCalendars(): Promise<any[]> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/calendars`, { headers });
+    if (!response.ok) throw new Error("Failed to fetch calendars");
+    return response.json();
+  },
+
   async submitCheckIn(patientId: string, sessionId: string): Promise<void> {
     const headers = await getAuthHeaders();
     const response = await fetch(`${API_URL}/api/checkin`, {
@@ -79,15 +86,19 @@ export const apiService = {
   },
 
   // Therapist methods
-  async getTherapistByEmail(email: string): Promise<Therapist | null> {
+  async getTherapistByEmail(email: string): Promise<any> {
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/therapists/by-email/${encodeURIComponent(email)}`, { headers });
-    if (response.status === 404) return null;
-    if (!response.ok) throw new Error("Failed to fetch therapist");
+    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(email)}`, { headers });
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null; // Therapist doesn't exist
+      }
+      throw new Error("Failed to fetch therapist");
+    }
     return response.json();
   },
 
-  async createTherapist(therapist: Partial<Therapist>): Promise<Therapist> {
+  async createTherapist(therapist: { name: string; email: string; googleCalendarId: string }): Promise<any> {
     const headers = await getAuthHeaders();
     const response = await fetch(`${API_URL}/api/therapists`, {
       method: "POST",
@@ -98,7 +109,17 @@ export const apiService = {
     return response.json();
   },
 
-  async createPatient(patient: Partial<Patient> & { therapistEmail: string }): Promise<Patient> {
+  async updateTherapistCalendar(email: string, calendarId: string): Promise<void> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(email)}/calendar`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ googleCalendarId: calendarId }),
+    });
+    if (!response.ok) throw new Error("Failed to update therapist calendar");
+  },
+
+  async createPatient(patient: { nome: string; email: string; telefone: string; therapistEmail: string }): Promise<any> {
     const headers = await getAuthHeaders();
     const response = await fetch(`${API_URL}/api/patients`, {
       method: "POST",

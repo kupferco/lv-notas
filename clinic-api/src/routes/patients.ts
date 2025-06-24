@@ -30,7 +30,6 @@ const asyncHandler = (
 };
 
 // GET /api/patients?therapistEmail=email - Filter patients by therapist
-// GET /api/patients?therapistEmail=email - Filter patients by therapist
 router.get("/", asyncHandler(async (req, res) => {
   const { therapistEmail } = req.query;
 
@@ -49,35 +48,74 @@ router.get("/", asyncHandler(async (req, res) => {
   );
 
   return res.json(result.rows);
-}));// POST /api/patients - Create a new patient
+}));
+
+// POST /api/patients - Create a new patient
 router.post("/", asyncHandler(async (req, res) => {
   const { nome, email, telefone, therapistEmail } = req.body as PatientBody;
 
+  console.log("=== CREATE PATIENT REQUEST ===");
+  console.log("Request body:", { nome, email, telefone, therapistEmail });
+
   if (!nome || !therapistEmail) {
-    return res.status(400).json({ error: "Nome and therapistEmail are required" });
+    const missingFields = [];
+    if (!nome) missingFields.push('nome');
+    if (!therapistEmail) missingFields.push('therapistEmail');
+
+    console.log("Missing required fields:", missingFields);
+    return res.status(400).json({
+      error: `Missing required fields: ${missingFields.join(', ')}`,
+      receivedData: { nome, email, telefone, therapistEmail }
+    });
   }
 
-  // Get therapist ID
-  const therapistResult = await pool.query(
-    "SELECT id FROM therapists WHERE email = $1",
-    [therapistEmail]
-  );
+  try {
+    // Get therapist ID
+    console.log("Looking for therapist with email:", therapistEmail);
+    const therapistResult = await pool.query(
+      "SELECT id, nome, email FROM therapists WHERE email = $1",
+      [therapistEmail]
+    );
 
-  if (therapistResult.rows.length === 0) {
-    return res.status(404).json({ error: "Therapist not found" });
+    console.log("Therapist query result:", therapistResult.rows);
+
+    if (therapistResult.rows.length === 0) {
+      console.log("Therapist not found");
+
+      // Get a list of available therapist emails for debugging
+      const allTherapists = await pool.query("SELECT email FROM therapists ORDER BY id DESC LIMIT 5");
+
+      return res.status(404).json({
+        error: `No therapist found with email: ${therapistEmail}`,
+        attemptedEmail: therapistEmail,
+        availableEmails: allTherapists.rows.map(t => t.email),
+        suggestion: "Check if the therapist email is correct or if the therapist exists in the database"
+      });
+    }
+
+    const therapistId = therapistResult.rows[0].id;
+    console.log("Found therapist:", therapistResult.rows[0]);
+
+    // Create the patient with therapist_id
+    console.log("Creating patient with data:", [nome, email || null, telefone || null, therapistId]);
+    const result = await pool.query(
+      `INSERT INTO patients (nome, email, telefone, therapist_id) 
+       VALUES ($1, $2, $3, $4) 
+       RETURNING id, nome as name, email, telefone`,
+      [nome, email || null, telefone || null, therapistId]
+    );
+
+    console.log("Patient created successfully:", result.rows[0]);
+    return res.json(result.rows[0]);
+  } catch (error: any) {
+    console.log("Database error:", error);
+    return res.status(500).json({
+      error: "Database error occurred while creating patient",
+      details: error.message,
+      therapistEmail: therapistEmail,
+      patientName: nome
+    });
   }
-
-  const therapistId = therapistResult.rows[0].id;
-
-  // Create the patient with therapist_id
-  const result = await pool.query(
-    `INSERT INTO patients (nome, email, telefone, therapist_id) 
-     VALUES ($1, $2, $3, $4) 
-     RETURNING id, nome as name, email, telefone`,
-    [nome, email || null, telefone || null, therapistId]
-  );
-
-  return res.json(result.rows[0]);
 }));
 
 export default router;
