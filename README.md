@@ -2,6 +2,35 @@
 
 A complete Node.js/TypeScript system for managing therapy clinics with **real Google authentication**, Google Calendar integration, patient management, and real-time session tracking.
 
+## 🆕 Recent Improvements (June 2025)
+
+### 🔧 **Authentication & Session Management**
+- ✅ **Fixed authentication persistence** - Users stay logged in after page refresh
+- ✅ **Real Google Sign-In everywhere** - No more development mode bypasses
+- ✅ **AuthContext integration** - Centralized authentication state management
+- ✅ **Secure logout functionality** - Complete localStorage cleanup
+- ✅ **Chrome account detection** - Automatic sign-in with existing Google sessions
+
+### 📅 **Calendar Integration Fixes**
+- ✅ **Fixed calendar selection persistence** - Respects therapist's chosen calendar
+- ✅ **Multi-calendar support** - Therapists can choose between multiple Google Calendars
+- ✅ **Calendar-specific event loading** - Dashboard shows events from selected calendar only
+- ✅ **Backend calendar ID routing** - API correctly uses therapist's selected calendar
+- ✅ **Real-time calendar switching** - Settings allow changing calendar selection
+
+### 👥 **Patient Management Improvements**
+- ✅ **AuthContext integration** - Patient loading now uses centralized authentication
+- ✅ **Better error handling** - Clear Portuguese error messages
+- ✅ **Multi-tenant security** - Each therapist sees only their patients
+- ✅ **Improved loading states** - Better UX during data loading
+
+### 🎯 **Key Technical Achievements**
+- **Eliminated mock authentication** - Real Google tokens everywhere
+- **Fixed calendar persistence** - Selected calendar stored in database
+- **Centralized auth state** - Single source of truth for authentication
+- **Improved security** - Proper token management and validation
+- **Better error handling** - User-friendly Portuguese error messages
+
 ## ✨ Features
 
 ### 🔐 **Production-Ready Google Authentication**
@@ -17,6 +46,7 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 - **Persistent calendar selection** - no re-selection required
 - **Automatic event synchronization** - calendar events create therapy sessions
 - **Session status tracking** (scheduled, attended, cancelled)
+- **Multi-calendar support** - works with any Google Calendar the user has access to
 
 ### 👥 Patient Management
 - **Multi-tenant patient system** - therapists manage only their patients
@@ -54,22 +84,24 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 - **Automatic environment detection** (localhost vs production)
 - **Persistent authentication state** across page refreshes
 - **Secure token management** with automatic refresh
+- **AuthContext for state management** - Centralized authentication logic
 
 ### Backend (Node.js + TypeScript)
 - **Express.js** REST API with type-safe routes
 - **PostgreSQL** database with proper foreign key relationships
-- **Google Calendar API** integration with service account
+- **Google Calendar API** integration with service account AND user OAuth
 - **Firebase Authentication verification** for secure access
 - **Real-time webhooks** for calendar synchronization
 - **CORS protection** with PUT method support
 - **Rate limiting** and security headers
+- **Multi-calendar support** with per-therapist calendar selection
 
 ### Frontend (React Native Web + TypeScript)
 - **React Native Web** for cross-platform compatibility
 - **TypeScript** for type safety
 - **Custom routing system** with URL-based navigation
 - **Responsive design** with modern Portuguese interface
-- **Real-time state management**
+- **Real-time state management** with AuthContext
 - **Authentication state persistence**
 
 ### Database Schema
@@ -77,6 +109,7 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 - **Foreign key constraints** for data integrity
 - **Session tracking** with status management
 - **Calendar webhook management** for reliability
+- **Therapist calendar ID storage** for persistent calendar selection
 
 ## 📁 Project Structure
 
@@ -93,6 +126,8 @@ lv-notas/
 │   │   └── Settings.tsx             # Settings with logout functionality
 │   ├── config/                      # Configuration files
 │   │   └── firebase.ts              # Firebase authentication setup
+│   ├── contexts/                    # React Context providers
+│   │   └── AuthContext.tsx          # Centralized authentication state
 │   ├── services/                    # API service layer
 │   │   └── api.ts                   # API client with authentication
 │   ├── types/                       # TypeScript type definitions
@@ -105,6 +140,7 @@ lv-notas/
 │   │   │   └── database.ts          # PostgreSQL connection setup
 │   │   ├── routes/                  # API route handlers
 │   │   │   ├── calendar-webhook.ts  # Google Calendar webhook handler
+│   │   │   ├── calendar-events.ts   # Calendar events with therapist filtering
 │   │   │   ├── calendars.ts         # Calendar listing endpoint
 │   │   │   ├── checkin.ts          # Patient check-in API
 │   │   │   ├── patients.ts         # Patient management API
@@ -243,15 +279,17 @@ npm start
 - Events automatically become therapy sessions
 - Patients can check-in using their unique links
 - Session statuses update in real-time
+- **Calendar selection persists** - No need to re-select calendar
 
 ## 🔧 API Endpoints
 
 ### Authentication Required
-- `GET /api/patients` - Get therapist's patients
+- `GET /api/patients?therapistEmail=` - Get therapist's patients
 - `POST /api/patients` - Create new patient
-- `GET /api/sessions/:patientId` - Get patient sessions
+- `GET /api/sessions/:patientId?therapistEmail=` - Get patient sessions
 - `POST /api/checkin` - Submit patient check-in
 - `GET /api/calendars` - List Google Calendars
+- `GET /api/calendar-events?therapistEmail=` - Get events from therapist's calendar
 - `GET /api/therapists/:email` - Get therapist details
 - `POST /api/therapists` - Create therapist
 - `PUT /api/therapists/:email/calendar` - Update calendar
@@ -328,13 +366,18 @@ npm start
 5. **Calendar selection persistence** - No re-selection required
 6. **Multi-tenant open registration** - Any Google account can sign up
 7. **Production ready** - Real authentication for deployment
+8. **AuthContext integration** - Centralized authentication state management
+9. **Calendar-specific event loading** - Dashboard respects selected calendar
+10. **Fixed patient loading** - AuthContext integration for patient management
 
 ### 🎯 Key Benefits
 - **Seamless user experience** - Automatic authentication detection
 - **Production security** - Enterprise-grade Firebase authentication
 - **Developer friendly** - Real authentication even in development
-- **Persistent sessions** - Users stay logged in
+- **Persistent sessions** - Users stay logged in across page refreshes
 - **Multi-tenant safe** - Each therapist sees only their data
+- **Calendar flexibility** - Support for multiple Google Calendars
+- **Centralized state** - Single source of truth for authentication
 
 ## 📄 License
 
@@ -344,4 +387,4 @@ This project is proprietary software for LV Notas therapy practice management.
 
 **Built with ❤️ for modern therapy practice management**
 
-*Now featuring real Google authentication for seamless, secure access!*
+*Now featuring real Google authentication, persistent sessions, and multi-calendar support for seamless, secure access!*

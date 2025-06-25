@@ -29,12 +29,13 @@ const asyncHandler = (
 };
 
 // GET /api/therapists/:email - Get therapist by email
+// GET /api/therapists/:email - Get therapist by email
 router.get("/:email", asyncHandler(async (req, res) => {
   const { email } = req.params;
   
   try {
     const result = await pool.query(
-      "SELECT id, nome as name, email, google_calendar_id as googleCalendarId, created_at FROM therapists WHERE email = $1",
+      'SELECT id, nome as name, email, google_calendar_id as "googleCalendarId", created_at FROM therapists WHERE email = $1',
       [email]
     );
     

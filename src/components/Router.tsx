@@ -16,9 +16,9 @@ interface RouterProps {
 
 export const Router: React.FC<RouterProps> = ({ therapistEmail, onOnboardingComplete, onLogout }) => {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
-  
+
   console.log("Router render - currentPath:", currentPath, "therapistEmail:", therapistEmail);
-  
+
   // Listen for URL changes (back/forward buttons, direct navigation)
   useEffect(() => {
     const handlePopState = () => {
@@ -28,7 +28,7 @@ export const Router: React.FC<RouterProps> = ({ therapistEmail, onOnboardingComp
 
     // Set initial path
     setCurrentPath(window.location.pathname);
-    
+
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
@@ -70,7 +70,7 @@ export const Router: React.FC<RouterProps> = ({ therapistEmail, onOnboardingComp
       case "/configuracoes":
         console.log("Rendering Settings");
         return <Settings therapistEmail={therapistEmail} onLogout={onLogout} />;
-      
+
       case "/dashboard":
       case "/":
       default:
@@ -105,19 +105,12 @@ const Dashboard: React.FC<DashboardProps> = ({ therapistEmail, navigateTo }) => 
     setIsLoadingEvents(true);
     setEventsError(null);
     try {
-      // For now, we'll create a test endpoint to get calendar events
-      const API_URL = process.env.EXPO_PUBLIC_LOCAL_URL || 'http://localhost:3000';
-      const headers = await apiService.getAuthHeaders?.() || {};
-      
-      const response = await fetch(`${API_URL}/api/calendar-events`, {
-        headers
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to load calendar events: ${response.status}`);
-      }
-      
-      const events = await response.json();
+      console.log("Loading calendar events for therapist:", therapistEmail);
+
+      // Use the proper API method that passes therapist email
+      const events = await apiService.getCalendarEvents(therapistEmail);
+
+      console.log("Calendar events loaded:", events);
       setCalendarEvents(events);
       setShowEvents(true);
     } catch (error: any) {
@@ -134,11 +127,11 @@ const Dashboard: React.FC<DashboardProps> = ({ therapistEmail, navigateTo }) => 
       <Text style={styles.dashboardSubtitle}>
         Bem-vindo, {therapistEmail}! Aqui você pode gerenciar suas sessões e pacientes.
       </Text>
-      
+
       {/* Calendar Events Section */}
       <View style={styles.calendarSection}>
         <Text style={styles.sectionTitle}>📅 Eventos do Calendário</Text>
-        
+
         {!showEvents ? (
           <Pressable
             style={[styles.testButton, isLoadingEvents && styles.buttonDisabled]}
@@ -157,7 +150,7 @@ const Dashboard: React.FC<DashboardProps> = ({ therapistEmail, navigateTo }) => 
                 <Text style={styles.hideButtonText}>Ocultar</Text>
               </Pressable>
             </View>
-            
+
             {calendarEvents.length > 0 ? (
               <View style={styles.eventsList}>
                 {calendarEvents.slice(0, 5).map((event, index) => (
@@ -182,7 +175,7 @@ const Dashboard: React.FC<DashboardProps> = ({ therapistEmail, navigateTo }) => 
             ) : (
               <Text style={styles.noEventsText}>Nenhum evento encontrado</Text>
             )}
-            
+
             <Pressable
               style={styles.refreshButton}
               onPress={loadCalendarEvents}
@@ -194,12 +187,12 @@ const Dashboard: React.FC<DashboardProps> = ({ therapistEmail, navigateTo }) => 
             </Pressable>
           </View>
         )}
-        
+
         {eventsError && (
           <Text style={styles.errorText}>❌ {eventsError}</Text>
         )}
       </View>
-      
+
       {/* Quick Actions */}
       <View style={styles.quickActions}>
         <Pressable
@@ -208,7 +201,7 @@ const Dashboard: React.FC<DashboardProps> = ({ therapistEmail, navigateTo }) => 
         >
           <Text style={styles.quickActionText}>👥 Gerenciar Pacientes</Text>
         </Pressable>
-        
+
         <Pressable
           style={styles.quickActionButton}
           onPress={() => navigateTo("/check-in")}
@@ -227,6 +220,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    paddingHorizontal: 0, // Remove extra padding since App.tsx handles it
   },
   dashboardContainer: {
     flex: 1,
@@ -234,6 +228,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 20,
     backgroundColor: "#f8f9fa",
+    maxWidth: 900,
+    alignSelf: 'center',
+    width: '100%',
   },
   dashboardTitle: {
     fontSize: 28,
@@ -251,13 +248,14 @@ const styles = StyleSheet.create({
   },
   calendarSection: {
     width: "100%",
-    maxWidth: 600,
+    maxWidth: 700,
     marginBottom: 32,
     padding: 20,
     backgroundColor: "#fff",
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#e9ecef",
+    alignSelf: 'center',
   },
   sectionTitle: {
     fontSize: 20,
@@ -365,7 +363,8 @@ const styles = StyleSheet.create({
   },
   quickActions: {
     width: "100%",
-    maxWidth: 400,
+    maxWidth: 500,
+    alignSelf: 'center',
   },
   quickActionButton: {
     backgroundColor: "#6200ee",

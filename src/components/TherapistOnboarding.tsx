@@ -54,7 +54,7 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
         const user = auth.currentUser;
         setCurrentUser(user);
         const savedCalendarId = localStorage.getItem("therapist_calendar_id");
-        
+
         // Check if this user already has calendar setup in database
         try {
           const existingTherapist = await apiService.getTherapistByEmail(user.email!);
@@ -202,7 +202,7 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     try {
       if (state.therapist && state.therapist.email) {
         console.log("Updating therapist calendar for:", state.therapist.email);
-        
+
         // Always make the real API call
         await apiService.updateTherapistCalendar(state.therapist.email, calendarId);
 
@@ -257,6 +257,12 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     if (onComplete && email) {
       console.log("✅ Calling onComplete with email:", email);
       onComplete(email);
+
+      // Force navigation to dashboard after completion
+      setTimeout(() => {
+        window.history.pushState({}, "", "/dashboard");
+        window.dispatchEvent(new Event("popstate"));
+      }, 100);
     } else {
       console.error("❌ Cannot complete - missing onComplete or email");
       console.error("onComplete:", onComplete);

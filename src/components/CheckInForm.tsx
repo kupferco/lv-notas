@@ -1,10 +1,10 @@
+// src/components/CheckInForm.tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import type { Patient, Session } from '../types';
-
-import { apiService } from '../services/api'
-import { initializeFirebase } from '../config/firebase';
+import { apiService } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 interface CheckInFormProps {
   therapistEmail: string | null;
@@ -16,7 +16,7 @@ export const CheckInForm: React.FC<CheckInFormProps> = ({ therapistEmail }) => {
   console.log('therapistEmail type:', typeof therapistEmail);
   console.log('therapistEmail length:', therapistEmail?.length);
 
-
+  const { isAuthenticated, hasValidTokens, isLoading: authLoading } = useAuth();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedPatient, setSelectedPatient] = useState('');
@@ -26,19 +26,27 @@ export const CheckInForm: React.FC<CheckInFormProps> = ({ therapistEmail }) => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const init = async () => {
-      try {
-        await initializeFirebase();
-        await loadPatients();
-      } catch (error) {
-        console.error('Error initializing:', error);
-        setError('Erro ao carregar dados');
-        setIsLoading(false);
-      }
-    };
+    console.log('🔍 CheckInForm useEffect - Auth state:', {
+      isAuthenticated,
+      hasValidTokens,
+      authLoading,
+      therapistEmail
+    });
 
-    init();
-  }, []);
+    // Wait for auth to be ready before loading patients
+    if (!authLoading && isAuthenticated && hasValidTokens && therapistEmail) {
+      console.log('✅ Auth ready, loading patients...');
+      loadPatients();
+    } else if (!authLoading && (!isAuthenticated || !hasValidTokens)) {
+      console.log('❌ Auth not ready');
+      setError('Autenticação necessária');
+      setIsLoading(false);
+    } else if (!authLoading && !therapistEmail) {
+      console.log('❌ No therapist email');
+      setError('Email do terapeuta não encontrado');
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, hasValidTokens, authLoading, therapistEmail]);
 
   useEffect(() => {
     if (selectedPatient) {
@@ -49,19 +57,28 @@ export const CheckInForm: React.FC<CheckInFormProps> = ({ therapistEmail }) => {
   }, [selectedPatient]);
 
   const loadPatients = async () => {
-    try {
-      if (!therapistEmail) {
-        console.error('No therapist email available for loading patients');
-        setIsLoading(false);
-        return;
-      }
+    if (!therapistEmail) {
+      console.error('No therapist email available for loading patients');
+      setError('Email do terapeuta não disponível');
+      setIsLoading(false);
+      return;
+    }
 
-      console.log('Loading patients for therapist:', therapistEmail);
-      const data = await apiService.getPatients(therapistEmail); // Now TypeScript knows it's not null
-      console.log('Patients loaded:', data);
+    try {
+      console.log('📞 Loading patients for therapist:', therapistEmail);
+      setError(null);
+      
+      const data = await apiService.getPatients(therapistEmail);
+      console.log('✅ Patients loaded:', data);
+      
+      if (data.length === 0) {
+        setError('Nenhum paciente encontrado');
+      }
+      
       setPatients(data);
-    } catch (error) {
-      console.error('Error loading patients:', error);
+    } catch (error: any) {
+      console.error('❌ Error loading patients:', error);
+      setError(`Erro ao carregar pacientes: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -69,10 +86,12 @@ export const CheckInForm: React.FC<CheckInFormProps> = ({ therapistEmail }) => {
 
   const loadPatientSessions = async (patientId: string) => {
     try {
+      console.log('📞 Loading sessions for patient:', patientId);
       const data = await apiService.getPatientSessions(patientId);
+      console.log('✅ Sessions loaded:', data);
       setSessions(data);
-    } catch (error) {
-      console.error('Error loading sessions:', error);
+    } catch (error: any) {
+      console.error('❌ Error loading sessions:', error);
       setSessions([]);
     }
   };
@@ -82,13 +101,14 @@ export const CheckInForm: React.FC<CheckInFormProps> = ({ therapistEmail }) => {
 
     setIsSubmitting(true);
     try {
+      console.log('📞 Submitting check-in:', { selectedPatient, selectedSession });
       await apiService.submitCheckIn(selectedPatient, selectedSession);
       setSelectedPatient('');
       setSelectedSession('');
       alert('Presença confirmada com sucesso!');
-    } catch (error) {
-      console.error('Error submitting check-in:', error);
-      alert('Erro ao confirmar presença. Tente novamente.');
+    } catch (error: any) {
+      console.error('❌ Error submitting check-in:', error);
+      alert(`Erro ao confirmar presença: ${error.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -100,11 +120,32 @@ export const CheckInForm: React.FC<CheckInFormProps> = ({ therapistEmail }) => {
     }
   };
 
+  // Show loading while auth is being checked
+  if (authLoading) {
+    return (
+      <SafeAreaView style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#6200ee" />
+        <Text style={styles.loadingText}>Verificando autenticação...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Show auth error if not authenticated
+  if (!isAuthenticated || !hasValidTokens) {
+    return (
+      <SafeAreaView style={styles.centerContainer}>
+        <Text style={styles.errorText}>❌ Autenticação necessária</Text>
+        <Text style={styles.helpText}>Por favor, faça login novamente</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Show loading while patients are being loaded
   if (isLoading) {
     return (
       <SafeAreaView style={styles.centerContainer}>
         <ActivityIndicator size="large" color="#6200ee" />
-        <Text style={styles.loadingText}>Carregando informações...</Text>
+        <Text style={styles.loadingText}>Carregando pacientes...</Text>
       </SafeAreaView>
     );
   }
@@ -193,6 +234,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#fff',
+    padding: 20,
   },
   header: {
     backgroundColor: '#f8f9fa',
@@ -273,5 +315,17 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 16,
     color: '#6c757d',
+    textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 18,
+    color: '#dc3545',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  helpText: {
+    fontSize: 14,
+    color: '#6c757d',
+    textAlign: 'center',
   },
 });

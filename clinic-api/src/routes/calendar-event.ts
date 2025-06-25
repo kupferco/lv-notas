@@ -1,6 +1,7 @@
 // clinic-api/src/routes/calendar-events.ts
 import express, { Router, Request, Response, NextFunction } from "express";
 import { googleCalendarService } from "../services/google-calendar.js";
+import pool from "../config/database.js";
 
 const router: Router = Router();
 
@@ -18,10 +19,16 @@ const asyncHandler = (
 
 router.get("/", asyncHandler(async (req, res) => {
   try {
-    console.log("Fetching user's calendar events...");
+    console.log("=== FETCHING CALENDAR EVENTS ===");
     
     // Get the Google access token from request headers
     const googleAccessToken = req.headers['x-google-access-token'] as string;
+    const { therapistEmail } = req.query;
+    
+    console.log("Request params:", {
+      hasGoogleToken: !!googleAccessToken,
+      therapistEmail
+    });
     
     if (!googleAccessToken) {
       return res.status(400).json({ 
@@ -30,14 +37,45 @@ router.get("/", asyncHandler(async (req, res) => {
       });
     }
     
-    // Get user's calendar events using their access token
-    const events = await googleCalendarService.getUserEvents(googleAccessToken);
+    if (!therapistEmail) {
+      return res.status(400).json({ 
+        error: "therapistEmail parameter is required"
+      });
+    }
     
-    console.log(`Found ${events.length} events from user's calendar`);
+    // Get the therapist's selected calendar ID from database
+    console.log("Looking up therapist calendar ID for:", therapistEmail);
+    const therapistResult = await pool.query(
+      "SELECT google_calendar_id FROM therapists WHERE email = $1",
+      [therapistEmail]
+    );
+    
+    if (therapistResult.rows.length === 0) {
+      return res.status(404).json({ 
+        error: "Therapist not found",
+        therapistEmail 
+      });
+    }
+    
+    const therapistCalendarId = therapistResult.rows[0].google_calendar_id;
+    console.log("Found therapist calendar ID:", therapistCalendarId);
+    
+    if (!therapistCalendarId) {
+      return res.status(400).json({ 
+        error: "Therapist has no calendar configured",
+        message: "Please complete calendar setup in settings"
+      });
+    }
+    
+    // Get user's calendar events using their access token AND the therapist's calendar ID
+    console.log("Fetching events from calendar:", therapistCalendarId);
+    const events = await googleCalendarService.getUserEvents(googleAccessToken, therapistCalendarId);
+    
+    console.log(`✅ Found ${events.length} events from therapist's calendar`);
     
     res.json(events || []);
   } catch (error) {
-    console.error("Error fetching calendar events:", error);
+    console.error("❌ Error fetching calendar events:", error);
     res.status(500).json({ error: "Failed to fetch calendar events" });
   }
 }));
