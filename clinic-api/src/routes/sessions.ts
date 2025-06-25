@@ -2,6 +2,7 @@
 import express, { Router, Request, Response, NextFunction } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
 import pool from "../config/database.js";
+import { googleCalendarService } from "../services/google-calendar.js";
 
 const router: Router = Router();
 
@@ -42,7 +43,7 @@ const asyncHandler = (
 // GET /api/sessions - Get all sessions for a therapist
 router.get("/", asyncHandler(async (req, res) => {
   const therapistEmail = req.query.therapistEmail as string;
-  
+
   if (!therapistEmail) {
     return res.status(400).json({ error: "therapistEmail query parameter is required" });
   }
@@ -95,15 +96,15 @@ router.post("/", asyncHandler(async (req, res) => {
   const { patientId, date, status = 'agendada', therapistEmail }: CreateSessionBody = req.body;
 
   if (!patientId || !date || !therapistEmail) {
-    return res.status(400).json({ 
-      error: "patientId, date, and therapistEmail are required" 
+    return res.status(400).json({
+      error: "patientId, date, and therapistEmail are required"
     });
   }
 
   try {
-    // Get therapist ID
+    // Get therapist ID and selected calendar
     const therapistResult = await pool.query(
-      "SELECT id FROM therapists WHERE email = $1",
+      "SELECT id, google_calendar_id FROM therapists WHERE email = $1",
       [therapistEmail]
     );
 
@@ -111,11 +112,12 @@ router.post("/", asyncHandler(async (req, res) => {
       return res.status(404).json({ error: "Therapist not found" });
     }
 
-    const therapistId = therapistResult.rows[0].id;
+    const therapist = therapistResult.rows[0];
+    const therapistId = therapist.id;
 
-    // Verify patient exists and belongs to this therapist
+    // Get patient details (including email and name)
     const patientResult = await pool.query(
-      "SELECT id FROM patients WHERE id = $1 AND therapist_id = $2",
+      "SELECT id, nome, email FROM patients WHERE id = $1 AND therapist_id = $2",
       [patientId, therapistId]
     );
 
@@ -123,7 +125,9 @@ router.post("/", asyncHandler(async (req, res) => {
       return res.status(404).json({ error: "Patient not found or not accessible" });
     }
 
-    // Create the session
+    const patient = patientResult.rows[0];
+
+    // Create the session in database first
     const result = await pool.query(
       `INSERT INTO sessions (date, patient_id, therapist_id, status)
        VALUES ($1, $2, $3, $4)
@@ -131,7 +135,7 @@ router.post("/", asyncHandler(async (req, res) => {
       [date, patientId, therapistId, status]
     );
 
-    const session = {
+    let session = {
       id: result.rows[0].id.toString(),
       date: result.rows[0].date,
       google_calendar_event_id: result.rows[0].google_calendar_event_id,
@@ -140,6 +144,90 @@ router.post("/", asyncHandler(async (req, res) => {
       status: result.rows[0].status,
       created_at: result.rows[0].created_at
     };
+
+    // Create Google Calendar event if patient has email and therapist has calendar selected
+    if (patient.email && therapist.google_calendar_id) {
+      console.log('Patient has email:', patient.email);
+      console.log('Using therapist calendar:', therapist.google_calendar_id);
+
+      const userAccessToken = req.headers['x-google-access-token'] as string;
+
+      if (userAccessToken) {
+        try {
+          const eventData = {
+            summary: `Sessão - ${patient.nome}`,
+            description: `Sessão de terapia para ${patient.nome}\nPaciente: ${patient.email}`,
+            start: {
+              dateTime: date,
+              timeZone: "America/Sao_Paulo",
+            },
+            end: {
+              dateTime: new Date(new Date(date).getTime() + 3600000).toISOString(),
+              timeZone: "America/Sao_Paulo",
+            },
+            attendees: [
+              {
+                email: patient.email,
+                responseStatus: 'needsAction'
+              }
+            ]
+          };
+
+          const calendarEvent = await googleCalendarService.createUserEvent(
+            userAccessToken,
+            therapist.google_calendar_id,
+            eventData
+          );
+
+          console.log('Calendar event created successfully:', calendarEvent);
+          session.google_calendar_event_id = calendarEvent.id;
+
+          // Update session with Google Calendar event ID
+          await pool.query(
+            "UPDATE sessions SET google_calendar_event_id = $1 WHERE id = $2",
+            [calendarEvent.id, result.rows[0].id]
+          );
+
+        } catch (calendarError: any) {
+          console.error('Error creating Google Calendar event:', calendarError);
+
+          let errorMessage = "Falha ao criar evento no Google Calendar";
+          let errorDetails = calendarError.message || "Erro desconhecido";
+
+          // Check for specific error types
+          if (calendarError.message && calendarError.message.includes('Invalid attendee email')) {
+            errorMessage = "Email do paciente inválido";
+            errorDetails = `O email "${patient.email}" não é um endereço de email válido`;
+          }
+
+          // Return detailed error to frontend
+          return res.status(400).json({
+            error: errorMessage,
+            details: errorDetails,
+            session: session // Still return the session since it was created in DB
+          });
+        }
+      } else {
+        console.log('No user access token available');
+        return res.status(400).json({
+          error: "Token de acesso do Google não disponível",
+          session: session
+        });
+      }
+    } else {
+      if (!patient.email) {
+        return res.status(400).json({
+          error: "Email do paciente é obrigatório para criar evento no calendário",
+          session: session
+        });
+      }
+      if (!therapist.google_calendar_id) {
+        return res.status(400).json({
+          error: "Calendário do terapeuta não foi selecionado",
+          session: session
+        });
+      }
+    }
 
     return res.status(201).json(session);
   } catch (error) {

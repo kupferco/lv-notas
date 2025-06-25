@@ -21,12 +21,14 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 - ✅ **Secure logout functionality** - Complete localStorage cleanup
 - ✅ **Chrome account detection** - Automatic sign-in with existing Google sessions
 
-### 📅 **Calendar Integration Fixes**
-- ✅ **Fixed calendar selection persistence** - Respects therapist's chosen calendar
-- ✅ **Multi-calendar support** - Therapists can choose between multiple Google Calendars
-- ✅ **Calendar-specific event loading** - Dashboard shows events from selected calendar only
-- ✅ **Backend calendar ID routing** - API correctly uses therapist's selected calendar
-- ✅ **Real-time calendar switching** - Settings allow changing calendar selection
+### 🚀 **Google Calendar Integration (Session → Calendar Sync)**
+- ✅ **Automatic calendar event creation** - Sessions create events in therapist's selected calendar
+- ✅ **OAuth-based calendar access** - Uses therapist's own permissions for calendar operations
+- ✅ **Patient email invitations** - Patients receive calendar invitations automatically
+- ✅ **Multi-calendar support** - Each therapist uses their own selected Google Calendar
+- ✅ **Error handling with validation** - Invalid emails and permission errors handled gracefully
+- ✅ **Calendar event linking** - Sessions store Google Calendar event IDs for tracking
+- 🚧 **Bidirectional sync** - Calendar changes → LV Notas updates (webhook foundation ready)
 
 ### 👥 **Patient Management Enhancements**
 - ✅ **AuthContext integration** - Patient loading now uses centralized authentication
@@ -68,13 +70,15 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 - **Secure token management** with automatic refresh
 - **No development mode bypasses** - Always uses real authentication
 
-### 📅 Google Calendar Integration
-- **Real-time webhook integration** for automatic session creation
-- **Calendar selection during onboarding** - therapists choose which calendar to use
-- **Persistent calendar selection** - no re-selection required
-- **Automatic event synchronization** - calendar events create therapy sessions
-- **Session status tracking** (scheduled, attended, cancelled)
-- **Multi-calendar support** - works with any Google Calendar the user has access to
+### 📅 **Advanced Google Calendar Integration**
+- **Bidirectional sync foundation** - Infrastructure for calendar ↔ sessions synchronization
+- **OAuth + Service Account hybrid** - OAuth for user operations, service account for webhooks
+- **Automatic event creation** - Sessions create calendar events with patient invitations
+- **Calendar selection persistence** - Therapists choose and maintain their calendar preference
+- **Multi-calendar support** - Each therapist uses their own Google Calendar
+- **Real-time webhook integration** for automatic session creation from calendar events
+- **Session status tracking** (scheduled, attended, cancelled) with calendar sync
+- **Patient email invitations** - Automatic calendar invites sent to patients
 
 ### 👥 Patient Management
 - **Multi-tenant patient system** - therapists manage only their patients
@@ -403,17 +407,26 @@ npm start
 
 ## 📝 Latest Enhancement Summary
 
-### ✅ Session Management System Completed
-1. **Complete CRUD operations** - Create, read, update, delete sessions
+### ✅ Complete Session Management + Google Calendar Integration
+1. **Complete CRUD operations** - Create, read, update, delete sessions with calendar sync
 2. **Advanced filtering** - Status, patient, and date filters
 3. **Native browser dropdowns** - Consistent, clean UI
 4. **Real-time updates** - Changes reflect immediately
-5. **Calendar integration** - Sessions sync with Google Calendar
-6. **Multi-therapist isolation** - Secure data separation
-7. **Portuguese localization** - Complete Brazilian Portuguese interface
-8. **Type-safe API** - Full TypeScript integration
-9. **Responsive design** - Works across all screen sizes
-10. **Error handling** - Comprehensive error management
+5. **OAuth-based calendar integration** - Sessions automatically create calendar events
+6. **Patient email invitations** - Automatic calendar invites sent to patients
+7. **Multi-therapist isolation** - Secure data separation with individual calendars
+8. **Portuguese localization** - Complete Brazilian Portuguese interface
+9. **Type-safe API** - Full TypeScript integration with proper error handling
+10. **Responsive design** - Works across all screen sizes
+
+### 🔗 **Google Calendar Integration Achievements**
+1. **Hybrid authentication model** - OAuth for user operations, service account for webhooks
+2. **Automatic calendar event creation** - Sessions create events in therapist's calendar
+3. **Patient invitation system** - Patients receive email invitations automatically
+4. **Calendar selection persistence** - Therapists maintain their calendar preference
+5. **Error handling and validation** - Invalid emails and permission errors handled
+6. **Multi-calendar support** - Each therapist uses their own Google Calendar
+7. **Webhook foundation** - Infrastructure ready for bidirectional sync
 
 ### 🎯 Key Benefits
 - **Complete workflow coverage** - From patient onboarding to session management

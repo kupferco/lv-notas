@@ -1,3 +1,4 @@
+// clinic-api/src/routes/therapists.ts
 import express, { Router, Request, Response, NextFunction } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
 import pool from "../config/database.js";
@@ -28,7 +29,6 @@ const asyncHandler = (
   };
 };
 
-// GET /api/therapists/:email - Get therapist by email
 // GET /api/therapists/:email - Get therapist by email
 router.get("/:email", asyncHandler(async (req, res) => {
   const { email } = req.params;

@@ -42,7 +42,7 @@ export class GoogleCalendarService {
     async listUserCalendars(userAccessToken: string): Promise<any[]> {
         try {
             console.log("Using user OAuth token to list calendars...");
-            
+
             const userAuth = this._createUserAuth(userAccessToken);
             const userCalendar = google.calendar({ version: "v3", auth: userAuth });
 
@@ -70,7 +70,7 @@ export class GoogleCalendarService {
     async getUserEvents(userAccessToken: string, calendarId?: string): Promise<any[]> {
         try {
             console.log("Getting user events with OAuth token...");
-            
+
             const userAuth = this._createUserAuth(userAccessToken);
             const userCalendar = google.calendar({ version: "v3", auth: userAuth });
 
@@ -102,6 +102,7 @@ export class GoogleCalendarService {
             const response = await userCalendar.events.insert({
                 calendarId: calendarId,
                 requestBody: eventData,
+                sendUpdates: 'all' // Send invitations to attendees
             });
 
             return response.data;
@@ -132,6 +133,34 @@ export class GoogleCalendarService {
                 resource: event,
             });
 
+            return response.data;
+        } catch (error) {
+            console.error("Error creating calendar event:", error);
+            throw error;
+        }
+    }
+
+    async createEventWithAttendee(patientName: string, sessionDateTime: string, patientEmail: string, calendarId: string): Promise<any> {
+        try {
+            const event = {
+                summary: `Sessão - ${patientName}`,
+                description: `Sessão de terapia para ${patientName}\nPaciente: ${patientEmail}`,
+                start: {
+                    dateTime: sessionDateTime,
+                    timeZone: "America/Sao_Paulo",
+                },
+                end: {
+                    dateTime: new Date(new Date(sessionDateTime).getTime() + 3600000).toISOString(),
+                    timeZone: "America/Sao_Paulo",
+                }
+            };
+
+            const response = await this.calendar.events.insert({
+                calendarId: calendarId,  // Use the passed calendar ID instead of env variable
+                resource: event
+            });
+
+            console.log(`Created calendar event in calendar ${calendarId} for patient: ${patientEmail}`);
             return response.data;
         } catch (error) {
             console.error("Error creating calendar event:", error);
