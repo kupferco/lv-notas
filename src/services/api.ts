@@ -272,6 +272,47 @@ export const apiService = {
     return response.json();
   },
 
+  async updatePatient(patientId: string, patient: { nome: string; email?: string; telefone?: string }): Promise<Patient> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for API calls");
+    }
+
+    const headers = await getAuthHeaders();
+    console.log("📞 updatePatient API call:", { patientId, patient });
+    const response = await fetch(`${API_URL}/api/patients/${patientId}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(patient),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ updatePatient error response:", errorText);
+      throw new Error(`Failed to update patient: ${errorText}`);
+    }
+    const result = await response.json();
+    console.log("✅ updatePatient success:", result);
+    return result;
+  },
+
+  async deletePatient(patientId: string): Promise<void> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for API calls");
+    }
+
+    const headers = await getAuthHeaders();
+    console.log("📞 deletePatient API call:", patientId);
+    const response = await fetch(`${API_URL}/api/patients/${patientId}`, {
+      method: "DELETE",
+      headers,
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ deletePatient error response:", errorText);
+      throw new Error(`Failed to delete patient: ${errorText}`);
+    }
+    console.log("✅ deletePatient success");
+  },
+
   // Test connection endpoint
   async testConnection(): Promise<{ message: string }> {
     if (!canMakeAuthenticatedCall()) {

@@ -1,4 +1,6 @@
 export interface Patient {
+  telefone: string;
+  email: string;
   id: string;
   name: string;
 }

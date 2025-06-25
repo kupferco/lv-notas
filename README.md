@@ -18,18 +18,26 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 - ✅ **Backend calendar ID routing** - API correctly uses therapist's selected calendar
 - ✅ **Real-time calendar switching** - Settings allow changing calendar selection
 
-### 👥 **Patient Management Improvements**
+### 👥 **Patient Management Enhancements**
 - ✅ **AuthContext integration** - Patient loading now uses centralized authentication
-- ✅ **Better error handling** - Clear Portuguese error messages
+- ✅ **Complete CRUD operations** - Create, Read, Update, Delete patients
+- ✅ **Enhanced patient list** - Shows email and phone for all patients
+- ✅ **Professional patient cards** - Consistent layout with contact information
+- ✅ **Mandatory email field** - Email now required along with name
+- ✅ **Smart action buttons** - Compact header buttons for adding patients
+- ✅ **Edit/Delete functionality** - Full patient management with confirmations
 - ✅ **Multi-tenant security** - Each therapist sees only their patients
-- ✅ **Improved loading states** - Better UX during data loading
+- ✅ **Better error handling** - Clear Portuguese error messages
+- ✅ **Improved loading states** - Better UX during data operations
 
 ### 🎯 **Key Technical Achievements**
 - **Eliminated mock authentication** - Real Google tokens everywhere
 - **Fixed calendar persistence** - Selected calendar stored in database
 - **Centralized auth state** - Single source of truth for authentication
 - **Improved security** - Proper token management and validation
-- **Better error handling** - User-friendly Portuguese error messages
+- **Enhanced database queries** - Proper field selection for complete patient data
+- **CORS configuration** - Support for all CRUD operations (GET, POST, PUT, DELETE)
+- **Type safety improvements** - Better TypeScript integration throughout
 
 ## ✨ Features
 

@@ -205,7 +205,7 @@ const initializeApp = async () => {
             'http://localhost:8081',
             'http://localhost:19006'
         ],
-        methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization', 'X-Google-Access-Token'],
         credentials: true
     }));
