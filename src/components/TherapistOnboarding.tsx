@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } from "react-native";
-import { signInWithGoogle, checkAuthState, signOutUser, isDevelopment } from "../config/firebase";
+import { signInWithGoogle, checkAuthState, signOutUser, isDevelopment, auth } from "../config/firebase";
 import { apiService } from "../services/api";
 import { PatientManagement } from "./PatientManagement";
 import { CalendarSelection } from "./CalendarSelection";
@@ -48,50 +48,29 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
 
   const checkExistingAuth = async () => {
     try {
-      if (isDevelopment) {
-        // In development, check for existing mock user
-        const existingEmail = localStorage.getItem("therapist_email");
+      // Always use real Google authentication - no mock users
+      // Check if user is already signed in with real account
+      if (auth?.currentUser) {
+        const user = auth.currentUser;
+        setCurrentUser(user);
         const savedCalendarId = localStorage.getItem("therapist_calendar_id");
         
-        console.log("🔍 Checking existing auth:");
-        console.log("  - existingEmail:", existingEmail);
-        console.log("  - savedCalendarId:", savedCalendarId);
-        
-        if (existingEmail && existingEmail.includes("test-therapist-")) {
-          const mockUser = {
-            email: existingEmail,
-            displayName: "Terapeuta Teste",
-            uid: existingEmail,
-            getIdToken: () => Promise.resolve("mock-token")
-          } as User;
-          setCurrentUser(mockUser);
-          
-          // If we have both email and calendar ID saved, skip onboarding
-          if (savedCalendarId) {
-            console.log("✅ Found saved calendar selection, skipping onboarding");
-            setState({ 
-              step: "success", 
-              therapist: { 
-                email: existingEmail, 
-                name: "Terapeuta Teste", 
-                id: existingEmail,
-                googleCalendarId: savedCalendarId 
-              } 
-            });
-            return;
-          }
-          
-          // Check if this user already has calendar setup in database
-          const existingTherapist = await apiService.getTherapistByEmail(existingEmail);
+        // Check if this user already has calendar setup in database
+        try {
+          const existingTherapist = await apiService.getTherapistByEmail(user.email!);
           if (existingTherapist && existingTherapist.googleCalendarId) {
-            // Save to localStorage for future use
             localStorage.setItem("therapist_calendar_id", existingTherapist.googleCalendarId);
             setState({ step: "success", therapist: existingTherapist });
           } else if (existingTherapist) {
             setState({ step: "calendar-selection", therapist: existingTherapist });
+          } else {
+            setState({ step: "calendar-selection" });
           }
-          return;
+        } catch (error) {
+          console.log("No existing therapist found, proceeding to calendar selection");
+          setState({ step: "calendar-selection" });
         }
+        return;
       } else {
         // In production, check real Firebase auth
         const user = await checkAuthState();
@@ -129,25 +108,15 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
 
   const handleGetStarted = async () => {
     setIsLoading(true);
-    setState({ step: "auth" });
+    setState({
+      step: "auth"
+    });
 
     try {
       let user: User | null = null;
 
-      if (isDevelopment) {
-        // Mock authentication for development
-        const mockEmail = `test-therapist-${Date.now()}@example.com`;
-        user = {
-          email: mockEmail,
-          displayName: "Novo Terapeuta",
-          uid: mockEmail,
-          getIdToken: () => Promise.resolve("mock-token")
-        } as User;
-        localStorage.setItem("therapist_email", mockEmail);
-      } else {
-        // Real Google authentication for production
-        user = await signInWithGoogle();
-      }
+      // Use real Google authentication for both development and production
+      user = await signInWithGoogle();
 
       if (user) {
         setCurrentUser(user);
@@ -219,13 +188,13 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
 
   const handleCalendarSelected = async (calendarId: string) => {
     console.log("Calendar selected:", calendarId);
-    
+
     // Prevent double-selection by checking if already processing
     if (isLoading) {
       console.log("Already processing calendar selection, ignoring...");
       return;
     }
-    
+
     setSelectedCalendarId(calendarId);
     setIsLoading(true);
     setState(prev => ({ ...prev, step: "calendar" }));
@@ -234,15 +203,9 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
       if (state.therapist && state.therapist.email) {
         console.log("Updating therapist calendar for:", state.therapist.email);
         
-        if (isDevelopment) {
-          // In development, simulate success without API call
-          console.log("Development mode: skipping API call for calendar update");
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate delay
-        } else {
-          // In production, make the actual API call
-          await apiService.updateTherapistCalendar(state.therapist.email, calendarId);
-        }
-        
+        // Always make the real API call
+        await apiService.updateTherapistCalendar(state.therapist.email, calendarId);
+
         console.log("Calendar update successful");
       }
 
@@ -272,11 +235,11 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
   const handleSignOut = async () => {
     try {
       await signOutUser();
-      
+
       // Clear all localStorage data
       localStorage.removeItem("therapist_email");
       localStorage.removeItem("therapist_calendar_id");
-      
+
       setCurrentUser(null);
       setState({ step: "welcome" });
     } catch (error) {
@@ -289,7 +252,7 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     console.log("onComplete function exists:", !!onComplete);
     console.log("Current therapist:", state.therapist);
     console.log("Therapist email:", state.therapist?.email);
-    
+
     const email = state.therapist?.email;
     if (onComplete && email) {
       console.log("✅ Calling onComplete with email:", email);
@@ -305,13 +268,13 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     <View style={styles.stepContainer}>
       <Text style={styles.title}>Bem-vindo ao LV Notas</Text>
       <Text style={styles.subtitle}>
-        Conecte seu Google Calendar para começar a gerenciar sessões de terapia
+        Conecte seu Google Calendar para começar a gerenciar agendamento de sessões de terapia
       </Text>
 
       <View style={styles.featureList}>
-        <Text style={styles.feature}>📅 Acompanhamento automático de sessões</Text>
+        <Text style={styles.feature}>📅 Acompanhamento automático de comparecimento nas sessões</Text>
         <Text style={styles.feature}>👥 Sistema de check-in de pacientes</Text>
-        <Text style={styles.feature}>�� Sincronização em tempo real</Text>
+        <Text style={styles.feature}>🔄 Sincronização em tempo real</Text>
       </View>
 
       {state.error && (
@@ -328,12 +291,6 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
         </Text>
       </Pressable>
 
-      {isDevelopment && (
-        <Text style={styles.devNote}>
-          Modo desenvolvimento - autenticação simulada
-        </Text>
-      )}
-
       <Text style={styles.disclaimer}>
         Ao continuar, você concorda em conectar seu Google Calendar com LV Notas
       </Text>
@@ -345,10 +302,7 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
       <Text style={styles.title}>Conectando ao Google</Text>
       <ActivityIndicator size="large" color="#6200ee" style={styles.loader} />
       <Text style={styles.subtitle}>
-        {isDevelopment 
-          ? "Criando usuário de teste..." 
-          : "Complete o processo de login do Google na janela popup"
-        }
+        Complete o processo de login do Google na janela popup
       </Text>
     </View>
   );

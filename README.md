@@ -4,13 +4,12 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 
 ## ✨ Features
 
-### 🔐 **NEW: Real Google Authentication**
-- **Complete Google Sign-In integration** with Chrome account detection
-- **Development mode** with mock authentication for testing
-- **Production mode** with real Firebase authentication
-- **Persistent sessions** with localStorage and Firebase tokens
-- **Secure sign-out** with proper state cleanup
-- **Multi-tenant support** - each therapist sees only their data
+### 🔐 **Production-Ready Google Authentication**
+- **Real Google Sign-In** for both development and production
+- **Firebase Authentication** with persistent sessions
+- **Multi-tenant registration** - Any therapist can sign up with Google account
+- **Secure token management** with automatic refresh
+- **No development mode bypasses** - Always uses real authentication
 
 ### 📅 Google Calendar Integration
 - **Real-time webhook integration** for automatic session creation
@@ -45,13 +44,13 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 - **Account management** with therapist details
 - **Google Calendar status** and reconnection options
 - **Secure logout functionality** with complete state cleanup
-- **Development mode indicators**
+- **Multi-tenant open registration** - Any Google account can sign up
 
 ## 🏗️ Technical Architecture
 
 ### Authentication System
 - **Firebase Authentication** for production with Google Sign-In
-- **Mock authentication** for development with localStorage
+- **Real authentication everywhere** - No mock users or development bypasses
 - **Automatic environment detection** (localhost vs production)
 - **Persistent authentication state** across page refreshes
 - **Secure token management** with automatic refresh
@@ -153,22 +152,35 @@ cd clinic-api && npm install
 ```
 
 2. **Set up environment variables:**
-```bash
-# Backend (.env)
-POSTGRES_USER=your_postgres_user
-POSTGRES_HOST=localhost  
-POSTGRES_DB=clinic_db
-POSTGRES_PASSWORD=your_postgres_password
-POSTGRES_PORT=5432
-SAFE_PROXY_KEY=your_secure_api_key
-GOOGLE_CALENDAR_ID=your_default_calendar_id
 
-# Frontend (.env)
+**Frontend (.env.local):**
+```bash
+# Frontend environment variables
+SAFE_PROXY_API_KEY=your_secure_api_key
+EXPO_PUBLIC_LOCAL_URL=http://localhost:3000
+EXPO_PUBLIC_SAFE_PROXY_URL=https://your-backend-url
+EXPO_PUBLIC_AIRTABLE_BASE_ID=legacy_not_used
+
+# Firebase Configuration (must have EXPO_PUBLIC_ prefix)
 EXPO_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
 EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
 EXPO_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
-SAFE_PROXY_API_KEY=your_secure_api_key
-EXPO_PUBLIC_SAFE_PROXY_URL=your_backend_url
+```
+
+**Backend (clinic-api/.env):**
+```bash
+# Database Configuration
+POSTGRES_USER=your_postgres_user
+POSTGRES_HOST=localhost
+POSTGRES_DB=clinic_db
+POSTGRES_PASSWORD=your_postgres_password
+POSTGRES_PORT=5432
+
+# API Security
+SAFE_PROXY_KEY=your_secure_api_key
+
+# Google Calendar Integration
+GOOGLE_CALENDAR_ID=your_default_calendar_id
 ```
 
 3. **Set up database:**
@@ -182,7 +194,7 @@ psql -U your_postgres_user clinic_db < clinic-api/db/001_initial_schema.sql
 
 5. **Configure Firebase:**
    - Create Firebase project with Google Sign-In enabled
-   - Add localhost to authorized domains
+   - Add localhost and your production domain to authorized domains
    - Update environment variables with your Firebase config
 
 ### Development
@@ -207,12 +219,11 @@ npm start
 ## 📱 Usage
 
 ### First Time Setup
-1. Navigate to the app - authentication happens automatically
-2. **Development:** Mock user created automatically
-3. **Production:** Google Sign-In popup appears
-4. Select your Google Calendar for session management
-5. Add your first patients
-6. Start using the check-in system
+1. Navigate to the app - Google Sign-In happens automatically
+2. **Any Google account** can sign up - no restrictions
+3. Select your Google Calendar for session management
+4. Add your first patients
+5. Start using the check-in system
 
 ### Daily Workflow
 1. **Dashboard** - Overview and quick actions
@@ -221,11 +232,11 @@ npm start
 4. **Configurações** - Account settings and logout
 
 ### Authentication Features
-- **Automatic sign-in detection** - uses existing Chrome/Google sessions
-- **Persistent sessions** - stays logged in across browser sessions
-- **Secure logout** - clears all authentication data
-- **Calendar persistence** - remembers calendar selection
-- **Development mode** - works offline with mock authentication
+- **Automatic sign-in detection** - Uses existing Chrome/Google sessions
+- **Persistent sessions** - Stays logged in across browser sessions
+- **Secure logout** - Clears all authentication data
+- **Calendar persistence** - Remembers calendar selection
+- **Multi-tenant security** - Each therapist isolated
 
 ### Calendar Integration
 - Create events in your selected Google Calendar
@@ -290,19 +301,22 @@ npm start
 
 ## 🔄 Development vs Production
 
-### Development Mode (localhost)
-- **Mock authentication** - automatic test user creation
-- **localStorage persistence** - sessions persist across refreshes
-- **No Firebase required** - works completely offline
-- **Debug logging** - detailed console output
-- **CORS bypass** - simplified development setup
+### ✅ Updated Authentication Behavior
+- **Both Development and Production** now use real Google Sign-In
+- **No more mock authentication** - Always requires real Google account
+- **Consistent behavior** - Same authentication flow everywhere
+- **Real API calls** - No development mode skipping
 
-### Production Mode
-- **Real Firebase Authentication** - Google Sign-In popup
-- **Firebase token management** - secure token refresh
-- **Production security** - all authentication checks enabled
-- **Error handling** - user-friendly error messages
-- **Performance optimized** - minimal logging
+### Development Mode Features
+- **Localhost CORS bypass** - Simplified development setup
+- **Debug logging** - Detailed console output for troubleshooting
+- **Hot reload support** - Changes reflect immediately
+
+### Production Mode Features
+- **Real Firebase Authentication** - Full Google Sign-In integration
+- **Production security** - All authentication checks enabled
+- **Performance optimized** - Minimal logging
+- **Error handling** - User-friendly error messages
 
 ## 📝 Authentication Enhancement Summary
 
@@ -312,13 +326,13 @@ npm start
 3. **Persistent authentication** - localStorage + Firebase tokens
 4. **Secure logout** - Complete state cleanup
 5. **Calendar selection persistence** - No re-selection required
-6. **Development mode** - Mock authentication for testing
+6. **Multi-tenant open registration** - Any Google account can sign up
 7. **Production ready** - Real authentication for deployment
 
 ### 🎯 Key Benefits
 - **Seamless user experience** - Automatic authentication detection
 - **Production security** - Enterprise-grade Firebase authentication
-- **Developer friendly** - Works offline with mock authentication
+- **Developer friendly** - Real authentication even in development
 - **Persistent sessions** - Users stay logged in
 - **Multi-tenant safe** - Each therapist sees only their data
 

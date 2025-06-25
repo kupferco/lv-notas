@@ -5,22 +5,27 @@ const API_URL = isDevelopment ? "http://localhost:3000" : process.env.EXPO_PUBLI
 const API_KEY = process.env.SAFE_PROXY_API_KEY;
 
 const getAuthHeaders = async () => {
+  console.log("=== getAuthHeaders Debug ===");
+  console.log("getCurrentUser():", getCurrentUser());
+  console.log("auth object:", auth);
+  console.log("auth.currentUser:", auth?.currentUser?.email);
+
   let authHeader = "";
-  
-  if (isDevelopment) {
-    // In development, skip Firebase token but keep API key
-    console.log("Development mode: skipping Firebase token");
-  } else {
-    // For production, get real Firebase token
-    const user = getCurrentUser();
-    if (user) {
-      try {
-        const token = await user.getIdToken();
-        authHeader = `Bearer ${token}`;
-      } catch (error) {
-        console.error("Error getting Firebase token:", error);
-      }
+
+  // Always get Firebase token for both development and production
+  const user = getCurrentUser();
+  if (user) {
+    try {
+      console.log("User found, getting token...");
+      const token = await user.getIdToken();
+      authHeader = `Bearer ${token}`;
+      console.log("Firebase token obtained:", token ? "✅" : "❌");
+      console.log("Token preview:", token ? token.substring(0, 20) + "..." : "none");
+    } catch (error) {
+      console.error("Error getting Firebase token:", error);
     }
+  } else {
+    console.log("No authenticated user found");
   }
 
   const headers: Record<string, string> = {
@@ -31,8 +36,11 @@ const getAuthHeaders = async () => {
   // Only add Authorization header if we have a token
   if (authHeader) {
     headers["Authorization"] = authHeader;
+  } else {
+    console.warn("No Firebase token available - API calls may fail");
   }
 
+  console.log("Final headers:", headers);
   return headers;
 };
 
@@ -42,7 +50,7 @@ const getCurrentTherapistEmail = () => {
     // In development, get from localStorage (set during onboarding)
     return localStorage.getItem("therapist_email") || localStorage.getItem("currentTherapist") || null;
   }
-  
+
   // In production, get from Firebase auth
   const user = getCurrentUser();
   return user?.email || null;
@@ -132,7 +140,7 @@ export const apiService = {
   async updateTherapistCalendar(email: string, calendarId: string): Promise<void> {
     const headers = await getAuthHeaders();
     const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(email)}/calendar`, {
-      method: "PUT", 
+      method: "PUT",
       headers,
       body: JSON.stringify({ googleCalendarId: calendarId }),
     });

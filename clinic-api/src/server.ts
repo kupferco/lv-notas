@@ -77,8 +77,8 @@ const authenticateRequest = (
                 req.headers.origin.includes('localhost:19006'));
 
         if (isLocalhost) {
-            console.log('Localhost detected - skipping Firebase auth');
-            return next();
+            console.log('Localhost detected - but still going ahead with firebase auth');
+            // return next();
         }
 
         // Verify Firebase token for production
@@ -89,10 +89,10 @@ const authenticateRequest = (
 
             const decodedToken = await admin.auth().verifyIdToken(firebaseToken);
 
-            // Optional: additional verification
-            if (decodedToken.email !== 'daniel@kupfer.co') {
-                return res.status(403).json({ error: 'Forbidden' });
-            }
+            // Optional: additional verification (disabled!!)
+            // if (decodedToken.email !== 'daniel@kupfer.co') {
+            //     return res.status(403).json({ error: 'Forbidden' });
+            // }
 
             // Attach user info to request if needed
             req.user = decodedToken;
