@@ -1,3 +1,4 @@
+// src/components/NavigationBar.tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { navigateTo, getCurrentPath } from './Router';
@@ -22,9 +23,9 @@ export const NavigationBar: React.FC = () => {
   }, []);
 
   const NavButton: React.FC<{ path: string; label: string }> = ({ path, label }) => {
-    const isActive = currentPath === path || 
-                     (path === '/' && (currentPath === '/dashboard' || currentPath === '/'));
-    
+    const isActive = currentPath === path ||
+      (path === '/' && (currentPath === '/dashboard' || currentPath === '/'));
+
     return (
       <Pressable
         style={[styles.navButton, isActive && styles.navButtonActive]}
@@ -47,6 +48,7 @@ export const NavigationBar: React.FC = () => {
       <View style={styles.nav}>
         <NavButton path="/" label="Dashboard" />
         <NavButton path="/check-in" label="Check-in" />
+        <NavButton path="/sessoes" label="Sessões" />
         <NavButton path="/pacientes" label="Pacientes" />
         <NavButton path="/configuracoes" label="Configurações" />
       </View>

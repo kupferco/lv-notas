@@ -1,8 +1,18 @@
 # LV Notas - Therapist Management System
 
-A complete Node.js/TypeScript system for managing therapy clinics with **real Google authentication**, Google Calendar integration, patient management, and real-time session tracking.
+A complete Node.js/TypeScript system for managing therapy clinics with **real Google authentication**, Google Calendar integration, patient management, session management, and real-time session tracking.
 
 ## 🆕 Recent Improvements (June 2025)
+
+### 📅 **Complete Session Management System**
+- ✅ **Full Sessions CRUD** - Create, read, update, and cancel therapy sessions
+- ✅ **Advanced filtering** - Filter sessions by status, patient, and date
+- ✅ **Session status tracking** - Agendada, Compareceu, Cancelada
+- ✅ **Native browser dropdowns** - Clean, consistent UI with native select elements
+- ✅ **Real-time session updates** - Changes reflect immediately across the system
+- ✅ **Calendar integration** - Sessions sync with Google Calendar events
+- ✅ **Multi-therapist support** - Each therapist manages only their sessions
+- ✅ **Portuguese interface** - Complete localization for Brazilian therapists
 
 ### 🔧 **Authentication & Session Management**
 - ✅ **Fixed authentication persistence** - Users stay logged in after page refresh
@@ -35,11 +45,21 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 - **Fixed calendar persistence** - Selected calendar stored in database
 - **Centralized auth state** - Single source of truth for authentication
 - **Improved security** - Proper token management and validation
-- **Enhanced database queries** - Proper field selection for complete patient data
+- **Enhanced database queries** - Proper field selection for complete data
 - **CORS configuration** - Support for all CRUD operations (GET, POST, PUT, DELETE)
 - **Type safety improvements** - Better TypeScript integration throughout
+- **Native UI elements** - Consistent browser-native form controls
 
 ## ✨ Features
+
+### 📋 **Complete Session Management**
+- **Session CRUD operations** - Full create, read, update, delete functionality
+- **Advanced filtering system** - Filter by status (Agendada/Compareceu/Cancelada), patient, or date
+- **Real-time status updates** - Sessions update immediately across all views
+- **Calendar integration** - Sessions automatically sync with Google Calendar
+- **Multi-therapist isolation** - Each therapist manages only their sessions
+- **Native browser dropdowns** - Clean, consistent user interface
+- **Portuguese localization** - Complete interface in Brazilian Portuguese
 
 ### 🔐 **Production-Ready Google Authentication**
 - **Real Google Sign-In** for both development and production
@@ -72,6 +92,7 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 - **URL-based routing** with Portuguese endpoints:
   - `/` - Dashboard (home)
   - `/check-in` - Patient check-in
+  - `/sessoes` - **NEW** Session management
   - `/pacientes` - Patient management  
   - `/configuracoes` - Settings with logout functionality
 - **Browser navigation support** (back/forward buttons work)
@@ -103,6 +124,7 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 - **CORS protection** with PUT method support
 - **Rate limiting** and security headers
 - **Multi-calendar support** with per-therapist calendar selection
+- **Complete session management** with CRUD operations
 
 ### Frontend (React Native Web + TypeScript)
 - **React Native Web** for cross-platform compatibility
@@ -111,6 +133,7 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 - **Responsive design** with modern Portuguese interface
 - **Real-time state management** with AuthContext
 - **Authentication state persistence**
+- **Native browser controls** for consistent UX
 
 ### Database Schema
 - **Multi-tenant architecture** with therapist relationships
@@ -130,6 +153,7 @@ lv-notas/
 │   │   ├── TherapistOnboarding.tsx   # Complete auth + onboarding flow
 │   │   ├── CalendarSelection.tsx     # Google Calendar selection UI
 │   │   ├── CheckInForm.tsx           # Patient check-in interface
+│   │   ├── Sessions.tsx             # **NEW** Complete session management
 │   │   ├── PatientManagement.tsx     # Patient management interface
 │   │   └── Settings.tsx             # Settings with logout functionality
 │   ├── config/                      # Configuration files
@@ -152,7 +176,7 @@ lv-notas/
 │   │   │   ├── calendars.ts         # Calendar listing endpoint
 │   │   │   ├── checkin.ts          # Patient check-in API
 │   │   │   ├── patients.ts         # Patient management API
-│   │   │   ├── sessions.ts         # Session management API
+│   │   │   ├── sessions.ts         # **NEW** Complete session management API
 │   │   │   └── therapists.ts       # Therapist account API
 │   │   ├── services/                # Business logic services
 │   │   │   ├── google-calendar.ts   # Google Calendar API integration
@@ -257,6 +281,7 @@ npm start
 3. **Access the application:**
    - **New therapist onboarding:** `localhost:19006/` (automatic)
    - **Main application:** `localhost:19006/` (after onboarding)
+   - **Session management:** `localhost:19006/sessoes` ⭐ **NEW**
    - **Patient management:** `localhost:19006/pacientes`
    - **Settings:** `localhost:19006/configuracoes`
 
@@ -267,13 +292,22 @@ npm start
 2. **Any Google account** can sign up - no restrictions
 3. Select your Google Calendar for session management
 4. Add your first patients
-5. Start using the check-in system
+5. Start using the check-in system and session management
 
 ### Daily Workflow
 1. **Dashboard** - Overview and quick actions
 2. **Check-in** - Patients confirm attendance
-3. **Pacientes** - Manage patient roster
-4. **Configurações** - Account settings and logout
+3. **Sessões** ⭐ **NEW** - Complete session management with filtering and CRUD operations
+4. **Pacientes** - Manage patient roster
+5. **Configurações** - Account settings and logout
+
+### Session Management Features
+- **Create new sessions** manually with patient, date, time, and status
+- **Filter sessions** by status (Agendada/Compareceu/Cancelada), patient, or date
+- **Edit existing sessions** - modify patient, date, time, or status
+- **Cancel sessions** with confirmation dialogs
+- **View session details** including Google Calendar event IDs
+- **Real-time updates** - changes reflect immediately
 
 ### Authentication Features
 - **Automatic sign-in detection** - Uses existing Chrome/Google sessions
@@ -294,6 +328,9 @@ npm start
 ### Authentication Required
 - `GET /api/patients?therapistEmail=` - Get therapist's patients
 - `POST /api/patients` - Create new patient
+- `GET /api/sessions?therapistEmail=` - **NEW** Get therapist's sessions
+- `POST /api/sessions` - **NEW** Create new session
+- `PUT /api/sessions/:id` - **NEW** Update session
 - `GET /api/sessions/:patientId?therapistEmail=` - Get patient sessions
 - `POST /api/checkin` - Submit patient check-in
 - `GET /api/calendars` - List Google Calendars
@@ -310,7 +347,7 @@ npm start
 ### Core Tables
 - **therapists** - Therapist accounts with Google Calendar IDs
 - **patients** - Patient records linked to therapists
-- **sessions** - Therapy sessions from calendar events
+- **sessions** - Therapy sessions from calendar events AND manual creation
 - **check_ins** - Patient attendance records
 - **calendar_webhooks** - Active webhook subscriptions
 
@@ -364,28 +401,29 @@ npm start
 - **Performance optimized** - Minimal logging
 - **Error handling** - User-friendly error messages
 
-## 📝 Authentication Enhancement Summary
+## 📝 Latest Enhancement Summary
 
-### ✅ What Was Implemented
-1. **Real Google Sign-In** - Complete Firebase integration
-2. **Chrome account detection** - Uses existing Google sessions
-3. **Persistent authentication** - localStorage + Firebase tokens
-4. **Secure logout** - Complete state cleanup
-5. **Calendar selection persistence** - No re-selection required
-6. **Multi-tenant open registration** - Any Google account can sign up
-7. **Production ready** - Real authentication for deployment
-8. **AuthContext integration** - Centralized authentication state management
-9. **Calendar-specific event loading** - Dashboard respects selected calendar
-10. **Fixed patient loading** - AuthContext integration for patient management
+### ✅ Session Management System Completed
+1. **Complete CRUD operations** - Create, read, update, delete sessions
+2. **Advanced filtering** - Status, patient, and date filters
+3. **Native browser dropdowns** - Consistent, clean UI
+4. **Real-time updates** - Changes reflect immediately
+5. **Calendar integration** - Sessions sync with Google Calendar
+6. **Multi-therapist isolation** - Secure data separation
+7. **Portuguese localization** - Complete Brazilian Portuguese interface
+8. **Type-safe API** - Full TypeScript integration
+9. **Responsive design** - Works across all screen sizes
+10. **Error handling** - Comprehensive error management
 
 ### 🎯 Key Benefits
-- **Seamless user experience** - Automatic authentication detection
+- **Complete workflow coverage** - From patient onboarding to session management
 - **Production security** - Enterprise-grade Firebase authentication
 - **Developer friendly** - Real authentication even in development
 - **Persistent sessions** - Users stay logged in across page refreshes
 - **Multi-tenant safe** - Each therapist sees only their data
 - **Calendar flexibility** - Support for multiple Google Calendars
 - **Centralized state** - Single source of truth for authentication
+- **Native UI experience** - Consistent browser-native form controls
 
 ## 📄 License
 
@@ -395,4 +433,4 @@ This project is proprietary software for LV Notas therapy practice management.
 
 **Built with ❤️ for modern therapy practice management**
 
-*Now featuring real Google authentication, persistent sessions, and multi-calendar support for seamless, secure access!*
+*Now featuring complete session management with real Google authentication, persistent sessions, and multi-calendar support for seamless, secure practice management!*

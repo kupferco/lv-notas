@@ -313,6 +313,49 @@ export const apiService = {
     console.log("✅ deletePatient success");
   },
 
+  // Add these methods to your existing apiService object in src/services/api.ts
+
+  // Sessions management
+  async getSessions(therapistEmail: string): Promise<Session[]> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/sessions?therapistEmail=${encodeURIComponent(therapistEmail)}`, {
+      headers
+    });
+    if (!response.ok) throw new Error("Failed to fetch sessions");
+    return response.json();
+  },
+
+  async createSession(sessionData: {
+    patientId: string;
+    date: string;
+    status: string;
+    therapistEmail: string;
+  }): Promise<Session> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/sessions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(sessionData),
+    });
+    if (!response.ok) throw new Error("Failed to create session");
+    return response.json();
+  },
+
+  async updateSession(sessionId: string, updateData: {
+    patientId?: string;
+    date?: string;
+    status?: string;
+  }): Promise<Session> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(updateData),
+    });
+    if (!response.ok) throw new Error("Failed to update session");
+    return response.json();
+  },
+
   // Test connection endpoint
   async testConnection(): Promise<{ message: string }> {
     if (!canMakeAuthenticatedCall()) {

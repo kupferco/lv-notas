@@ -5,6 +5,7 @@ import { NavigationBar } from "./NavigationBar";
 import { CheckInForm } from "./CheckInForm";
 import { PatientManagement } from "./PatientManagement";
 import { TherapistOnboarding } from "./TherapistOnboarding";
+import { Sessions } from './Sessions';
 import { Settings } from "./Settings";
 import { apiService } from "../services/api";
 
@@ -66,6 +67,9 @@ export const Router: React.FC<RouterProps> = ({ therapistEmail, onOnboardingComp
             }}
           />
         );
+
+      case '/sessoes':
+        return <Sessions />;
 
       case "/configuracoes":
         console.log("Rendering Settings");
