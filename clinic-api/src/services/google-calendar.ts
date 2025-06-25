@@ -1,48 +1,117 @@
-import { google } from "googleapis";
-import path from "path";
-import pool from "../config/database.js";
-import { GoogleCalendarEvent } from "../types/calendar.js";
+// clinic-api/src/services/google-calendar.ts
+import { google } from 'googleapis';
+import path from 'path';
+import pool from '../config/database.js';
+import { GoogleCalendarEvent } from '../types/calendar.js';
 
-const serviceAccountPath = path.join(process.cwd(), "service-account-key.json");
+// Use process.cwd() or a fixed path if import.meta is problematic
+const serviceAccountPath = path.join(process.cwd(), 'service-account-key.json');
 
 export class GoogleCalendarService {
     private calendar: any;
+    private serviceAuth: any; // Keep service account for webhooks
 
     constructor() {
-        this._initializeAuth();
+        this._initializeServiceAuth();
     }
 
-    private _initializeAuth(): void {
+    // Keep service account auth for webhooks and admin operations
+    private _initializeServiceAuth(): void {
         const auth = new google.auth.GoogleAuth({
             keyFile: serviceAccountPath,
             scopes: [
+                "https://www.googleapis.com/auth/calendar",
                 "https://www.googleapis.com/auth/calendar.events",
                 "https://www.googleapis.com/auth/calendar.readonly"
             ],
         });
+        this.serviceAuth = auth;
         this.calendar = google.calendar({ version: "v3", auth });
     }
 
-    async listUserCalendars(): Promise<any[]> {
+    // Create OAuth client for user-specific operations
+    private _createUserAuth(accessToken: string): any {
+        const oauth2Client = new google.auth.OAuth2();
+        oauth2Client.setCredentials({
+            access_token: accessToken
+        });
+        return oauth2Client;
+    }
+
+    // Get user's calendars using their OAuth token
+    async listUserCalendars(userAccessToken: string): Promise<any[]> {
         try {
-            const response = await this.calendar.calendarList.list({
+            console.log("Using user OAuth token to list calendars...");
+            
+            const userAuth = this._createUserAuth(userAccessToken);
+            const userCalendar = google.calendar({ version: "v3", auth: userAuth });
+
+            const response = await userCalendar.calendarList.list({
                 showHidden: false,
                 showDeleted: false
             });
 
-            return response.data.items.map((calendar: any) => ({
+            console.log(`Found ${response.data.items?.length || 0} calendars with user auth`);
+
+            return response.data.items?.map((calendar: any) => ({
                 id: calendar.id,
                 summary: calendar.summary,
                 description: calendar.description || "",
                 accessRole: calendar.accessRole,
                 primary: calendar.primary || false
-            }));
+            })) || [];
         } catch (error) {
-            console.error("Error listing calendars:", error);
+            console.error("Error listing user calendars:", error);
             throw error;
         }
     }
 
+    // Get user's calendar events using their OAuth token
+    async getUserEvents(userAccessToken: string, calendarId?: string): Promise<any[]> {
+        try {
+            console.log("Getting user events with OAuth token...");
+            
+            const userAuth = this._createUserAuth(userAccessToken);
+            const userCalendar = google.calendar({ version: "v3", auth: userAuth });
+
+            // Use primary calendar if no specific calendar provided
+            const targetCalendarId = calendarId || 'primary';
+
+            const response = await userCalendar.events.list({
+                calendarId: targetCalendarId,
+                timeMin: new Date().toISOString(),
+                maxResults: 10,
+                singleEvents: true,
+                orderBy: 'startTime',
+            });
+
+            console.log(`Found ${response.data.items?.length || 0} events`);
+            return response.data.items || [];
+        } catch (error) {
+            console.error('Error fetching user events:', error);
+            throw error;
+        }
+    }
+
+    // Create event using user's OAuth token
+    async createUserEvent(userAccessToken: string, calendarId: string, eventData: any): Promise<any> {
+        try {
+            const userAuth = this._createUserAuth(userAccessToken);
+            const userCalendar = google.calendar({ version: "v3", auth: userAuth });
+
+            const response = await userCalendar.events.insert({
+                calendarId: calendarId,
+                requestBody: eventData,
+            });
+
+            return response.data;
+        } catch (error) {
+            console.error("Error creating user event:", error);
+            throw error;
+        }
+    }
+
+    // Keep existing service account methods for webhooks
     async createEvent(patientName: string, sessionDateTime: string): Promise<any> {
         try {
             const event = {
@@ -70,20 +139,20 @@ export class GoogleCalendarService {
         }
     }
 
-    async getRecentEvents(includeDeleted: boolean = true): Promise<GoogleCalendarEvent[]> {
+    // Keep existing webhook methods with service account
+    async getRecentEvents(includeDeleted: boolean = true): Promise<any[]> {
         try {
             const response = await this.calendar.events.list({
                 calendarId: process.env.GOOGLE_CALENDAR_ID,
                 updatedMin: new Date(Date.now() - 30000).toISOString(),
                 showDeleted: includeDeleted,
-                orderBy: "updated",
+                orderBy: 'updated',
                 singleEvents: true,
                 maxResults: 10,
-                fields: `items(id,status,summary,description,start,end,attendees,organizer,creator)`
             });
-            return response.data.items;
+            return response.data.items || [];
         } catch (error) {
-            console.error("Error fetching recent events:", error);
+            console.error('Error fetching recent events:', error);
             throw error;
         }
     }
@@ -91,7 +160,7 @@ export class GoogleCalendarService {
     async stopAllWebhooks(): Promise<void> {
         try {
             const result = await pool.query(
-                "SELECT channel_id, resource_id FROM calendar_webhooks"
+                'SELECT channel_id, resource_id FROM calendar_webhooks'
             );
 
             console.log(`Found ${result.rows.length} webhooks to stop`);
@@ -100,7 +169,7 @@ export class GoogleCalendarService {
                 try {
                     await this.stopWebhook(webhook.channel_id, webhook.resource_id);
                     await pool.query(
-                        "DELETE FROM calendar_webhooks WHERE channel_id = $1",
+                        'DELETE FROM calendar_webhooks WHERE channel_id = $1',
                         [webhook.channel_id]
                     );
                     console.log(`Stopped and removed webhook: ${webhook.channel_id}`);
@@ -109,7 +178,7 @@ export class GoogleCalendarService {
                 }
             }
         } catch (error) {
-            console.error("Error stopping webhooks:", error);
+            console.error('Error stopping webhooks:', error);
         }
     }
 
@@ -122,14 +191,14 @@ export class GoogleCalendarService {
                 calendarId: process.env.GOOGLE_CALENDAR_ID,
                 requestBody: {
                     id: channelId,
-                    type: "web_hook",
+                    type: 'web_hook',
                     address: `${webhookUrl}/api/calendar-webhook`,
                     expiration: (Date.now() + 7 * 24 * 60 * 60 * 1000).toString(),
                 },
             });
 
             await pool.query(
-                "INSERT INTO calendar_webhooks (channel_id, resource_id, expiration) VALUES ($1, $2, $3)",
+                'INSERT INTO calendar_webhooks (channel_id, resource_id, expiration) VALUES ($1, $2, $3)',
                 [
                     response.data.id,
                     response.data.resourceId,
@@ -137,10 +206,10 @@ export class GoogleCalendarService {
                 ]
             );
 
-            console.log("Webhook created successfully:", response.data);
+            console.log('Webhook created successfully:', response.data);
             return response.data;
         } catch (error) {
-            console.error("Error creating webhook:", error);
+            console.error('Error creating webhook:', error);
             throw error;
         }
     }
@@ -156,29 +225,29 @@ export class GoogleCalendarService {
 
             console.log(`Stopped webhook: ${channelId}`);
         } catch (error) {
-            console.error("Error stopping webhook:", error);
+            console.error('Error stopping webhook:', error);
         }
     }
 
     async debugWebhookWatch(webhookUrl: string): Promise<void> {
         try {
-            console.log("Debugging Webhook Watch");
-            console.log("Webhook URL:", webhookUrl);
-            console.log("Calendar ID:", process.env.GOOGLE_CALENDAR_ID);
+            console.log('Debugging Webhook Watch');
+            console.log('Webhook URL:', webhookUrl);
+            console.log('Calendar ID:', process.env.GOOGLE_CALENDAR_ID);
 
             const response = await this.calendar.events.watch({
                 calendarId: process.env.GOOGLE_CALENDAR_ID,
                 requestBody: {
                     id: `debug-webhook-${Date.now()}`,
-                    type: "web_hook",
+                    type: 'web_hook',
                     address: `${webhookUrl}/api/calendar-webhook`,
                     expiration: (Date.now() + 7 * 24 * 60 * 60 * 1000).toString(),
                 },
             });
 
-            console.log("Webhook Watch Debug Response:", response.data);
+            console.log('Webhook Watch Debug Response:', response.data);
         } catch (error) {
-            console.error("Webhook Watch Debug Error:", error);
+            console.error('Webhook Watch Debug Error:', error);
             console.error(JSON.stringify(error, null, 2));
         }
     }

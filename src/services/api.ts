@@ -1,26 +1,19 @@
 import type { Patient, Session, Therapist } from "../types";
-import { auth, getCurrentUser, isDevelopment } from "../config/firebase";
+import { getGoogleAccessToken, auth, getCurrentUser, isDevelopment } from "../config/firebase";
 
 const API_URL = isDevelopment ? "http://localhost:3000" : process.env.EXPO_PUBLIC_SAFE_PROXY_URL;
 const API_KEY = process.env.SAFE_PROXY_API_KEY;
 
-const getAuthHeaders = async () => {
-  console.log("=== getAuthHeaders Debug ===");
-  console.log("getCurrentUser():", getCurrentUser());
-  console.log("auth object:", auth);
-  console.log("auth.currentUser:", auth?.currentUser?.email);
-
+export const getAuthHeaders = async () => {
   let authHeader = "";
 
   // Always get Firebase token for both development and production
   const user = getCurrentUser();
   if (user) {
     try {
-      console.log("User found, getting token...");
       const token = await user.getIdToken();
       authHeader = `Bearer ${token}`;
       console.log("Firebase token obtained:", token ? "✅" : "❌");
-      console.log("Token preview:", token ? token.substring(0, 20) + "..." : "none");
     } catch (error) {
       console.error("Error getting Firebase token:", error);
     }
@@ -28,19 +21,29 @@ const getAuthHeaders = async () => {
     console.log("No authenticated user found");
   }
 
+  // Get Google access token for calendar operations
+  const googleAccessToken = getGoogleAccessToken();
+
   const headers: Record<string, string> = {
     "X-API-Key": API_KEY || "",
     "Content-Type": "application/json",
   };
 
-  // Only add Authorization header if we have a token
+  // Add Firebase token for authentication
   if (authHeader) {
     headers["Authorization"] = authHeader;
   } else {
     console.warn("No Firebase token available - API calls may fail");
   }
 
-  console.log("Final headers:", headers);
+  // Add Google access token for calendar operations
+  if (googleAccessToken) {
+    headers["X-Google-Access-Token"] = googleAccessToken;
+    console.log("Google access token included in headers");
+  } else {
+    console.warn("No Google access token available - calendar operations may fail");
+  }
+
   return headers;
 };
 
@@ -174,4 +177,5 @@ export const apiService = {
 
   // Helper method to get current therapist email
   getCurrentTherapistEmail,
+  getAuthHeaders,
 };

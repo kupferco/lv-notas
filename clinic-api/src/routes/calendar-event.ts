@@ -1,4 +1,4 @@
-// clinic-api/src/routes/calendars.ts
+// clinic-api/src/routes/calendar-events.ts
 import express, { Router, Request, Response, NextFunction } from "express";
 import { googleCalendarService } from "../services/google-calendar.js";
 
@@ -18,7 +18,7 @@ const asyncHandler = (
 
 router.get("/", asyncHandler(async (req, res) => {
   try {
-    console.log("Fetching user's Google Calendar data...");
+    console.log("Fetching user's calendar events...");
     
     // Get the Google access token from request headers
     const googleAccessToken = req.headers['x-google-access-token'] as string;
@@ -30,25 +30,15 @@ router.get("/", asyncHandler(async (req, res) => {
       });
     }
     
-    // Use the access token to get user's calendars
-    const calendars = await googleCalendarService.listUserCalendars(googleAccessToken);
+    // Get user's calendar events using their access token
+    const events = await googleCalendarService.getUserEvents(googleAccessToken);
     
-    console.log(`Found ${calendars.length} calendars from Google API`);
+    console.log(`Found ${events.length} events from user's calendar`);
     
-    // Filter out calendars that the user cannot write to
-    const writableCalendars = calendars.filter(
-      calendar => calendar.accessRole === "owner" || calendar.accessRole === "writer"
-    );
-    
-    console.log(`Returning ${writableCalendars.length} writable calendars`);
-    
-    return res.json(writableCalendars);
+    res.json(events || []);
   } catch (error) {
-    console.error("Error fetching calendars:", error);
-    return res.status(500).json({ 
-      error: "Erro ao buscar calendários",
-      details: error instanceof Error ? error.message : "Erro desconhecido"
-    });
+    console.error("Error fetching calendar events:", error);
+    res.status(500).json({ error: "Failed to fetch calendar events" });
   }
 }));
 

@@ -37,6 +37,7 @@ import sessionsRoute from './routes/sessions.js';
 import therapistsRoute from './routes/therapists.js';
 import { googleCalendarService } from './services/google-calendar.js';
 import calendarsRoute from './routes/calendars.js';
+import calendarEventsRoute from './routes/calendar-event.js';
 import pool from './config/database.js';
 
 const app = express();
@@ -117,6 +118,7 @@ const setupRoutes = () => {
     app.use('/api/checkin', authenticateRequest, checkinRoute);
     app.use('/api/calendar-webhook', calendarWebhookRoute);
     app.use('/api/calendars', authenticateRequest, calendarsRoute);
+    app.use('/api/calendar-events', authenticateRequest, calendarEventsRoute);
 
     app.post('/api/setup-webhook', authenticateRequest, async (req: Request, res: Response) => {
         try {
@@ -204,7 +206,7 @@ const initializeApp = async () => {
             'http://localhost:19006'
         ],
         methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization'],
+        allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization', 'X-Google-Access-Token'],
         credentials: true
     }));
 

@@ -1,51 +1,91 @@
-import { initializeApp, FirebaseApp } from "firebase/app";
-import { getAuth, signInWithPopup, GoogleAuthProvider, setPersistence, browserLocalPersistence, onAuthStateChanged, signOut, Auth, User } from "firebase/auth";
+// src/config/firebase.ts
+import { initializeApp } from "firebase/app";
+import { 
+  getAuth, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  setPersistence, 
+  browserLocalPersistence, 
+  onAuthStateChanged,
+  signOut,
+  User
+} from "firebase/auth";
+import { config } from "./config";
 
-const isDevelopment = window.location.hostname === "localhost";
+let auth: any = null;
+let app: any = null;
 
-let auth: Auth | null = null;
-let app: FirebaseApp | null = null;
-
-const firebaseConfig = {
-    apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY,
-    authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN,
-    projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID,
+const isFirebaseHosting = () => {
+    return window.location.hostname.includes("web.app") ||
+        window.location.hostname.includes("firebaseapp.com");
 };
 
-const initializeFirebase = async (): Promise<Auth> => {
-    if (!app) {
-        app = initializeApp(firebaseConfig);
+const isDevelopment = window.location.hostname === 'localhost';
+
+const initializeFirebase = async () => {
+    // Always initialize Firebase for real authentication
+    if (config.firebaseConfig.apiKey && config.firebaseConfig.authDomain && config.firebaseConfig.projectId) {
+        app = initializeApp(config.firebaseConfig);
         auth = getAuth(app);
 
+        // Set persistence to local
         try {
             await setPersistence(auth, browserLocalPersistence);
             console.log("Authentication persistence set to local");
         } catch (error) {
             console.error("Error setting authentication persistence:", error);
         }
+
+        // Check if user is already signed in
+        return new Promise((resolve) => {
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    console.log("User is already signed in:", user.email);
+                    resolve(user);
+                } else {
+                    resolve(null);
+                }
+            });
+        });
+    } else {
+        console.error("Firebase configuration is incomplete");
+        return null;
     }
-    return auth!;
 };
 
 const signInWithGoogle = async (): Promise<User | null> => {
-    try {
-        const authInstance = await initializeFirebase();
-        const provider = new GoogleAuthProvider();
-        
-        // Add required scopes
-        provider.addScope("email");
-        provider.addScope("profile");
-        
-        // Set custom parameters for better UX
-        provider.setCustomParameters({
-            prompt: "select_account"
-        });
+    if (!auth) {
+        await initializeFirebase();
+    }
 
-        const result = await signInWithPopup(authInstance, provider);
+    const provider = new GoogleAuthProvider();
+    
+    // Add Google Calendar scopes to request calendar access
+    provider.addScope('https://www.googleapis.com/auth/calendar');
+    provider.addScope('https://www.googleapis.com/auth/calendar.events');
+    provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+    
+    // Set custom parameters
+    provider.setCustomParameters({
+        'prompt': 'select_account'
+    });
+
+    try {
+        const result = await signInWithPopup(auth, provider);
         console.log("Authentication successful:", result.user.email);
         
-        // Store email in localStorage for consistency with existing flow
-        localStorage.setItem("therapist_email", result.user.email || "");
+        // Get the Google access token from the credential
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        if (credential) {
+            const accessToken = credential.accessToken;
+            console.log("Google access token obtained:", accessToken ? "✅" : "❌");
+            
+            // Store the access token for API calls
+            if (accessToken) {
+                localStorage.setItem('google_access_token', accessToken);
+                console.log("Stored Google access token");
+            }
+        }
         
         return result.user;
     } catch (error) {
@@ -54,23 +94,38 @@ const signInWithGoogle = async (): Promise<User | null> => {
     }
 };
 
+const checkAuthState = (): Promise<User | null> => {
+    if (!auth) {
+        return Promise.resolve(null);
+    }
+    
+    return new Promise((resolve) => {
+        onAuthStateChanged(auth, (user) => {
+            resolve(user);
+        });
+    });
+};
+
 const signOutUser = async (): Promise<void> => {
-    try {
-        const authInstance = await initializeFirebase();
-        await signOut(authInstance);
-        
-        // Clear local storage
-        localStorage.removeItem("therapist_email");
-        
-        console.log("User signed out successfully");
-    } catch (error) {
-        console.error("Error signing out:", error);
-        throw error;
+    if (auth) {
+        try {
+            await signOut(auth);
+            // Clear the stored access token
+            localStorage.removeItem('google_access_token');
+            console.log("User signed out successfully");
+        } catch (error) {
+            console.error("Error signing out:", error);
+            throw error;
+        }
     }
 };
 
 const getCurrentUser = (): User | null => {
     return auth?.currentUser || null;
+};
+
+const getGoogleAccessToken = (): string | null => {
+    return localStorage.getItem('google_access_token');
 };
 
 const onAuthStateChange = (callback: (user: User | null) => void) => {
@@ -80,18 +135,6 @@ const onAuthStateChange = (callback: (user: User | null) => void) => {
     return () => {};
 };
 
-// Check if user is already authenticated
-const checkAuthState = async (): Promise<User | null> => {
-    const authInstance = await initializeFirebase();
-    
-    return new Promise((resolve) => {
-        const unsubscribe = onAuthStateChanged(authInstance, (user) => {
-            unsubscribe();
-            resolve(user);
-        });
-    });
-};
-
 export { 
     app, 
     auth, 
@@ -99,6 +142,7 @@ export {
     signInWithGoogle, 
     signOutUser, 
     getCurrentUser,
+    getGoogleAccessToken,
     onAuthStateChange,
     checkAuthState,
     isDevelopment
