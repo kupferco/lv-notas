@@ -8,6 +8,7 @@ export interface Patient {
 }
 
 export interface Session {
+  message: any;
   id: string;
   date: string;
   patient_id: string;  // Added: ID of the patient for this session

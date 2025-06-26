@@ -41,7 +41,7 @@ export const Sessions = () => {
             setSessions(data);
         } catch (error) {
             console.error('Error loading sessions:', error);
-            Alert.alert('Erro', 'Falha ao carregar sessões');
+            alert('Erro: Falha ao carregar sessões');
         } finally {
             setIsLoading(false);
         }
@@ -63,89 +63,72 @@ export const Sessions = () => {
         }
 
         try {
-            const sessionDateTime = `${formData.date}T${formData.time}:00.000Z`;
-            await apiService.createSession({
+            const localDateTime = `${formData.date}T${formData.time}:00`;
+
+            console.log('=== TIMEZONE DEBUG ===');
+            console.log('Frontend date input:', formData.date);
+            console.log('Frontend time input:', formData.time);
+            console.log('Local sessionDateTime:', localDateTime);
+            console.log('As Date object:', new Date(localDateTime));
+
+            const response = await apiService.createSession({
                 patientId: formData.patientId,
-                date: sessionDateTime,
+                date: localDateTime, // Send local time, not UTC
                 status: formData.status,
                 therapistEmail: user?.email || ''
             });
 
-            alert('Sucesso: Sessão criada com sucesso!');
+            // Check if there's a message in the response (partial success)
+            if (response.message) {
+                alert(`Sessão criada com aviso: ${response.message}`);
+            } else {
+                alert('Sucesso: Sessão criada com sucesso!');
+            }
+
             setShowCreateForm(false);
             resetForm();
             loadSessions();
         } catch (error: any) {
-            console.error('Error creating session:', error);
-
-            // Handle detailed error response from backend
-            if (error.response && error.response.data) {
-                const errorData = error.response.data;
-
-                if (errorData.error && errorData.details) {
-                    // Show both main error and details
-                    alert(`${errorData.error}\n\n${errorData.details}`);
-                    console.error('Backend error details:', errorData);
-                } else if (errorData.error) {
-                    // Show just the main error
-                    alert(`Erro: ${errorData.error}`);
-                } else {
-                    // Fallback to generic message
-                    alert('Erro: Falha ao criar sessão');
-                }
-            } else {
-                // Network or other errors
-                alert('Erro: Falha ao criar sessão. Verifique sua conexão.');
-            }
+            console.error('Error creating session: ', error);
+            alert(error);
         }
     };
 
     const handleEditSession = async () => {
         if (!editingSession || !formData.patientId || !formData.date || !formData.time) {
-            Alert.alert('Erro', 'Preencha todos os campos obrigatórios');
+            alert('Erro: Preencha todos os campos obrigatórios');
             return;
         }
 
         try {
-            const sessionDateTime = `${formData.date}T${formData.time}:00.000Z`;
+            const localDateTime = `${formData.date}T${formData.time}:00`;
             await apiService.updateSession(editingSession.id, {
                 patientId: formData.patientId,
-                date: sessionDateTime,
+                date: localDateTime,
                 status: formData.status
             });
 
-            Alert.alert('Sucesso', 'Sessão atualizada com sucesso!');
+            alert('Sucesso: Sessão atualizada com sucesso!');
             setEditingSession(null);
             resetForm();
             loadSessions();
         } catch (error) {
             console.error('Error updating session:', error);
-            Alert.alert('Erro', 'Falha ao atualizar sessão');
+            alert('Erro: Falha ao atualizar sessão');
         }
     };
 
-    const handleCancelSession = async (sessionId: string) => {
-        Alert.alert(
-            'Confirmar Cancelamento',
-            'Tem certeza que deseja cancelar esta sessão?',
-            [
-                { text: 'Não', style: 'cancel' },
-                {
-                    text: 'Sim',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            await apiService.updateSession(sessionId, { status: 'cancelada' });
-                            Alert.alert('Sucesso', 'Sessão cancelada');
-                            loadSessions();
-                        } catch (error) {
-                            console.error('Error cancelling session:', error);
-                            Alert.alert('Erro', 'Falha ao cancelar sessão');
-                        }
-                    }
-                }
-            ]
-        );
+    const handleDeleteSession = async (sessionId: string) => {
+        if (confirm('Tem certeza que deseja excluir esta sessão? Esta ação não pode ser desfeita.')) {
+            try {
+                await apiService.deleteSession(sessionId);
+                alert('Sessão excluída com sucesso!');
+                loadSessions(); // Refresh the list
+            } catch (error: any) {
+                console.error('Error deleting session:', error);
+                alert(error.message || 'Erro ao excluir sessão');
+            }
+        }
     };
 
     const resetForm = () => {
@@ -392,7 +375,7 @@ export const Sessions = () => {
                             {session.status !== 'cancelada' && (
                                 <Pressable
                                     style={[styles.actionButton, styles.cancelSessionButton]}
-                                    onPress={() => handleCancelSession(session.id)}
+                                    onPress={() => handleDeleteSession(session.id)}
                                 >
                                     <Text style={styles.cancelSessionButtonText}>Cancelar</Text>
                                 </Pressable>

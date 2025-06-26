@@ -313,8 +313,6 @@ export const apiService = {
     console.log("✅ deletePatient success");
   },
 
-  // Add these methods to your existing apiService object in src/services/api.ts
-
   // Sessions management
   async getSessions(therapistEmail: string): Promise<Session[]> {
     const headers = await getAuthHeaders();
@@ -337,7 +335,19 @@ export const apiService = {
       headers,
       body: JSON.stringify(sessionData),
     });
-    if (!response.ok) throw new Error("Failed to create session");
+
+    console.log('Response status:', response.status);
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.log('Error response data:', errorData);
+
+      // Throw error with server's message
+      const errorMessage = errorData.message || "Failed to create session";
+      console.log('Error response data:', errorMessage);
+      throw new Error(errorMessage);
+    }
+
     return response.json();
   },
 
@@ -354,6 +364,24 @@ export const apiService = {
     });
     if (!response.ok) throw new Error("Failed to update session");
     return response.json();
+  },
+
+  async deleteSession(sessionId: string): Promise<void> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+      method: "DELETE",
+      headers,
+    });
+
+    console.log('Delete response status:', response.status);
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.log('Delete error response data:', errorData);
+
+      const errorMessage = errorData.message || "Failed to delete session";
+      throw new Error(errorMessage);
+    }
   },
 
   // Test connection endpoint

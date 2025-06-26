@@ -56,17 +56,16 @@ const authenticateRequest = (
 
         console.log('=== Auth Request ===');
         console.log('Path:', req.path);
-        console.log('API Key received:', clientApiKey ? 'Yes' : 'No');
-        console.log('Firebase token received:', firebaseToken ? 'Yes' : 'No');
-        console.log('Expected API Key:', process.env.SAFE_PROXY_KEY);
-        console.log('Headers:', req.headers);
+        // console.log('API Key received:', clientApiKey ? 'Yes' : 'No');
+        // console.log('Firebase token received:', firebaseToken ? 'Yes' : 'No');
+        // console.log('Expected API Key:', process.env.SAFE_PROXY_KEY);
+        // console.log('Headers:', req.headers);
 
         // Check API key
         if (!clientApiKey || clientApiKey !== process.env.SAFE_PROXY_KEY) {
             console.log('API Key mismatch');
             return res.status(401).json({ error: `Unauthorized - Invalid API Key` });
         }
-        // ... rest of the function
         // Check API key
         if (!clientApiKey || clientApiKey !== process.env.SAFE_PROXY_KEY) {
             return res.status(401).json({ error: `Unauthorized - Invalid API Key` });

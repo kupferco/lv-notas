@@ -168,6 +168,44 @@ export class GoogleCalendarService {
         }
     }
 
+    // Delete calendar event using user's OAuth token
+    async deleteUserEvent(userAccessToken: string, calendarId: string, eventId: string): Promise<void> {
+        try {
+            const userAuth = this._createUserAuth(userAccessToken);
+            const userCalendar = google.calendar({ version: "v3", auth: userAuth });
+
+            await userCalendar.events.delete({
+                calendarId: calendarId,
+                eventId: eventId,
+            });
+
+            console.log(`Deleted calendar event ${eventId} from calendar ${calendarId}`);
+        } catch (error) {
+            console.error("Error deleting user event:", error);
+            throw error;
+        }
+    }
+
+    // Update calendar event using user's OAuth token
+    async updateUserEvent(userAccessToken: string, calendarId: string, eventId: string, eventData: any): Promise<any> {
+        try {
+            const userAuth = this._createUserAuth(userAccessToken);
+            const userCalendar = google.calendar({ version: "v3", auth: userAuth });
+
+            const response = await userCalendar.events.update({
+                calendarId: calendarId,
+                eventId: eventId,
+                requestBody: eventData,
+            });
+
+            console.log(`Updated calendar event ${eventId} in calendar ${calendarId}`);
+            return response.data;
+        } catch (error) {
+            console.error("Error updating user event:", error);
+            throw error;
+        }
+    }
+
     // Keep existing webhook methods with service account
     async getRecentEvents(includeDeleted: boolean = true): Promise<any[]> {
         try {
@@ -278,6 +316,23 @@ export class GoogleCalendarService {
         } catch (error) {
             console.error('Webhook Watch Debug Error:', error);
             console.error(JSON.stringify(error, null, 2));
+        }
+    }
+
+    // Add this to your GoogleCalendarService in google-calendar.ts
+    async getCalendarTimezone(userAccessToken: string, calendarId: string): Promise<string> {
+        try {
+            const userAuth = this._createUserAuth(userAccessToken);
+            const userCalendar = google.calendar({ version: "v3", auth: userAuth });
+
+            const response = await userCalendar.calendars.get({
+                calendarId: calendarId
+            });
+
+            return response.data.timeZone || 'UTC';
+        } catch (error) {
+            console.error("Error getting calendar timezone:", error);
+            return 'UTC'; // Fallback to UTC
         }
     }
 }

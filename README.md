@@ -21,14 +21,18 @@ A complete Node.js/TypeScript system for managing therapy clinics with **real Go
 - ✅ **Secure logout functionality** - Complete localStorage cleanup
 - ✅ **Chrome account detection** - Automatic sign-in with existing Google sessions
 
-### 🚀 **Google Calendar Integration (Session → Calendar Sync)**
-- ✅ **Automatic calendar event creation** - Sessions create events in therapist's selected calendar
-- ✅ **OAuth-based calendar access** - Uses therapist's own permissions for calendar operations
-- ✅ **Patient email invitations** - Patients receive calendar invitations automatically
+### 🚀 **Complete Bidirectional Google Calendar Sync**
+- ✅ **Session → Calendar sync** - Sessions automatically create calendar events with patient invitations
+- ✅ **Session updates → Calendar updates** - Editing sessions updates calendar events (time, patient, details)
+- ✅ **Session deletion → Calendar deletion** - Deleting sessions removes calendar events
+- ✅ **Dynamic timezone handling** - Uses therapist's Google Calendar timezone settings
+- ✅ **OAuth-based calendar access** - Uses therapist's own permissions for all calendar operations
+- ✅ **Patient email invitations** - Automatic calendar invites with proper attendee management
+- ✅ **Timezone accuracy** - Fixed 1-hour offset issues with proper local time handling
 - ✅ **Multi-calendar support** - Each therapist uses their own selected Google Calendar
-- ✅ **Error handling with validation** - Invalid emails and permission errors handled gracefully
-- ✅ **Calendar event linking** - Sessions store Google Calendar event IDs for tracking
-- 🚧 **Bidirectional sync** - Calendar changes → LV Notas updates (webhook foundation ready)
+- ✅ **Comprehensive error handling** - Graceful handling of expired tokens and invalid data
+- ✅ **Calendar event linking** - Sessions store Google Calendar event IDs for perfect sync
+- 🚧 **Calendar → Session sync** - Webhook foundation ready for reverse sync (future enhancement)
 
 ### 👥 **Patient Management Enhancements**
 - ✅ **AuthContext integration** - Patient loading now uses centralized authentication
@@ -407,26 +411,37 @@ npm start
 
 ## 📝 Latest Enhancement Summary
 
-### ✅ Complete Session Management + Google Calendar Integration
-1. **Complete CRUD operations** - Create, read, update, delete sessions with calendar sync
-2. **Advanced filtering** - Status, patient, and date filters
-3. **Native browser dropdowns** - Consistent, clean UI
-4. **Real-time updates** - Changes reflect immediately
-5. **OAuth-based calendar integration** - Sessions automatically create calendar events
-6. **Patient email invitations** - Automatic calendar invites sent to patients
-7. **Multi-therapist isolation** - Secure data separation with individual calendars
-8. **Portuguese localization** - Complete Brazilian Portuguese interface
-9. **Type-safe API** - Full TypeScript integration with proper error handling
-10. **Responsive design** - Works across all screen sizes
+### ✅ Complete Session Management + Bidirectional Google Calendar Sync
+1. **Complete CRUD operations** - Create, read, update, delete sessions with full calendar sync
+2. **Bidirectional Google Calendar integration** - Sessions ↔ Calendar events in real-time
+3. **Dynamic timezone handling** - Uses therapist's Google Calendar timezone automatically
+4. **Advanced filtering** - Status, patient, and date filters with native browser dropdowns
+5. **Real-time updates** - Changes reflect immediately in both LV Notas and Google Calendar
+6. **Patient email invitations** - Automatic calendar invites with attendee management
+7. **OAuth-based calendar operations** - Uses therapist's own permissions for all calendar access
+8. **Multi-therapist isolation** - Secure data separation with individual calendar management
+9. **Portuguese localization** - Complete Brazilian Portuguese interface with proper error messages
+10. **Comprehensive error handling** - Token expiration, invalid data, and permission errors handled gracefully
+11. **Timezone accuracy** - Fixed offset issues with proper local time interpretation
+12. **Type-safe API** - Full TypeScript integration with proper error propagation
+13. **Foreign key management** - Proper deletion cascade for sessions, check-ins, and calendar events
+14. **Responsive design** - Works across all screen sizes with native form controls
 
-### 🔗 **Google Calendar Integration Achievements**
-1. **Hybrid authentication model** - OAuth for user operations, service account for webhooks
-2. **Automatic calendar event creation** - Sessions create events in therapist's calendar
-3. **Patient invitation system** - Patients receive email invitations automatically
-4. **Calendar selection persistence** - Therapists maintain their calendar preference
-5. **Error handling and validation** - Invalid emails and permission errors handled
-6. **Multi-calendar support** - Each therapist uses their own Google Calendar
-7. **Webhook foundation** - Infrastructure ready for bidirectional sync
+### 🔗 **Complete Google Calendar Integration Achievements**
+1. **Bidirectional calendar sync** - Sessions ↔ Calendar events with full CRUD operations
+2. **Dynamic timezone handling** - Uses therapist's Google Calendar timezone automatically
+3. **OAuth + Service Account hybrid** - OAuth for user operations, service account for webhooks
+4. **Automatic calendar event creation** - Sessions create events with patient invitations
+5. **Real-time calendar updates** - Session edits update calendar events immediately
+6. **Calendar event deletion** - Deleting sessions removes calendar events
+7. **Patient invitation system** - Patients receive email invitations automatically
+8. **Calendar selection persistence** - Therapists maintain their calendar preference
+9. **Token expiration handling** - Graceful degradation when OAuth tokens expire
+10. **Multi-calendar support** - Each therapist uses their own Google Calendar
+11. **Timezone accuracy fixes** - Resolved 1-hour offset issues with proper local time handling
+12. **Comprehensive error handling** - Invalid emails, permissions, and auth errors handled
+13. **Calendar event ID tracking** - Perfect sync between sessions and calendar events
+14. **Foreign key constraint handling** - Proper deletion of related check-ins and events
 
 ### 🎯 Key Benefits
 - **Complete workflow coverage** - From patient onboarding to session management
