@@ -274,6 +274,7 @@ export class GoogleCalendarService {
             );
 
             console.log('Webhook created successfully:', response.data);
+            console.log('Webhook URL:', webhookUrl);
             return response.data;
         } catch (error) {
             console.error('Error creating webhook:', error);
@@ -329,12 +330,88 @@ export class GoogleCalendarService {
                 calendarId: calendarId
             });
 
-            return response.data.timeZone || 'UTC';
+            return response.data.timeZone || 'America/Sao_Paulo';
         } catch (error) {
             console.error("Error getting calendar timezone:", error);
-            return 'UTC'; // Fallback to UTC
+            return 'UTC'; // Fallback to 'America/Sao_Paulo';
         }
     }
+
+    // Get a specific event by ID using service account (for webhook processing)
+    async getEventById(eventId: string, calendarId?: string): Promise<GoogleCalendarEvent | null> {
+        try {
+            const targetCalendarId = calendarId || process.env.GOOGLE_CALENDAR_ID;
+
+            const response = await this.calendar.events.get({
+                calendarId: targetCalendarId,
+                eventId: eventId,
+                fields: 'id,status,summary,description,start,end,attendees,organizer,creator,updated,recurringEventId'
+            });
+
+            return response.data;
+        } catch (error: any) {
+            if (error.code === 404) {
+                console.log(`Event ${eventId} not found (likely deleted)`);
+                return null;
+            }
+            console.error('Error fetching event by ID:', error);
+            throw error;
+        }
+    }
+
+    // Get events updated since a specific time using service account
+    async getUpdatedEventsSince(since: Date, calendarId?: string): Promise<GoogleCalendarEvent[]> {
+        try {
+            const targetCalendarId = calendarId || process.env.GOOGLE_CALENDAR_ID;
+
+            const response = await this.calendar.events.list({
+                calendarId: targetCalendarId,
+                updatedMin: since.toISOString(),
+                showDeleted: true,
+                orderBy: 'updated',
+                singleEvents: true,
+                maxResults: 50,
+                fields: `items(id,status,summary,description,start,end,attendees,organizer,creator,updated,recurringEventId)`
+            });
+
+            return response.data.items || [];
+        } catch (error) {
+            console.error('Error fetching updated events:', error);
+            throw error;
+        }
+    }
+
+    // Check if an event is a therapy session based on our naming convention
+    isTherapySession(event: GoogleCalendarEvent): boolean {
+        if (!event.summary) return false;
+
+        // Check if it matches our session naming pattern "Sessão - [Patient Name]"
+        const sessionPattern = /^Sessão\s*-\s*.+/i;
+        return sessionPattern.test(event.summary);
+    }
+
+    // Extract patient name from session title
+    extractPatientNameFromTitle(title: string): string | null {
+        if (!title) return null;
+
+        const match = title.match(/^Sessão\s*-\s*(.+)$/i);
+        return match ? match[1].trim() : null;
+    }
+
+    // Get patient email from event attendees
+    extractPatientEmailFromAttendees(attendees: any[]): string | null {
+        if (!attendees || attendees.length === 0) return null;
+
+        // Return the first attendee's email (assuming the patient is invited)
+        const attendee = attendees.find(a => a.email && a.responseStatus !== 'declined');
+        return attendee ? attendee.email : null;
+    }
+
+    // Check if event was deleted
+    isEventDeleted(event: GoogleCalendarEvent): boolean {
+        return event.status === 'cancelled';
+    }
+
 }
 
 export const googleCalendarService = new GoogleCalendarService();

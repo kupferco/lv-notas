@@ -7,7 +7,7 @@ SAFE_PROXY_KEY=$(gcloud secrets versions access latest --secret="safe-proxy-key"
 GOOGLE_CALENDAR_ID=$(gcloud secrets versions access latest --secret="google-calendar-id")
 AIRTABLE_API_KEY=$(gcloud secrets versions access latest --secret="airtable-api-key")
 
-# Update .env file with secrets
+# Update .env file with secrets (NO WEBHOOK_URL - let start-dev.ts handle it)
 cat > .env << EOF
 # Local database (no charges)
 POSTGRES_USER=dnkupfer
@@ -26,8 +26,8 @@ SAFE_PROXY_KEY=${SAFE_PROXY_KEY}
 GOOGLE_CALENDAR_ID=${GOOGLE_CALENDAR_ID}
 AIRTABLE_API_KEY=${AIRTABLE_API_KEY}
 
-# Webhook URLs (will be updated by start-dev.ts)
-WEBHOOK_URL_LOCAL=temp
+# Webhook URLs will be set by start-dev.ts
+WEBHOOK_URL_LOCAL=
 WEBHOOK_URL_LIVE=https://clinic-api-141687742631.us-central1.run.app
 EOF
 
