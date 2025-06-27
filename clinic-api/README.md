@@ -1,11 +1,33 @@
-# Clinic API
+# LV Notas Clinic API
 
-A Node.js/TypeScript REST API for managing a therapy clinic's sessions and check-ins, with Google Calendar integration.
+A comprehensive Node.js/TypeScript REST API for managing therapy clinics with **enhanced therapist onboarding**, **dual date billing system**, and **complete Google Calendar integration**.
+
+## 🚀 Latest Features (June 2025)
+
+### ✨ **Enhanced Therapist Onboarding System**
+- **📅 Calendar Import Wizard** - Import existing appointments from therapist's calendar
+- **👥 Bulk Patient Creation** - Smart patient matching from calendar events
+- **🔗 Appointment Linking** - Connect imported events to patient records
+- **🔄 Recurring Session Detection** - Identify and manage repeating appointments
+- **📊 Dual Date System** - Separate historical therapy start from LV Notas billing start dates
+- **💰 Advanced Billing Management** - Complete billing cycle history with patient-level overrides
+
+### 🎯 **Dual Date System (Critical Feature)**
+- **Historical Therapy Start Date** (optional) - When therapy actually began (for context/analytics)
+- **LV Notas Billing Start Date** (required) - When automated billing begins in LV Notas
+- **Smart Billing Calculations** - Only sessions after billing start date count for invoicing
+- **Complete Flexibility** - Different billing start dates per patient
+
+### 💰 **Advanced Billing Features**
+- **Billing Cycle Changes** - Monthly → Weekly → Per-session with full history
+- **Patient-Specific Overrides** - Individual pricing and billing cycles
+- **Complete Audit Trail** - Who changed what, when, and why
+- **Billing Period Tracking** - Automatic invoice generation and payment tracking
 
 ## Prerequisites
 
-- Node.js v18.x
-- PostgreSQL 14.x
+- Node.js v18.x+
+- PostgreSQL 14.x+
 - Google Calendar API credentials (service-account-key.json)
 - Firebase Admin credentials (service-account-key.json)
 
@@ -14,26 +36,78 @@ A Node.js/TypeScript REST API for managing a therapy clinic's sessions and check
 Create a .env file in the root directory:
 
 ```bash
-AIRTABLE_API_KEY=secret_key_airtable
-SAFE_PROXY_KEY=secret_key_api
-ALLOWED_ORIGINS=https://endpoint-goes-here
-
-# Database
-POSTGRES_USER=user
+# Database Configuration
+POSTGRES_USER=dankupfer
 POSTGRES_HOST=localhost
 POSTGRES_DB=clinic_db
-POSTGRES_PASSWORD=postgres_secret
-POSTGRES_PORT=port
+POSTGRES_PASSWORD=your_postgres_password
+POSTGRES_PORT=5432
 
-# Keep other variables as needed
+# API Security
+SAFE_PROXY_KEY=your_secure_api_key
+
+# Google Calendar Integration
+GOOGLE_CALENDAR_ID=your_calendar_id
+WEBHOOK_URL=your_webhook_url  # Set automatically by dev script
+
+# Firebase Authentication
+FIREBASE_PROJECT_ID=your_project_id
+
+# Development
 NODE_ENV=development
 PORT=3000
-
-# Google Calendar ID
-GOOGLE_CALENDAR_ID=g_calendar_id
-WEBHOOK_URL_LIVE=google_cloud_run_url
-WEBHOOK_URL_LOCAL=ngrok_url
 ```
+
+## 🗄️ Database Management (Simplified!)
+
+The new streamlined database system makes setup and maintenance incredibly simple:
+
+### **Quick Start**
+```bash
+cd clinic-api/db
+
+# Complete fresh start (recommended for development)
+./manage_db.sh fresh
+
+# Add realistic test data
+./manage_db.sh seed
+
+# Verify everything is working
+./manage_db.sh check
+```
+
+### **Available Commands**
+```bash
+# 🗑️ Fresh database (deletes all data, starts clean)
+npm run db:fresh
+
+# 📋 Install/update schema only
+npm run db:schema
+
+# 🌱 Add test data to existing database
+npm run db:seed
+
+# 🔍 Comprehensive schema and data verification
+npm run db:check
+
+# 🔄 Complete reset with schema + test data
+npm run db:reset
+
+# 💾 Create database backup
+npm run db:backup
+
+# ☁️ Google Cloud SQL management
+npm run db:cloud:start   # Start Cloud SQL instance
+npm run db:cloud:stop    # Stop Cloud SQL instance  
+npm run db:cloud:status  # Check Cloud SQL status
+```
+
+### **What You Get**
+- **16 tables** - Core + Onboarding + Billing
+- **5 views** - Easy data access (billable_sessions, current_billing_settings, etc.)
+- **6 helper functions** - Billing calculations, patient name extraction
+- **31 performance indexes** - Optimized queries
+- **Complete test data** - 3 therapists, 6 patients, realistic scenarios
 
 ## Installation
 
@@ -41,32 +115,22 @@ WEBHOOK_URL_LOCAL=ngrok_url
 # Install dependencies
 npm install
 
-# Install global dependencies
-npm install -g typescript ts-node-esm
-```
+# Set up database (one command!)
+npm run db:fresh
+npm run db:seed
 
-## Database Setup
-
-1. Create the database:
-```bash
-createdb clinic_db
-```
-
-2. Create database schema:
-```bash
-psql -h localhost -U your_postgres_user clinic_db < db/001_initial_schema.sql
-```
-
-3. Seed test data:
-```bash
-psql -h localhost -U your_postgres_user clinic_db < db/seed/001_insert_basic_data.sql
+# Verify setup
+npm run db:check
 ```
 
 ## Development
 
 ```bash
-# Start development server with hot reload
+# Start development server with automatic webhook setup (recommended)
 npm run dev
+
+# Simple development server (no webhook management)
+npm run dev:simple
 
 # Build for production
 npm run build
@@ -75,280 +139,276 @@ npm run build
 npm start
 ```
 
-## Google Cloud SQL Management
+## 🎯 Enhanced Database Schema
 
-The project includes convenient scripts to manage your Google Cloud SQL instance and save costs:
+### **Core Tables (Enhanced)**
+- **therapists** - Enhanced with billing cycles, onboarding tracking
+- **patients** - **Dual date system**, recurring patterns, pricing overrides
+- **sessions** - Billing integration, onboarding tracking
+- **calendar_events**, **check_ins**, **calendar_webhooks** - Existing functionality
 
-```bash
-# Start the Cloud SQL instance
-npm run db:start
+### **Onboarding Tables (New)**
+- **therapist_onboarding** - Step-by-step progress tracking
+- **imported_calendar_events** - Calendar import with smart matching
+- **patient_matching_candidates** - AI-powered patient detection
+- **recurring_session_templates** - Pattern detection from history
 
-# Stop the Cloud SQL instance (to avoid unnecessary charges)
-npm run db:stop
+### **Billing History Tables (New)**
+- **therapist_billing_history** - Complete billing cycle change history
+- **patient_billing_history** - Patient-specific overrides with full audit trail
+- **billing_periods** - Invoice generation and payment tracking
 
-# Check the current status of the Cloud SQL instance
-npm run db:status
+### **Smart Views**
+- **billable_sessions** - Automatically calculates which sessions count for billing
+- **current_billing_settings** - Current billing configuration for all patients
+- **therapist_onboarding_progress** - Real-time onboarding status
+- **billing_change_history** - Complete audit trail of all billing changes
+
+## 🔄 Google Calendar Integration
+
+### **Complete Bidirectional Sync**
+- **LV Notas → Calendar** - Sessions automatically create calendar events
+- **Calendar → LV Notas** - Manual calendar changes update sessions
+- **Real-time webhooks** - Changes sync instantly in both directions
+- **Dynamic webhook management** - Automatic ngrok URL handling for development
+
+### **Advanced Features**
+- **Smart patient matching** - Finds patients by email or name from calendar events
+- **Multi-calendar support** - Each therapist uses their own Google Calendar
+- **Timezone handling** - Proper São Paulo timezone management
+- **Event classification** - Identifies "Sessão - Patient Name" patterns
+
+## 💰 Billing System Examples
+
+### **Change Therapist Billing Cycle**
+```sql
+-- Change from monthly to weekly billing starting July 1st
+SELECT change_therapist_billing_cycle(
+    1, -- therapist_id
+    'weekly', -- new billing cycle
+    180.00, -- new default price
+    '2025-07-01', -- effective date
+    'Cliente solicitou faturamento semanal',
+    'ana.silva@terapia.com'
+);
 ```
 
-When not actively developing or using the application, it's recommended to stop the CloudSQL instance using `npm run db:stop` to minimize costs. This will keep your data stored but stop charging for compute resources. You'll only pay for storage (typically a few pennies per day instead of pounds).
-
-## Development Webhook
-
-During development, the project includes a convenient script to create a temporary public webhook URL using ngrok:
-
-```bash
-# Start development server with ngrok tunnel
-npm run dev:webhook
+### **Patient-Specific Override**
+```sql
+-- Special per-session billing for one patient
+SELECT change_patient_billing_cycle(
+    5, -- patient_id
+    'per_session', -- override cycle
+    120.00, -- special price
+    '2025-07-15', -- when it starts
+    'Situação financeira especial',
+    'ana.silva@terapia.com'
+);
 ```
 
-This script does the following:
-- Starts the development server
-- Creates a secure ngrok tunnel to localhost
-- Automatically updates the .env file with the new webhook URL
-- Manages port conflicts
+### **Check Current Billing Settings**
+```sql
+-- See current billing for all patients
+SELECT * FROM current_billing_settings;
 
-### Features
-- Generates a temporary public URL for your local server
-- Useful for testing webhooks and external integrations
-- Automatically handles port conflicts
-- Easy to use with a single command
-
-### Requirements
-- Ngrok account (optional, but recommended for best experience)
-- Ngrok authtoken (can be set in your ngrok configuration)
-
-### Cleaning Up Webhooks
-If you need to clean up all existing Google Calendar webhooks, you can use the provided cleanup script:
-
-```bash
-# Run the webhook cleanup script
-npx tsx scripts/cleanup-webhooks.ts
+-- View complete billing change history
+SELECT * FROM billing_change_history WHERE therapist_id = 1;
 ```
 
-This script will:
+## 🎯 Onboarding Workflow
 
-1. Find all existing webhooks
-2. Stop them on Google Calendar's side
-3. Clean up related database records
+### **For New Therapists**
+1. **Calendar Selection** - Choose Google Calendar for sync
+2. **Event Import** - Import 6+ months of existing appointments
+3. **Patient Creation** - Smart bulk creation from calendar events
+4. **Appointment Linking** - Connect events to patient records
+5. **Dual Date Setup** - Configure historical vs billing start dates
+6. **Billing Configuration** - Set pricing and invoicing preferences
+7. **Go Live** - Seamless transition to LV Notas workflow
 
-This is useful when:
+### **Onboarding Progress Tracking**
+```sql
+-- Check onboarding status for all therapists
+SELECT * FROM therapist_onboarding_progress;
 
-1. Debugging webhook issues
-2. Switching between environments
-3. Resolving duplicate event notifications
-
-## Database Commands
-
-Quick check of therapists and patients:
-```bash
-psql -h localhost -U your_postgres_user clinic_db < db/seed/check_data.sql
+-- Get detailed progress for specific therapist
+SELECT * FROM therapist_onboarding WHERE therapist_id = 1;
 ```
 
-Check current data in tables:
+## API Endpoints
+
+### **Enhanced Endpoints (New)**
+- `GET /api/therapists/:email/onboarding-status` - Get onboarding progress
+- `POST /api/therapists/:email/onboarding-step` - Update onboarding step
+- `GET /api/calendar-events/import` - Import calendar events for onboarding
+- `POST /api/calendar-events/mark-therapy-sessions` - Mark events as therapy sessions
+- `POST /api/patients/bulk-create` - Create multiple patients from import
+- `POST /api/patients/link-to-events` - Link patients to calendar events
+- `PUT /api/therapists/:email/billing-cycle` - Change billing configuration
+- `PUT /api/patients/:id/billing-cycle` - Patient-specific billing override
+
+### **Existing Endpoints (Enhanced)**
+- `POST /api/checkin` - Patient check-in with enhanced session tracking
+- `POST /api/calendar-webhook` - Bidirectional calendar sync
+- `GET /api/patients` - Enhanced with dual date system
+- `GET /api/sessions` - Enhanced with billing integration
+- `GET /api/therapists` - Enhanced with onboarding status
+
+## Development Workflow
+
+### **Daily Development**
 ```bash
-# View therapists
-psql -h localhost -U your_postgres_user clinic_db -c 'SELECT * FROM therapists;'
+# Start with fresh data
+npm run db:reset
 
-# View patients
-psql -h localhost -U your_postgres_user clinic_db -c 'SELECT * FROM patients;'
+# Start development with automatic webhook setup
+npm run dev
 
-# View sessions
-psql -h localhost -U your_postgres_user clinic_db -c 'SELECT * FROM sessions;'
+# Check database state anytime
+npm run db:check
 ```
 
-## Database Management Script
-
-A convenient script is provided to manage database operations:
-
-```bash
-# Make the script executable (first time only)
-chmod +x db/manage.sh
-
-# View usage instructions
-./db/manage.sh
-
-# Create schema
-./db/manage.sh schema
-
-# Seed test data
-./db/manage.sh seed
-
-# Check current data
-./db/manage.sh check
-
-# Run all operations
-./db/manage.sh all
-```
+### **Database Verification**
+The `check` command provides comprehensive verification:
+- ✅ Table structure and relationships
+- 🔍 Enhanced column verification  
+- 📊 Data summary with onboarding status
+- 💰 Billing configuration overview
+- 🎯 Dual date system validation
 
 ## Google Cloud Deployment
 
-### Setup Google Cloud Project
-
+### **Setup Google Cloud Project**
 ```bash
-# Set the project
+# Set project and enable services
 gcloud config set project lv-notas
+gcloud services enable secretmanager.googleapis.com cloudsql.googleapis.com run.googleapis.com
 
-# Enable Secret Manager API
-gcloud services enable secretmanager.googleapis.com
-
-# Create secrets
+# Create enhanced secrets for new features
 gcloud secrets create safe-proxy-key --replication-policy="automatic"
 gcloud secrets create postgres-password --replication-policy="automatic"
-gcloud secrets create firebase-key --replication-policy="automatic"
+gcloud secrets create firebase-service-account --data-file=./service-account-key.json
 gcloud secrets create google-calendar-id --replication-policy="automatic"
 
 # Add secret values
-echo -n "your_proxy_api_key" | gcloud secrets versions add safe-proxy-key --data-file=-
+echo -n "your_secure_api_key" | gcloud secrets versions add safe-proxy-key --data-file=-
 echo -n "your_postgres_password" | gcloud secrets versions add postgres-password --data-file=-
 echo -n "your_calendar_id" | gcloud secrets versions add google-calendar-id --data-file=-
-
-# Upload Firebase service account key
-gcloud secrets create firebase-service-account --data-file=./service-account-key.json
 ```
 
-### Set IAM Permissions
-
+### **Deploy with Enhanced Features**
 ```bash
-gcloud projects add-iam-policy-binding lv-notas \
-    --member=serviceAccount:141687742631-compute@developer.gserviceaccount.com \
-    --role=roles/secretmanager.secretAccessor
-```
-
-### Deploy to Google Cloud Run
-
-1. The command below will be typescript and run the deploy script.
-
-```bash
+# Deploy complete system
 npm run deploy
-```
 
-2. The command above is the same as doing all this other manually
-
-1. Build the typescript
-```bash
+# Or manually:
 npm run build
-```
-
-2. Build and push Docker image:
-```bash
 docker build -t clinic-api .
 docker tag clinic-api gcr.io/lv-notas/clinic-api
 docker push gcr.io/lv-notas/clinic-api
-```
 
-3. Deploy to Cloud Run:
-```bash
 gcloud run deploy clinic-api \
   --image gcr.io/lv-notas/clinic-api \
   --platform managed \
   --region us-central1 \
   --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,POSTGRES_PASSWORD=postgres-password:latest \
   --env-vars-file env.yaml \
-  --add-cloudsql-instances lv-notas:us-central1:clinic-db \
-  --service-account lv-notas-service-account@lv-notas.iam.gserviceaccount.com
+  --add-cloudsql-instances lv-notas:us-central1:clinic-db
 ```
 
-### Database Setup in Cloud SQL
-
-1. Create Cloud SQL instance:
+### **Production Database Setup**
 ```bash
-gcloud sql instances create clinic-db \
-  --database-version=POSTGRES_14 \
-  --cpu=1 \
-  --memory=3840MB \
-  --region=us-central1 \
-  --root-password=[YOUR-PASSWORD]
+# Create enhanced schema in production
+gcloud sql connect clinic-db --user=postgres --database=clinic_db
+
+# Run complete schema (no migrations needed!)
+\i complete_schema.sql
 ```
 
-2. Create database:
-```bash
-gcloud sql databases create clinic_db --instance=clinic-db
+## 📊 Key Concepts
+
+### **Dual Date System**
+```sql
+-- Historical context (optional)
+therapy_start_date: '2024-01-15'  -- When therapy actually began
+
+-- LV Notas billing (required)  
+lv_notas_billing_start_date: '2025-06-01'  -- When automated billing starts
+
+-- Result: Historical sessions for context, billing starts fresh
 ```
 
-3. Connect to database through Cloud SQL proxy:
+### **Billing Flexibility**
+- **Therapist-level defaults** - Monthly, weekly, per-session, or ad-hoc
+- **Patient-level overrides** - Special pricing or different cycles
+- **Historical tracking** - Complete audit trail of all changes
+- **Automatic calculations** - Billing views handle complexity
 
-```bash
-# First, ensure you have authentication set up
-gcloud auth application-default login
+### **Smart Onboarding**
+- **Calendar pattern detection** - Identifies recurring appointments
+- **Patient name extraction** - "Sessão - Patient Name" parsing
+- **Confidence scoring** - AI-powered matching accuracy
+- **Manual override support** - Human review for edge cases
 
-# Start the Cloud SQL proxy (keep this running in a separate terminal)
-cloud-sql-proxy lv-notas:us-central1:clinic-db --port 5433
+## 🛡️ Security Features
 
-# In a new terminal, connect via psql
-psql -h localhost -p 5433 -U postgres -d postgres
+- **Firebase Authentication** with Google Sign-In
+- **Multi-tenant isolation** - Each therapist sees only their data
+- **API key validation** for all requests
+- **Complete audit trails** for billing changes
+- **Secure webhook validation**
+- **Google Cloud Secret Manager** integration
 
-# Create and connect to the database
-CREATE DATABASE clinic_db;
-\c clinic_db
+## 🌍 Internationalization
 
-# Run the schema from 001_initial_schema.sql
-# You can copy and paste the contents of the file here
+- **Complete Portuguese interface** throughout
+- **Brazilian timezone** support (America/Sao_Paulo)
+- **Cultural adaptations** for therapy practice workflow
+- **Localized error messages** and user feedback
 
-# After setup, you can reconnect directly to clinic_db using:
-psql -h localhost -p 5433 -U postgres -d clinic_db
+## 📈 Monitoring & Analytics
+
+### **Onboarding Metrics**
+```sql
+-- Onboarding completion rates
+SELECT 
+  COUNT(*) as total_therapists,
+  SUM(CASE WHEN onboarding_completed THEN 1 ELSE 0 END) as completed,
+  AVG(EXTRACT(epoch FROM (onboarding_completed_at - onboarding_started_at))/3600) as avg_hours
+FROM therapists;
 ```
 
-Note: If port 5433 is in use, you can use a different port number. Just make sure to use the same port in your connection commands.
+### **Billing Analytics**
+```sql
+-- Billing distribution
+SELECT 
+  current_billing_cycle,
+  COUNT(*) as patient_count,
+  AVG(current_session_price) as avg_price
+FROM current_billing_settings 
+GROUP BY current_billing_cycle;
+```
 
-### Security Considerations
-* All sensitive data is stored in Google Cloud Secret Manager
-* Firebase Authentication is required for accessing endpoints
-* Database credentials are managed securely
-* Service account keys are stored as secrets
-* Environment-specific configurations are used
-* Regular secret rotation is recommended
+## 🚀 Future Roadmap
 
-## API Endpoints
+### **Phase 2: Brazilian Payment Integration**
+- **PIX payment tracking** with Open Banking integration
+- **WhatsApp payment requests** with click-to-chat links
+- **Nota Fiscal Paulista** automatic tax invoice generation
+- **Real-time payment monitoring** and session matching
 
-### Check-in Management
-- POST /api/checkin - Register a patient check-in for a session
+### **Phase 3: Advanced Practice Management**
+- **Analytics dashboard** with attendance and revenue insights
+- **Automated reminders** via WhatsApp/SMS
+- **Session notes** with LGPD compliance
+- **Multi-therapist clinics** with group practice management
 
-### Calendar Integration
-- POST /api/calendar-webhook - Webhook endpoint for Google Calendar events
-  - Automatically syncs calendar events with sessions
-  - Handles new sessions, updates, and cancellations
-  - Matches events by Google Calendar event ID
+## 📄 License
 
-### Authentication
-- GET /api/proxy - Test authenticated connection
-- GET /api/key - Get API key (requires authentication)
+This project is proprietary software for LV Notas therapy practice management.
 
-## Authentication
+---
 
-The API uses Firebase Authentication. Requests need to include:
-- X-API-Key header with SAFE_PROXY_KEY
-- Authorization header with Firebase token
+**Built with ❤️ for modern therapy practice management in Brazil**
 
-## Calendar Integration
-
-The system maintains synchronization between Google Calendar events and the sessions database:
-
-1. Calendar Event Handling:
-   - New events create corresponding session records
-   - Updated events modify existing session details
-   - Cancelled events mark sessions as cancelled
-
-2. Event Matching:
-   - Sessions are matched to calendar events using the Google Calendar event ID
-   - Therapists are identified by their calendar ID
-   - Patients are matched by their email address
-
-3. Session Status:
-   - New events: status = 'agendada'
-   - Cancelled events: status = 'cancelada'
-   - Check-ins: status = 'compareceu'
-
-## Project Structure
-
-- `/src` - Source code
-  - `/config` - Configuration files
-  - `/routes` - API routes
-    - `checkin.ts` - Check-in endpoint
-    - `calendar-webhook.ts` - Calendar webhook handler
-  - `/services` - Business logic
-    - `google-calendar.ts` - Google Calendar service
-    - `session-sync.ts` - Session synchronization logic
-  - `/types` - TypeScript interfaces
-    - `calendar.ts` - Calendar-related types
-- `/db` - Database scripts and migrations
-  - `/seed` - Test data scripts
+*Now featuring enhanced therapist onboarding with dual date billing system for seamless practice transitions!* 🚀

@@ -6,12 +6,18 @@
   "scripts": {
     "start": "node dist/server.js",
     "build": "tsc",
-    "dev": "nodemon --exec tsx src/server.ts",
-    "dev:webhook": "tsx scripts/start-dev.ts",
+    "dev": "./scripts/start-local.sh",
+    "dev:simple": "nodemon --exec tsx src/server.ts",
     "deploy": "npm run build && ./deploy.sh",
-    "db:start": "gcloud sql instances patch clinic-db --activation-policy=ALWAYS",
-    "db:stop": "gcloud sql instances patch clinic-db --activation-policy=NEVER",
-    "db:status": "gcloud sql instances describe clinic-db --format=\"value(state)\""
+    "db:fresh": "cd db && ./manage_db.sh fresh",
+    "db:schema": "cd db && ./manage_db.sh schema",
+    "db:seed": "cd db && ./manage_db.sh seed",
+    "db:check": "cd db && ./manage_db.sh check",
+    "db:reset": "cd db && ./manage_db.sh reset",
+    "db:backup": "cd db && ./manage_db.sh backup",
+    "db:cloud:start": "gcloud sql instances patch clinic-db --activation-policy=ALWAYS",
+    "db:cloud:stop": "gcloud sql instances patch clinic-db --activation-policy=NEVER",
+    "db:cloud:status": "gcloud sql instances describe clinic-db --format=\"value(state)\""
   },
   "keywords": [],
   "author": "",
