@@ -263,7 +263,7 @@ export const apiService = {
 
     const headers = await getAuthHeaders();
     console.log("📞 getCalendarEvents API call for:", therapistEmail);
-    const response = await fetch(`${API_URL}/api/calendar-events?therapistEmail=${encodeURIComponent(therapistEmail)}`, { headers });
+    const response = await fetch(`${API_URL}/api/calendars/events?therapistEmail=${encodeURIComponent(therapistEmail)}`, { headers });
     if (!response.ok) {
       const errorText = await response.text();
       console.error("❌ getCalendarEvents error response:", errorText);

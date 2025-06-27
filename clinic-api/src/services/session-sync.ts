@@ -1,6 +1,6 @@
 // clinic-api/src/services/session-sync.ts
 import pool from "../config/database.js";
-import { GoogleCalendarEvent, CalendarEventProcessingResult } from "../types/calendar.js";
+import { GoogleCalendarEvent, CalendarEventProcessingResult } from "../types/index.js";
 
 export class SessionSyncService {
     

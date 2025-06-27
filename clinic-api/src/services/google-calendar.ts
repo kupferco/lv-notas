@@ -2,7 +2,7 @@
 import { google } from 'googleapis';
 import path from 'path';
 import pool from '../config/database.js';
-import { GoogleCalendarEvent } from '../types/calendar.js';
+import { GoogleCalendarEvent } from '../types/index.js';
 
 // Use process.cwd() or a fixed path if import.meta is problematic
 const serviceAccountPath = path.join(process.cwd(), 'service-account-key.json');
@@ -381,6 +381,27 @@ export class GoogleCalendarService {
         }
     }
 
+    async getEventsInRange(calendarId: string, startDate: Date, endDate: Date): Promise<GoogleCalendarEvent[]> {
+        try {
+            const response = await this.calendar.events.list({
+                calendarId: calendarId,
+                timeMin: startDate.toISOString(),
+                timeMax: endDate.toISOString(),
+                singleEvents: true,
+                orderBy: 'startTime',
+                maxResults: 2500, // Google's max limit
+                fields: `items(id,status,summary,description,start,end,attendees,organizer,creator,updated)`
+            });
+
+            console.log(`Found ${response.data.items?.length || 0} events in range ${startDate.toISOString().substring(0, 10)} to ${endDate.toISOString().substring(0, 10)}`);
+
+            return response.data.items || [];
+        } catch (error) {
+            console.error('Error fetching events in range:', error);
+            throw error;
+        }
+    }
+
     // Check if an event is a therapy session based on our naming convention
     isTherapySession(event: GoogleCalendarEvent): boolean {
         if (!event.summary) return false;
@@ -411,7 +432,6 @@ export class GoogleCalendarService {
     isEventDeleted(event: GoogleCalendarEvent): boolean {
         return event.status === 'cancelled';
     }
-
 }
 
 export const googleCalendarService = new GoogleCalendarService();

@@ -13,7 +13,6 @@ type AppState = "loading" | "onboarding" | "authenticated";
 // Main App component that uses AuthContext
 const AppContent: React.FC = () => {
   const [appState, setAppState] = useState<AppState>("loading");
-  const [therapistEmail, setTherapistEmail] = useState<string>("");
   const { user, isAuthenticated, isLoading: authLoading, hasValidTokens, signOut } = useAuth();
 
   useEffect(() => {
@@ -59,7 +58,6 @@ const AppContent: React.FC = () => {
 
         if (therapist && therapist.googleCalendarId) {
           console.log("✅ Therapist fully configured, going to authenticated state");
-          setTherapistEmail(email);
           setAppState("authenticated");
 
           // Update localStorage for development
@@ -83,7 +81,6 @@ const AppContent: React.FC = () => {
 
   const handleOnboardingComplete = async (email: string) => {
     console.log("✅ Onboarding completed for:", email);
-    setTherapistEmail(email);
     setAppState("authenticated");
   };
 
@@ -96,7 +93,6 @@ const AppContent: React.FC = () => {
       localStorage.removeItem("google_access_token");
     }
 
-    setTherapistEmail("");
     setAppState("onboarding");
   };
 
@@ -121,11 +117,7 @@ const AppContent: React.FC = () => {
 
   const renderAuthenticatedApp = () => (
     <View style={styles.appContainer}>
-      <Router
-        therapistEmail={therapistEmail}
-        onLogout={handleLogout}
-        onOnboardingComplete={handleOnboardingComplete}
-      />
+      <Router />
     </View>
   );
 
@@ -185,7 +177,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#fff",
     paddingHorizontal: 20,
-    maxWidth: 600,
+    maxWidth: 700,
     alignSelf: 'center',
     width: '100%',
   },
