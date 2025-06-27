@@ -240,8 +240,8 @@ SELECT * FROM therapist_onboarding WHERE therapist_id = 1;
 ### **Enhanced Endpoints (New)**
 - `GET /api/therapists/:email/onboarding-status` - Get onboarding progress
 - `POST /api/therapists/:email/onboarding-step` - Update onboarding step
-- `GET /api/calendar-events/import` - Import calendar events for onboarding
-- `POST /api/calendar-events/mark-therapy-sessions` - Mark events as therapy sessions
+- `GET /api/calendars/events/import` - Import calendar events for onboarding
+- `POST /api/calendars/events/mark-therapy-sessions` - Mark events as therapy sessions
 - `POST /api/patients/bulk-create` - Create multiple patients from import
 - `POST /api/patients/link-to-events` - Link patients to calendar events
 - `PUT /api/therapists/:email/billing-cycle` - Change billing configuration

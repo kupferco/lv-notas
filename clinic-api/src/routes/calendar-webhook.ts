@@ -4,7 +4,7 @@ import { ParamsDictionary } from "express-serve-static-core";
 import pool from "../config/database.js";
 import { googleCalendarService } from "../services/google-calendar.js";
 import { sessionSyncService } from "../services/session-sync.js";
-import { GoogleCalendarEvent } from "../types/calendar.js";
+import { GoogleCalendarEvent } from "../types/index.js";
 
 type EventType = 'new' | 'update' | 'cancel';
 
