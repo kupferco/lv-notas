@@ -1,23 +1,43 @@
 # LV Notas - Complete Therapy Practice Management System
 
-A comprehensive Node.js/TypeScript system for managing therapy clinics with **real Google authentication**, **complete bidirectional Google Calendar integration**, patient management, session management, and **complete payment management with advanced filtering**.
+A comprehensive Node.js/TypeScript system for managing therapy clinics with **real Google authentication**, **complete bidirectional Google Calendar integration**, patient management, session management, and **COMPLETE payment management with session-level status changes**.
 
-## 🎉 Latest Achievement (June 2025) - Complete Payment Management with Advanced Filtering! 💰
+## 🎉 Latest Achievement (June 2025) - COMPLETE Session-Level Payment Management! 💰
 
 ### 💰 **COMPLETE Payment Management System**
-- ✅ **Smart Payment Workflow** - Professional therapist-driven payment request flow
+- ✅ **Session-Level Payment Status Changes** - Direct status management on individual sessions
+- ✅ **Interactive Status Pills** - Click session status to change payment state instantly
+- ✅ **Smart Patient Status Priority** - Patient status reflects highest priority session status
+- ✅ **5-Card Revenue Breakdown** - Complete overview: Total, Pago, Não Cobrado, Aguardando, Pendente
+- ✅ **Patient Detail Navigation** - "Ver Detalhes" button switches to session view with patient filter
 - ✅ **Real Database Integration** - Connected to PostgreSQL with payment tracking tables
 - ✅ **Multi-stage Payment Tracking** - "Não Cobrado" → "Aguardando Pagamento" → "Pendente" → "Pago"
-- ✅ **Partial Payment Support** - Handle patients who pay some but not all sessions
-- ✅ **Payment Transaction History** - Complete audit trail with payment dates and methods
 - ✅ **Advanced Filtering System** - Filter by date range, payment status, and individual patients
-- ✅ **Horizontal Filter Layout** - Compact, professional filter interface with native styling
-- ✅ **Dynamic Summary Cards** - Revenue totals update based on selected filters
-- ✅ **Context-Aware Action Buttons** - Smart buttons that change based on payment state
-- ✅ **Dual Payment Views** - Patient-centric summaries and session-centric details
-- ✅ **Brazilian Currency Formatting** - Proper R$ formatting with comma decimals
-- ✅ **Payment Date Tracking** - Shows when payments were made and via which method
-- ✅ **Multi-tenant Payment Isolation** - Each therapist manages only their patient payments
+- ✅ **Dynamic Summary Cards** - Revenue totals update based on selected filters in real-time
+- ✅ **Dual Payment Views** - Patient summaries for overview, session details for management
+- ✅ **Brazilian Currency Formatting** - Proper R$ formatting with comma decimals throughout
+
+### 🎯 **Session-Level Payment Management (NEW!)**
+- ✅ **Direct Session Status Changes** - Change payment status directly on individual sessions
+- ✅ **Interactive Status Pills** - Click to change status with visual feedback
+- ✅ **Priority-Based Patient Status** - Patient status automatically reflects session priorities:
+  - **Any "Pendente" sessions** → Patient shows "Pendente"
+  - **Partially paid + "Pendente"** → "Parcialmente Pago - Pendente"
+  - **Partially paid + "Aguardando"** → "Parcialmente Pago - Aguardando"
+  - **Priority order**: Pendente > Aguardando > Não Cobrado
+- ✅ **Smart Navigation** - "Ver Detalhes" button filters session view by patient
+- ✅ **Real-time Updates** - Changes reflect immediately across patient and session views
+
+### 📊 **5-Card Revenue Dashboard (NEW!)**
+- ✅ **Complete Revenue Breakdown**:
+  - 💰 **Receita Total** - Total revenue across all sessions
+  - ✅ **Pago** - Revenue from paid sessions (green)
+  - ○ **Não Cobrado** - Revenue from sessions not yet invoiced (gray)
+  - ⏳ **Aguardando** - Revenue from invoiced sessions awaiting payment (orange)
+  - ⚠️ **Pendente** - Revenue from overdue sessions (red)
+- ✅ **Horizontal Scroll** - Cards fit perfectly on mobile screens
+- ✅ **Dynamic Updates** - Cards update automatically based on filters
+- ✅ **Session Count Estimates** - Shows estimated session counts per status
 
 ### 🔍 **Advanced Payment Filtering**
 - ✅ **Patient Filter** - View payments for specific patients or all patients
@@ -26,16 +46,7 @@ A comprehensive Node.js/TypeScript system for managing therapy clinics with **re
 - ✅ **View Type Toggle** - Switch between patient summaries and session details
 - ✅ **Real-time Filter Updates** - Summary cards reflect filtered data instantly
 - ✅ **Filter Persistence** - Selections maintained across page refreshes
-- ✅ **Compact UI Design** - All filters on same horizontal line with native browser styling
-
-### 🏦 **Payment Transaction Tracking**
-- ✅ **Payment Transactions Table** - Records actual payments with dates and methods
-- ✅ **Payment Requests Table** - Tracks when payment requests are sent
-- ✅ **Payment Status History** - Complete audit trail of status changes
-- ✅ **Multiple Payment Methods** - PIX, bank transfer, cash, credit card support
-- ✅ **Reference Numbers** - Store transaction IDs and payment references
-- ✅ **Payment Analytics** - Automatic calculation of totals, pending amounts, session counts
-- ✅ **Realistic Test Data** - 20 patients with diverse payment scenarios for testing
+- ✅ **Smart Navigation** - Patient details button automatically filters sessions
 
 ### 🔄 **Complete Bidirectional Google Calendar Integration**
 - ✅ **LV Notas → Google Calendar** - Sessions automatically create/update/delete calendar events
@@ -60,14 +71,14 @@ A comprehensive Node.js/TypeScript system for managing therapy clinics with **re
 ## ✨ Key Features
 
 ### 💰 **Payment Management**
-- **Professional Payment Workflow** - Request payments, track status, handle partial payments
+- **Session-Level Control** - Change payment status directly on individual sessions
+- **Interactive Status Pills** - Click session status to change state with visual feedback
+- **Smart Patient Status** - Patient status automatically reflects session priority hierarchy
+- **5-Card Revenue Dashboard** - Complete breakdown of revenue by payment status
 - **Advanced Filtering** - Filter by patient, status, date range with real-time updates
-- **Payment Transaction History** - Complete record of payments with dates and methods
-- **WhatsApp Integration** - Direct payment requests with Brazilian phone formatting
+- **Smart Navigation** - Seamless flow from patient overview to session details
 - **Brazilian Currency Support** - Proper R$ formatting throughout the interface
 - **Revenue Analytics** - Dynamic summary cards showing totals for filtered data
-- **Payment Status Management** - Handle "Não Cobrado", "Aguardando", "Pendente", "Pago"
-- **Partial Payment Support** - Track patients who pay some sessions but not others
 
 ### 🔄 **Bidirectional Calendar Sync**
 - **Real-time synchronization** between LV Notas and Google Calendar
@@ -103,7 +114,7 @@ A comprehensive Node.js/TypeScript system for managing therapy clinics with **re
 
 ### Payment System Architecture
 - **PostgreSQL database** with comprehensive payment tracking tables
-- **Real-time payment calculations** based on session data
+- **Session-level payment status** stored and calculated in real-time
 - **Multi-tenant isolation** with proper foreign key relationships
 - **Payment state machine** with automatic status transitions
 - **Brazilian payment method support** (PIX, bank transfer, cash, credit card)
@@ -114,6 +125,7 @@ A comprehensive Node.js/TypeScript system for managing therapy clinics with **re
 - **payment_requests** - Log of payment communications sent
 - **payment_status_history** - Complete audit trail of changes
 - **payment_overview view** - Simplified access to payment data with calculated states
+- **sessions table** - Enhanced with payment_status, payment_requested columns
 
 ### Frontend Architecture
 - **React Native Web** with TypeScript for type safety
@@ -129,7 +141,7 @@ A comprehensive Node.js/TypeScript system for managing therapy clinics with **re
 - **Google Calendar API** integration with OAuth
 - **Firebase Authentication** verification
 - **Real-time webhooks** for bidirectional sync
-- **Payment API endpoints** with comprehensive filtering support
+- **Payment API endpoints** with session-level status management
 
 ## 📁 Project Structure
 
@@ -141,8 +153,8 @@ lv-notas/
 │   │   │   ├── PaymentsOverview.tsx # Main payment dashboard with filtering
 │   │   │   ├── PaymentFilters.tsx   # Advanced horizontal filter system
 │   │   │   ├── PatientPaymentCard.tsx # Patient payment summaries
-│   │   │   ├── SessionPaymentCard.tsx # Session payment details
-│   │   │   ├── PaymentSummaryCards.tsx # Dynamic revenue totals
+│   │   │   ├── SessionPaymentCard.tsx # Session payment details with status pills
+│   │   │   ├── PaymentSummaryCards.tsx # 5-card revenue breakdown
 │   │   │   ├── PaymentStatusBadge.tsx # Status indicators
 │   │   │   └── PaymentActionButton.tsx # Context-aware action buttons
 │   │   ├── Sessions.tsx             # Session management
@@ -155,7 +167,7 @@ lv-notas/
 ├── clinic-api/                      # Backend API server
 │   ├── src/                         # Backend source code
 │   │   ├── routes/                  # API route handlers
-│   │   │   ├── payments.ts          # 💰 Payment management API with filtering
+│   │   │   ├── payments.ts          # 💰 Payment management API with session-level updates
 │   │   │   ├── sessions.ts          # Session management API
 │   │   │   ├── patients.ts          # Patient management API
 │   │   │   └── calendar-webhook.ts  # Bidirectional calendar sync
@@ -237,19 +249,24 @@ npm start
 
 ### Payment Management Workflow
 1. **View Payment Dashboard** - Navigate to `/pagamentos`
-2. **Use Advanced Filtering:**
+2. **Use 5-Card Revenue Overview** - See complete breakdown by status
+3. **Use Advanced Filtering:**
    - **Patient Filter** - Select specific patients or view all
    - **Status Filter** - Filter by "Não Cobrado", "Pago", "Pendente", etc.
    - **Date Range** - Quick buttons for different time periods
    - **View Toggle** - Switch between patient summaries and session details
-3. **Track Payment Status** - Monitor "Não Cobrado" → "Aguardando" → "Pago"
-4. **Send Payment Requests** - Use "Cobrar" button to request payments
-5. **Handle Partial Payments** - Track patients who pay some but not all sessions
-6. **Record Payments** - Mark sessions as paid when payments are received
-7. **View Payment History** - See transaction dates and payment methods
+4. **Navigate with "Ver Detalhes"** - Click patient details to filter sessions
+5. **Change Session Status** - Click session status pills to update payment state
+6. **Monitor Patient Status** - See automatic priority-based patient status updates
+
+### Session-Level Payment Management
+- **Session View** - Switch to "Detalhes por Sessão" to see individual sessions
+- **Interactive Status Pills** - Click any session status to change payment state
+- **Instant Updates** - Changes reflect immediately in both session and patient views
+- **Visual Feedback** - Status pills show current state with proper colors and icons
 
 ### Advanced Filtering Features
-- **Real-time Updates** - Summary cards update as you change filters
+- **Real-time Updates** - All 5 summary cards update as you change filters
 - **Patient-Specific View** - See all payment activity for individual patients
 - **Status-Based Analysis** - Focus on specific payment states
 - **Date Range Analysis** - Compare payment performance across different periods
@@ -266,11 +283,11 @@ npm start
 ## 🔧 API Endpoints
 
 ### Payment Management
-- `GET /api/payments/summary?therapistEmail=&startDate=&endDate=` - Payment analytics
-- `GET /api/payments/patients?therapistEmail=&startDate=&endDate=&status=` - Patient payment summaries with filtering
-- `GET /api/payments/sessions?therapistEmail=&startDate=&endDate=&status=` - Session payment details with filtering
-- `POST /api/payments/request` - Send payment requests with WhatsApp integration
-- `PUT /api/payments/status` - Update payment status manually
+- `GET /api/payments/summary?therapistEmail=&startDate=&endDate=` - 5-card revenue breakdown
+- `GET /api/payments/patients?therapistEmail=&startDate=&endDate=&status=` - Patient payment summaries with session counts
+- `GET /api/payments/sessions?therapistEmail=&startDate=&endDate=&status=` - Session payment details for management
+- `PUT /api/payments/status` - **Update individual session payment status**
+- `POST /api/payments/request` - Send payment requests
 
 ### Session & Patient Management
 - `GET /api/sessions?therapistEmail=` - Session management with filtering
@@ -283,7 +300,7 @@ npm start
 ### Core Tables
 - **therapists** - Therapist accounts with calendar integration
 - **patients** - Patient records with contact information
-- **sessions** - Therapy sessions with payment tracking columns
+- **sessions** - Therapy sessions with **payment_status**, **payment_requested** columns
 
 ### Payment Tracking Tables
 - **payment_transactions** - Records of actual payments received with dates, methods, amounts
@@ -292,6 +309,7 @@ npm start
 - **payment_overview** (view) - Simplified payment data access with calculated states
 
 ### Key Database Features
+- **Session-level payment tracking** - Each session has individual payment status
 - **Multi-tenant isolation** - Each therapist sees only their data
 - **Foreign key relationships** - Proper data integrity
 - **Payment state calculations** - Automatic status determination based on business rules
@@ -312,7 +330,6 @@ npm start
 - **Complete Portuguese interface** throughout the application
 - **Brazilian currency formatting** (R$ with comma decimals)
 - **Brazilian timezone support** (America/Sao_Paulo)
-- **WhatsApp integration** with Brazilian phone formatting (+55 11 99999-9999)
 - **Cultural adaptations** for therapy practice workflow
 - **Payment terminology** adapted for Brazilian business practices
 
@@ -334,13 +351,12 @@ npm start
 ## 🗺️ Development Roadmap
 
 ### ✅ **Completed Features**
-- **Complete payment management system** with advanced filtering
-- **Real database integration** with payment tracking tables
+- **Complete session-level payment management** with interactive status changes
+- **5-card revenue dashboard** with real-time filtering updates
+- **Smart patient status priority system** reflecting session payment states
+- **Patient detail navigation** with automatic session filtering
+- **Real database integration** with comprehensive payment tracking tables
 - **Advanced filtering system** with patient, status, and date filters
-- **Horizontal filter layout** with native browser styling
-- **Dynamic summary cards** that update based on filters
-- **Payment transaction history** with dates and methods
-- **Partial payment support** for realistic payment scenarios
 - **Complete bidirectional Google Calendar sync**
 - **Authentication system** with Firebase Google Sign-In
 - **Session management** with full CRUD and filtering
@@ -350,12 +366,11 @@ npm start
 **Goal**: Advanced payment automation and Brazilian payment integration
 
 **Planned Features:**
+- **Therapist Onboarding Wizard** - Smart calendar import and patient matching
 - **PIX Payment Integration** - Real-time PIX payment monitoring
 - **WhatsApp Payment Automation** - Automated payment reminders
 - **Payment Analytics Dashboard** - Advanced revenue analytics and trends
 - **Nota Fiscal Integration** - Automatic tax invoice generation
-- **Payment Method Analytics** - Track preferred payment methods
-- **Recurring Payment Detection** - Identify and manage recurring payments
 - **Payment Performance Metrics** - Days to payment, success rates, etc.
 
 ### 🎯 **Phase 3: Advanced Practice Management**
@@ -384,4 +399,4 @@ This project is proprietary software for LV Notas therapy practice management.
 
 **Built with ❤️ for modern Brazilian therapy practice management**
 
-*Now featuring COMPLETE payment management system with advanced filtering, real database integration, and comprehensive Brazilian payment support for the ultimate therapy practice management experience!* 🚀💰
+*Now featuring COMPLETE session-level payment management with interactive status changes, 5-card revenue dashboard, and smart patient status priority system for the ultimate therapy practice management experience!* 🚀💰

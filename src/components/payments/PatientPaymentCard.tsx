@@ -11,14 +11,17 @@ export const PatientPaymentCard: React.FC<PatientPaymentCardProps> = ({
   patient,
   onSendPaymentRequest,
   onChasePayment,
-  onStatusChange
+  onStatusChange,
+  onViewDetails
 }) => {
   const formatCurrency = (amount: number): string => {
     return `R$ ${amount.toFixed(2).replace('.', ',')}`;
   };
 
   const getPaymentStatusDetails = (): PaymentStatusDetails => {
-    const PENDING_THRESHOLD_DAYS = 7;
+    // Check session status counts from the API
+    const hasPendingSessions = patient.pendente_sessions > 0;
+    const hasAwaitingSessions = patient.aguardando_sessions > 0;
 
     // If everything is paid
     if (patient.pending_amount === 0 && patient.paid_amount > 0) {
@@ -36,22 +39,8 @@ export const PatientPaymentCard: React.FC<PatientPaymentCardProps> = ({
 
     // If partially paid
     if (patient.paid_amount > 0 && patient.pending_amount > 0) {
-      const daysSinceRequest = patient.payment_request_date
-        ? Math.floor((new Date().getTime() - new Date(patient.payment_request_date).getTime()) / (1000 * 60 * 60 * 24))
-        : 0;
-
-      if (!patient.payment_requested) {
-        return {
-          status: 'parcialmente_pago',
-          color: '#ffc107',
-          text: 'Parcialmente Pago',
-          showButton: true,
-          buttonText: '💰 Cobrar Restante',
-          buttonType: 'invoice',
-          displayAmount: formatCurrency(patient.pending_amount),
-          amountLabel: 'Restante'
-        };
-      } else if (daysSinceRequest >= PENDING_THRESHOLD_DAYS) {
+      // Priority 1: If any session is pendente
+      if (hasPendingSessions) {
         return {
           status: 'parcialmente_pago_pendente',
           color: '#dc3545',
@@ -62,7 +51,10 @@ export const PatientPaymentCard: React.FC<PatientPaymentCardProps> = ({
           displayAmount: formatCurrency(patient.pending_amount),
           amountLabel: 'Pendente'
         };
-      } else {
+      }
+
+      // Priority 2: If any session is aguardando
+      if (hasAwaitingSessions) {
         return {
           status: 'parcialmente_pago_aguardando',
           color: '#17a2b8',
@@ -74,28 +66,22 @@ export const PatientPaymentCard: React.FC<PatientPaymentCardProps> = ({
           amountLabel: 'Aguardando'
         };
       }
-    }
 
-    // If nothing paid yet
-    if (!patient.payment_requested) {
+      // Priority 3: Only não cobrado sessions remain
       return {
-        status: 'nao_cobrado',
-        color: '#6c757d',
-        text: 'Não Cobrado',
+        status: 'parcialmente_pago',
+        color: '#ffc107',
+        text: 'Parcialmente Pago',
         showButton: true,
-        buttonText: '💰 Cobrar',
+        buttonText: '💰 Cobrar Restante',
         buttonType: 'invoice',
         displayAmount: formatCurrency(patient.pending_amount),
-        amountLabel: 'A Cobrar'
+        amountLabel: 'Restante'
       };
     }
 
-    // Payment requested but nothing paid yet
-    const daysSinceRequest = patient.payment_request_date
-      ? Math.floor((new Date().getTime() - new Date(patient.payment_request_date).getTime()) / (1000 * 60 * 60 * 24))
-      : 0;
-
-    if (daysSinceRequest >= PENDING_THRESHOLD_DAYS) {
+    // If nothing paid yet - apply same priority logic
+    if (hasPendingSessions) {
       return {
         status: 'pendente',
         color: '#dc3545',
@@ -106,7 +92,9 @@ export const PatientPaymentCard: React.FC<PatientPaymentCardProps> = ({
         displayAmount: formatCurrency(patient.pending_amount),
         amountLabel: 'Pendente'
       };
-    } else {
+    }
+
+    if (hasAwaitingSessions) {
       return {
         status: 'aguardando_pagamento',
         color: '#ffc107',
@@ -118,14 +106,27 @@ export const PatientPaymentCard: React.FC<PatientPaymentCardProps> = ({
         amountLabel: 'Aguardando'
       };
     }
+
+    // Default: não cobrado
+    return {
+      status: 'nao_cobrado',
+      color: '#6c757d',
+      text: 'Não Cobrado',
+      showButton: true,
+      buttonText: '💰 Cobrar',
+      buttonType: 'invoice',
+      displayAmount: formatCurrency(patient.pending_amount),
+      amountLabel: 'A Cobrar'
+    };
   };
 
   const statusDetails = getPaymentStatusDetails();
 
   const handleActionButtonPress = async () => {
-    if (statusDetails.buttonType === 'invoice') {
+    // Check if the functions exist before calling them
+    if (statusDetails.buttonType === 'invoice' && onSendPaymentRequest) {
       await onSendPaymentRequest(patient);
-    } else if (statusDetails.buttonType === 'reminder') {
+    } else if (statusDetails.buttonType === 'reminder' && onChasePayment) {
       await onChasePayment(patient);
     }
   };
@@ -134,8 +135,12 @@ export const PatientPaymentCard: React.FC<PatientPaymentCardProps> = ({
     return new Date(dateString).toLocaleDateString('pt-BR');
   };
 
-  function onViewPaymentDetails(patient_id: number): void {
-    alert('Função não implementada.');
+  function handleViewPatientDetails(): void {
+    if (onViewDetails) {
+      onViewDetails(patient.patient_id);
+    } else {
+      alert('Função não implementada.');
+    }
   }
 
   return (
@@ -200,41 +205,23 @@ export const PatientPaymentCard: React.FC<PatientPaymentCardProps> = ({
 
       {/* Action Section */}
       <View style={styles.actionSection}>
-        <Text style={styles.actionLabel}>Gerenciar pagamento:</Text>
-        <View style={styles.actionRow}>
-          {/* Status Dropdown */}
-          <View style={styles.dropdownContainer}>
-            <Picker
-              style={styles.statusDropdown}
-              selectedValue={statusDetails.status}
-              onValueChange={(value) => onStatusChange(patient.patient_id, value)}
-            >
-              <Picker.Item label="✅ Pago" value="pago" />
-              <Picker.Item label="📄 Não Cobrado" value="nao_cobrado" />
-              <Picker.Item label="⏰ Aguardando Pagamento" value="aguardando_pagamento" />
-              <Picker.Item label="🔔 Pendente" value="pendente" />
-              <Picker.Item label="💰 Parcialmente Pago" value="parcialmente_pago" />
-            </Picker>
-          </View>
-
-          {/* Action Button */}
+        {/* Action Button - Only show if functions are available */}
+        {(onSendPaymentRequest || onChasePayment) && statusDetails.showButton && (
           <PaymentActionButton
             showButton={statusDetails.showButton}
             buttonText={statusDetails.buttonText}
             buttonType={statusDetails.buttonType}
             onPress={handleActionButtonPress}
           />
+        )}
 
-          {/* Details Button - always show if there are payments */}
-          {(patient.payment_count > 0 || patient.total_sessions > 0) && (
-            <Pressable
-              style={styles.detailsButton}
-              onPress={() => onViewPaymentDetails(patient.patient_id)}
-            >
-              <Text style={styles.detailsButtonText}>📋 Ver Detalhes</Text>
-            </Pressable>
-          )}
-        </View>
+        {/* Details Button - always show */}
+        <Pressable
+          style={styles.detailsButton}
+          onPress={handleViewPatientDetails}
+        >
+          <Text style={styles.detailsButtonText}>📋 Ver Detalhes</Text>
+        </Pressable>
       </View>
     </View >
   );

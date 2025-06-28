@@ -440,6 +440,35 @@ export const apiService = {
     return response.json();
   },
 
+  async updatePaymentStatus(sessionId: number, newStatus: string, therapistEmail: string): Promise<void> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for API calls");
+    }
+
+    const headers = await getAuthHeaders();
+    console.log("📞 updatePaymentStatus API call:", { sessionId, newStatus, therapistEmail });
+
+    const response = await fetch(`${API_URL}/api/payments/status`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        sessionId,
+        newStatus,
+        therapistEmail,
+        updatedBy: therapistEmail,
+        reason: `Status changed via LV Notas interface to: ${newStatus}`
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ updatePaymentStatus error response:", errorText);
+      throw new Error(`Failed to update payment status. Status: ${response.status}, Error: ${errorText}`);
+    }
+
+    console.log("✅ updatePaymentStatus success");
+  },
+
   // Helper methods
   getCurrentTherapistEmail,
   canMakeAuthenticatedCall,

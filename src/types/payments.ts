@@ -15,6 +15,10 @@ export interface PatientPaymentSummary {
   last_payment_date?: string;
   payment_methods?: string;
   payment_count: number;
+  pendente_sessions: number;
+  aguardando_sessions: number;
+  nao_cobrado_sessions: number;
+  paid_sessions: number;
 }
 
 export interface SessionPaymentDetail {
@@ -31,6 +35,9 @@ export interface PaymentsSummary {
   total_revenue: number;
   paid_revenue: number;
   pending_revenue: number;
+  nao_cobrado_revenue: number;
+  aguardando_revenue: number;
+  pendente_revenue: number;
   total_sessions: number;
   paid_sessions: number;
   pending_sessions: number;
@@ -99,9 +106,10 @@ export interface ViewToggleProps {
 
 export interface PatientPaymentCardProps {
   patient: PatientPaymentSummary;
-  onSendPaymentRequest: (patient: PatientPaymentSummary) => Promise<void>;
-  onChasePayment: (patient: PatientPaymentSummary) => Promise<void>;
-  onStatusChange: (patientId: number, newStatus: string) => Promise<void>;
+  onSendPaymentRequest?: (patient: PatientPaymentSummary) => Promise<void>;
+  onChasePayment?: (patient: PatientPaymentSummary) => Promise<void>;
+  onStatusChange?: (patientId: number, newStatus: string) => Promise<void>;
+  onViewDetails?: (patientId: number) => void;
 }
 
 export interface SessionPaymentCardProps {

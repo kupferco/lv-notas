@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#fff",
     paddingHorizontal: 20,
-    maxWidth: 700,
+    maxWidth: 730,
     alignSelf: 'center',
     width: '100%',
   },

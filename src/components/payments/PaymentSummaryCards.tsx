@@ -1,7 +1,7 @@
 // src/components/payments/PaymentSummaryCards.tsx
 
 import React from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
 import { PaymentSummaryCardsProps } from '../../types/payments';
 
 export const PaymentSummaryCards: React.FC<PaymentSummaryCardsProps> = ({
@@ -33,11 +33,16 @@ export const PaymentSummaryCards: React.FC<PaymentSummaryCardsProps> = ({
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView 
+      horizontal 
+      showsHorizontalScrollIndicator={false}
+      style={styles.scrollContainer}
+      contentContainerStyle={styles.container}
+    >
       {/* Total Revenue Card */}
       <View style={styles.summaryCard}>
         <Text style={styles.summaryLabel}>Receita Total</Text>
-        <Text style={styles.summaryAmount}>
+        <Text style={[styles.summaryAmount, styles.totalAmount]}>
           {formatCurrency(summary.total_revenue)}
         </Text>
         <Text style={styles.summarySubtext}>
@@ -47,7 +52,7 @@ export const PaymentSummaryCards: React.FC<PaymentSummaryCardsProps> = ({
 
       {/* Paid Revenue Card */}
       <View style={styles.summaryCard}>
-        <Text style={styles.summaryLabel}>Pago</Text>
+        <Text style={styles.summaryLabel}>✅ Pago</Text>
         <Text style={[styles.summaryAmount, styles.paidAmount]}>
           {formatCurrency(summary.paid_revenue)}
         </Text>
@@ -56,25 +61,49 @@ export const PaymentSummaryCards: React.FC<PaymentSummaryCardsProps> = ({
         </Text>
       </View>
 
-      {/* Pending Revenue Card */}
+      {/* Não Cobrado Revenue Card */}
       <View style={styles.summaryCard}>
-        <Text style={styles.summaryLabel}>Pendente</Text>
-        <Text style={[styles.summaryAmount, styles.pendingAmount]}>
-          {formatCurrency(summary.pending_revenue)}
+        <Text style={styles.summaryLabel}>○ Não Cobrado</Text>
+        <Text style={[styles.summaryAmount, styles.naoCobradoAmount]}>
+          {formatCurrency(summary.nao_cobrado_revenue)}
         </Text>
         <Text style={styles.summarySubtext}>
-          {summary.pending_sessions} sessões
+          {Math.round((summary.nao_cobrado_revenue / (summary.total_revenue / summary.total_sessions)) || 0)} sessões
         </Text>
       </View>
-    </View>
+
+      {/* Aguardando Revenue Card */}
+      <View style={styles.summaryCard}>
+        <Text style={styles.summaryLabel}>⏳ Aguardando</Text>
+        <Text style={[styles.summaryAmount, styles.aguardandoAmount]}>
+          {formatCurrency(summary.aguardando_revenue)}
+        </Text>
+        <Text style={styles.summarySubtext}>
+          {Math.round((summary.aguardando_revenue / (summary.total_revenue / summary.total_sessions)) || 0)} sessões
+        </Text>
+      </View>
+
+      {/* Pendente Revenue Card */}
+      <View style={styles.summaryCard}>
+        <Text style={styles.summaryLabel}>⚠️ Pendente</Text>
+        <Text style={[styles.summaryAmount, styles.pendenteAmount]}>
+          {formatCurrency(summary.pendente_revenue)}
+        </Text>
+        <Text style={styles.summarySubtext}>
+          {Math.round((summary.pendente_revenue / (summary.total_revenue / summary.total_sessions)) || 0)} sessões
+        </Text>
+      </View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
+  scrollContainer: {
+    marginBottom: 15,
+  },
   container: {
     flexDirection: 'row',
     paddingHorizontal: 15,
-    marginBottom: 15,
     gap: 10,
   },
   loadingContainer: {
@@ -95,7 +124,6 @@ const styles = StyleSheet.create({
     color: '#6c757d',
   },
   summaryCard: {
-    flex: 1,
     backgroundColor: '#fff',
     padding: 15,
     borderRadius: 8,
@@ -103,6 +131,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#dee2e6',
     minHeight: 80,
+    minWidth: 120,
     justifyContent: 'center',
   },
   summaryLabel: {
@@ -113,7 +142,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   summaryAmount: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#212529',
     textAlign: 'center',
@@ -124,10 +153,20 @@ const styles = StyleSheet.create({
     color: '#8a8a8a',
     textAlign: 'center',
   },
+  totalAmount: {
+    color: '#495057',
+    fontSize: 18,
+  },
   paidAmount: {
     color: '#28a745',
   },
-  pendingAmount: {
-    color: '#ffc107',
+  naoCobradoAmount: {
+    color: '#6c757d',
+  },
+  aguardandoAmount: {
+    color: '#fd7e14',
+  },
+  pendenteAmount: {
+    color: '#dc3545',
   },
 });

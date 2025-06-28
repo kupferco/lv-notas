@@ -147,6 +147,16 @@ export const PaymentsOverview = () => {
                 total_revenue: filteredPatientData.reduce((sum, p) => sum + p.total_amount, 0),
                 paid_revenue: filteredPatientData.reduce((sum, p) => sum + p.paid_amount, 0),
                 pending_revenue: filteredPatientData.reduce((sum, p) => sum + p.pending_amount, 0),
+                // Add the new revenue breakdowns
+                nao_cobrado_revenue: filteredSessionData
+                    .filter(s => s.payment_status === 'pending')
+                    .reduce((sum, s) => sum + s.session_price, 0),
+                aguardando_revenue: filteredSessionData
+                    .filter(s => s.payment_status === 'aguardando_pagamento')
+                    .reduce((sum, s) => sum + s.session_price, 0),
+                pendente_revenue: filteredSessionData
+                    .filter(s => s.payment_status === 'pendente')
+                    .reduce((sum, s) => sum + s.session_price, 0),
                 total_sessions: filteredPatientData.reduce((sum, p) => sum + p.total_sessions, 0),
                 paid_sessions: filteredSessionData.filter(s => s.payment_status === 'paid').length,
                 pending_sessions: filteredSessionData.filter(s => s.payment_status !== 'paid').length
@@ -184,20 +194,53 @@ export const PaymentsOverview = () => {
         setFilters(prev => ({ ...prev, patientFilter: patientId }));
     };
 
-    // Payment action handlers
+    // Payment action handlers (simplified - only for sessions now)
     const handleSendPaymentRequest = async (patient: PatientPaymentSummary) => {
         console.log(`Sending payment request to ${patient.patient_name}`);
-        // TODO: Implement actual payment request logic
+        // TODO: Implement actual payment request logic if needed
     };
 
     const handleChasePayment = async (patient: PatientPaymentSummary) => {
         console.log(`Chasing payment for ${patient.patient_name}`);
-        // TODO: Implement actual payment chase logic
+        // TODO: Implement actual payment chase logic if needed
     };
 
-    const handleStatusChange = async (patientId: number, newStatus: string) => {
-        console.log(`Changing payment status for patient ${patientId} to ${newStatus}`);
-        // TODO: Implement actual status change logic
+    const handleViewPatientDetails = (patientId: number) => {
+        console.log(`📋 Viewing details for patient ${patientId}`);
+
+        // Switch to session view and filter by this patient
+        setFilters(prev => ({
+            ...prev,
+            viewType: 'session',
+            patientFilter: patientId.toString()
+        }));
+    };
+
+    const handleStatusChange = async (sessionId: number, newStatus: string) => {
+        console.log(`💰 Changing payment status for session ${sessionId} to ${newStatus}`);
+
+        if (!user?.email) {
+            console.error('❌ No user email available');
+            alert('Erro: usuário não autenticado');
+            return;
+        }
+
+        try {
+            // Call the API to update payment status
+            await apiService.updatePaymentStatus(sessionId, newStatus, user.email);
+
+            console.log('✅ Payment status updated successfully');
+
+            // Reload the payments data to reflect the changes
+            await loadPaymentsData();
+
+            // Show success message
+            // alert(`Status da sessão alterado para: ${newStatus}`);
+
+        } catch (error: any) {
+            console.error('❌ Error updating payment status:', error);
+            alert(`Erro ao alterar status de pagamento: ${error.message}`);
+        }
     };
 
     if (loading) {
@@ -243,9 +286,7 @@ export const PaymentsOverview = () => {
                             <PatientPaymentCard
                                 key={patient.patient_id}
                                 patient={patient}
-                                onSendPaymentRequest={handleSendPaymentRequest}
-                                onChasePayment={handleChasePayment}
-                                onStatusChange={handleStatusChange}
+                                onViewDetails={handleViewPatientDetails}
                             />
                         ))}
                     </>
@@ -256,6 +297,7 @@ export const PaymentsOverview = () => {
                             <SessionPaymentCard
                                 key={session.session_id}
                                 session={session}
+                                onStatusChange={handleStatusChange}
                             />
                         ))}
                     </>
