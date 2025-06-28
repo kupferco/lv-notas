@@ -259,6 +259,61 @@ CREATE TABLE billing_periods (
 ALTER TABLE sessions ADD COLUMN billing_period_id INTEGER REFERENCES billing_periods(id) ON DELETE SET NULL;
 
 -- =============================================================================
+-- PAYMENT TRACKING TABLES
+-- =============================================================================
+
+-- Add payment tracking columns to sessions table
+ALTER TABLE sessions 
+ADD COLUMN payment_requested BOOLEAN DEFAULT false,
+ADD COLUMN payment_request_date TIMESTAMP WITH TIME ZONE,
+ADD COLUMN payment_status VARCHAR(50) DEFAULT 'pending',
+ADD COLUMN paid_date TIMESTAMP WITH TIME ZONE;
+
+-- Payment transactions - records of actual payments received
+CREATE TABLE payment_transactions (
+    id SERIAL PRIMARY KEY,
+    session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+    patient_id INTEGER REFERENCES patients(id) ON DELETE CASCADE,
+    therapist_id INTEGER REFERENCES therapists(id) ON DELETE CASCADE,
+    amount DECIMAL(10,2) NOT NULL,
+    payment_method VARCHAR(50), -- 'pix', 'bank_transfer', 'cash', 'credit_card', etc.
+    payment_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    reference_number VARCHAR(255), -- PIX transaction ID, bank reference, etc.
+    notes TEXT,
+    created_by VARCHAR(255) NOT NULL, -- who recorded this payment
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Payment requests - log of payment communications sent to patients
+CREATE TABLE payment_requests (
+    id SERIAL PRIMARY KEY,
+    patient_id INTEGER REFERENCES patients(id) ON DELETE CASCADE,
+    therapist_id INTEGER REFERENCES therapists(id) ON DELETE CASCADE,
+    session_ids INTEGER[], -- Array of session IDs included in this request
+    total_amount DECIMAL(10,2) NOT NULL,
+    request_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    request_type VARCHAR(20) DEFAULT 'invoice', -- 'invoice', 'reminder', 'overdue'
+    whatsapp_sent BOOLEAN DEFAULT false,
+    whatsapp_message TEXT, -- The actual message sent
+    response_received BOOLEAN DEFAULT false,
+    response_date TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Payment status history - complete audit trail
+CREATE TABLE payment_status_history (
+    id SERIAL PRIMARY KEY,
+    session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+    old_status VARCHAR(50),
+    new_status VARCHAR(50),
+    changed_by VARCHAR(255),
+    changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    reason TEXT,
+    payment_transaction_id INTEGER REFERENCES payment_transactions(id) ON DELETE SET NULL
+);
+
+-- =============================================================================
 -- INDEXES FOR PERFORMANCE
 -- =============================================================================
 
@@ -286,6 +341,18 @@ CREATE INDEX idx_therapist_billing_history_dates ON therapist_billing_history(th
 CREATE INDEX idx_patient_billing_history_dates ON patient_billing_history(patient_id, effective_from_date, effective_until_date);
 CREATE INDEX idx_billing_periods_therapist_dates ON billing_periods(therapist_id, period_start_date, period_end_date);
 CREATE INDEX idx_billing_periods_patient_dates ON billing_periods(patient_id, period_start_date, period_end_date);
+
+-- Payment tracking indexes
+CREATE INDEX idx_payment_transactions_session_id ON payment_transactions(session_id);
+CREATE INDEX idx_payment_transactions_patient_id ON payment_transactions(patient_id);
+CREATE INDEX idx_payment_transactions_therapist_id ON payment_transactions(therapist_id);
+CREATE INDEX idx_payment_transactions_payment_date ON payment_transactions(payment_date);
+CREATE INDEX idx_payment_requests_patient_id ON payment_requests(patient_id);
+CREATE INDEX idx_payment_requests_therapist_id ON payment_requests(therapist_id);
+CREATE INDEX idx_payment_requests_request_date ON payment_requests(request_date);
+CREATE INDEX idx_payment_status_history_session_id ON payment_status_history(session_id);
+CREATE INDEX idx_sessions_payment_status ON sessions(therapist_id, payment_status);
+CREATE INDEX idx_sessions_payment_requested ON sessions(therapist_id, payment_requested, payment_request_date);
 
 -- =============================================================================
 -- VIEWS FOR EASY DATA ACCESS
@@ -398,6 +465,50 @@ JOIN therapists t ON pbh.therapist_id = t.id
 JOIN patients p ON pbh.patient_id = p.id
 
 ORDER BY created_at DESC;
+
+-- Payment overview view - complete payment status for all sessions
+CREATE VIEW payment_overview AS
+SELECT 
+    s.id as session_id,
+    s.date as session_date,
+    s.session_price,
+    s.payment_status,
+    s.payment_requested,
+    s.payment_request_date,
+    s.paid_date,
+    p.id as patient_id,
+    p.nome as patient_name,
+    p.telefone as patient_phone,
+    t.id as therapist_id,
+    t.nome as therapist_name,
+    t.email as therapist_email,
+    pt.id as payment_transaction_id,
+    pt.amount as paid_amount,
+    pt.payment_method,
+    pt.payment_date,
+    pt.reference_number,
+    -- Calculate days since session
+    (CURRENT_DATE - s.date::date)::integer as days_since_session,
+    -- Calculate days since payment requested
+    CASE 
+        WHEN s.payment_request_date IS NOT NULL 
+        THEN (CURRENT_DATE - s.payment_request_date::date)::integer
+        ELSE NULL 
+    END as days_since_request,
+    -- Determine current payment state
+    CASE 
+        WHEN s.payment_status = 'paid' THEN 'pago'
+        WHEN s.payment_requested = false THEN 'nao_cobrado'
+        WHEN s.payment_requested = true AND s.payment_request_date > CURRENT_DATE - INTERVAL '7 days' THEN 'aguardando_pagamento'
+        WHEN s.payment_requested = true AND s.payment_request_date <= CURRENT_DATE - INTERVAL '7 days' THEN 'pendente'
+        ELSE 'nao_cobrado'
+    END as payment_state
+FROM sessions s
+JOIN patients p ON s.patient_id = p.id
+JOIN therapists t ON s.therapist_id = t.id
+LEFT JOIN payment_transactions pt ON s.id = pt.session_id
+WHERE s.status = 'compareceu'
+  AND s.date::date >= p.lv_notas_billing_start_date;
 
 -- =============================================================================
 -- HELPER FUNCTIONS

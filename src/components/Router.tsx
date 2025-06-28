@@ -7,7 +7,7 @@ import { NavigationBar } from './NavigationBar';
 import { CheckInForm } from './CheckInForm';
 import { Sessions } from './Sessions';
 import { PatientManagement } from './PatientManagement';
-import PaymentsOverview from './PaymentsOverview';
+import { PaymentsOverview } from './payments/PaymentsOverview';
 import { Settings } from './Settings';
 
 // Simple URL-based routing

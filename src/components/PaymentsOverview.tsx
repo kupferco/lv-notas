@@ -241,7 +241,7 @@ export const PaymentsOverview = () => {
       return {
         status: 'nao_cobrado',
         color: '#6c757d',
-        text: 'Total de Sessões',
+        text: 'Não Cobrado',
         showButton: true,
         buttonText: '💰 Cobrar',
         buttonType: 'invoice',

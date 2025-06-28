@@ -1,4 +1,4 @@
--- clinic-api/db/seed_data.sql
+-- clinic-api/db/basic_seed_data.sql
 -- Test data for LV Notas development environment
 -- This creates realistic sample data for testing the onboarding and billing systems
 
