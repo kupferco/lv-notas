@@ -126,7 +126,7 @@ async function startServices() {
   // Wait a moment for the port to be fully released
   await new Promise(resolve => setTimeout(resolve, 1000));
 
-  const server = spawn("npm", ["run", "dev"], {
+  const server = spawn("npm", ["run", "dev:simple"], {
     stdio: "inherit",
     shell: true
   });

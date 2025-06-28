@@ -10,7 +10,7 @@ AIRTABLE_API_KEY=$(gcloud secrets versions access latest --secret="airtable-api-
 # Update .env file with secrets (NO WEBHOOK_URL - let start-dev.ts handle it)
 cat > .env << EOF
 # Local database (no charges)
-POSTGRES_USER=dnkupfer
+POSTGRES_USER=dankupfer
 POSTGRES_HOST=localhost
 POSTGRES_DB=clinic_db
 POSTGRES_PASSWORD=
@@ -35,4 +35,4 @@ echo "✅ Secrets loaded and .env updated"
 echo "🚀 Starting development server with webhook setup..."
 
 # Use your existing dev:webhook script
-npm run dev:webhook
+npm run dev

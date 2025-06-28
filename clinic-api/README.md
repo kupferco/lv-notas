@@ -1,8 +1,18 @@
 # LV Notas Clinic API
 
-A comprehensive Node.js/TypeScript REST API for managing therapy clinics with **enhanced therapist onboarding**, **dual date billing system**, and **complete Google Calendar integration**.
+A comprehensive Node.js/TypeScript REST API for managing therapy clinics with **complete payment management**, **enhanced therapist onboarding**, **dual date billing system**, and **complete Google Calendar integration**.
 
 ## 🚀 Latest Features (June 2025)
+
+### 💰 **Complete Payment Management System**
+- **📊 Payment Tracking Tables** - Complete database schema for payment transactions
+- **🔍 Advanced Payment API** - Filtering by patient, status, date range with real-time calculations
+- **💳 Payment Transaction History** - Track actual payments with dates, methods, and reference numbers
+- **📝 Payment Request Tracking** - Log when payment requests are sent to patients
+- **🏦 Multiple Payment Methods** - Support for PIX, bank transfer, cash, credit card
+- **📈 Payment Analytics** - Real-time revenue calculations and payment performance metrics
+- **🎯 Payment Status Management** - Handle "Não Cobrado", "Aguardando", "Pendente", "Pago" with automatic transitions
+- **🇧🇷 Brazilian Payment Support** - Currency formatting, phone numbers, payment terminology
 
 ### ✨ **Enhanced Therapist Onboarding System**
 - **📅 Calendar Import Wizard** - Import existing appointments from therapist's calendar
@@ -66,11 +76,11 @@ The new streamlined database system makes setup and maintenance incredibly simpl
 ```bash
 cd clinic-api/db
 
-# Complete fresh start (recommended for development)
-./manage_db.sh fresh
+# Complete fresh start with comprehensive payment data (recommended)
+./manage_db.sh fresh-comprehensive
 
-# Add realistic test data
-./manage_db.sh seed
+# Add realistic payment test data to existing database
+./manage_db.sh comprehensive
 
 # Verify everything is working
 ./manage_db.sh check
@@ -79,35 +89,40 @@ cd clinic-api/db
 ### **Available Commands**
 ```bash
 # 🗑️ Fresh database (deletes all data, starts clean)
-npm run db:fresh
+./manage_db.sh fresh
+
+# 🚀 Fresh database with comprehensive payment data
+./manage_db.sh fresh-comprehensive
 
 # 📋 Install/update schema only
-npm run db:schema
+./manage_db.sh schema
 
-# 🌱 Add test data to existing database
-npm run db:seed
+# 🌱 Add basic test data
+./manage_db.sh seed
+
+# 🚀 Add comprehensive payment test data (20 patients, 6 months sessions)
+./manage_db.sh comprehensive
 
 # 🔍 Comprehensive schema and data verification
-npm run db:check
+./manage_db.sh check
 
-# 🔄 Complete reset with schema + test data
-npm run db:reset
+# 🔄 Complete reset with schema + basic test data
+./manage_db.sh reset
+
+# 🔄 Complete reset with comprehensive payment data
+./manage_db.sh reset-comprehensive
 
 # 💾 Create database backup
-npm run db:backup
-
-# ☁️ Google Cloud SQL management
-npm run db:cloud:start   # Start Cloud SQL instance
-npm run db:cloud:stop    # Stop Cloud SQL instance  
-npm run db:cloud:status  # Check Cloud SQL status
+./manage_db.sh backup
 ```
 
-### **What You Get**
-- **16 tables** - Core + Onboarding + Billing
-- **5 views** - Easy data access (billable_sessions, current_billing_settings, etc.)
-- **6 helper functions** - Billing calculations, patient name extraction
-- **31 performance indexes** - Optimized queries
-- **Complete test data** - 3 therapists, 6 patients, realistic scenarios
+### **What You Get with Comprehensive Data**
+- **20 diverse patients** with varying pricing (R$ 120-250)
+- **200+ sessions** spanning 6 months with realistic patterns
+- **Multiple payment scenarios** - paid, pending, overdue, partial payments
+- **Payment request tracking** with different dates and statuses
+- **Complete payment transaction history** with various payment methods
+- **Perfect for testing** all payment filtering combinations
 
 ## Installation
 
@@ -115,12 +130,11 @@ npm run db:cloud:status  # Check Cloud SQL status
 # Install dependencies
 npm install
 
-# Set up database (one command!)
-npm run db:fresh
-npm run db:seed
+# Set up database with comprehensive payment data (one command!)
+./db/manage_db.sh fresh-comprehensive
 
 # Verify setup
-npm run db:check
+./db/manage_db.sh check
 ```
 
 ## Development
@@ -144,8 +158,13 @@ npm start
 ### **Core Tables (Enhanced)**
 - **therapists** - Enhanced with billing cycles, onboarding tracking
 - **patients** - **Dual date system**, recurring patterns, pricing overrides
-- **sessions** - Billing integration, onboarding tracking
+- **sessions** - Billing integration, onboarding tracking, **payment tracking columns**
 - **calendar_events**, **check_ins**, **calendar_webhooks** - Existing functionality
+
+### **Payment Tracking Tables (New)**
+- **payment_transactions** - Records of actual payments received with dates, methods, amounts, reference numbers
+- **payment_requests** - Log of payment communications sent to patients with WhatsApp tracking
+- **payment_status_history** - Complete audit trail of all payment status changes with reasons
 
 ### **Onboarding Tables (New)**
 - **therapist_onboarding** - Step-by-step progress tracking
@@ -159,6 +178,7 @@ npm start
 - **billing_periods** - Invoice generation and payment tracking
 
 ### **Smart Views**
+- **payment_overview** - Complete payment status for all sessions with calculated states
 - **billable_sessions** - Automatically calculates which sessions count for billing
 - **current_billing_settings** - Current billing configuration for all patients
 - **therapist_onboarding_progress** - Real-time onboarding status
@@ -178,7 +198,50 @@ npm start
 - **Timezone handling** - Proper São Paulo timezone management
 - **Event classification** - Identifies "Sessão - Patient Name" patterns
 
-## 💰 Billing System Examples
+## 💰 Payment System Examples
+
+### **View Payment Analytics**
+```sql
+-- Get payment overview for all sessions
+SELECT * FROM payment_overview 
+WHERE therapist_email = 'dnkupfer@gmail.com'
+ORDER BY session_date DESC;
+
+-- Get payment summary by status
+SELECT 
+    payment_state,
+    COUNT(*) as session_count,
+    SUM(session_price) as total_amount
+FROM payment_overview 
+WHERE therapist_email = 'dnkupfer@gmail.com'
+GROUP BY payment_state;
+```
+
+### **Track Payment Requests**
+```sql
+-- View all payment requests sent
+SELECT 
+    pr.*,
+    p.nome as patient_name
+FROM payment_requests pr
+JOIN patients p ON pr.patient_id = p.id
+WHERE pr.therapist_id = (SELECT id FROM therapists WHERE email = 'dnkupfer@gmail.com')
+ORDER BY pr.request_date DESC;
+```
+
+### **Payment Transaction History**
+```sql
+-- View all payment transactions
+SELECT 
+    pt.*,
+    p.nome as patient_name,
+    s.date as session_date
+FROM payment_transactions pt
+JOIN patients p ON pt.patient_id = p.id
+JOIN sessions s ON pt.session_id = s.id
+WHERE pt.therapist_id = (SELECT id FROM therapists WHERE email = 'dnkupfer@gmail.com')
+ORDER BY pt.payment_date DESC;
+```
 
 ### **Change Therapist Billing Cycle**
 ```sql
@@ -206,15 +269,6 @@ SELECT change_patient_billing_cycle(
 );
 ```
 
-### **Check Current Billing Settings**
-```sql
--- See current billing for all patients
-SELECT * FROM current_billing_settings;
-
--- View complete billing change history
-SELECT * FROM billing_change_history WHERE therapist_id = 1;
-```
-
 ## 🎯 Onboarding Workflow
 
 ### **For New Therapists**
@@ -237,6 +291,14 @@ SELECT * FROM therapist_onboarding WHERE therapist_id = 1;
 
 ## API Endpoints
 
+### **Payment Management (New)**
+- `GET /api/payments/summary?therapistEmail=&startDate=&endDate=` - Payment analytics with filtering
+- `GET /api/payments/patients?therapistEmail=&startDate=&endDate=&status=` - Patient payment summaries with advanced filtering
+- `GET /api/payments/sessions?therapistEmail=&startDate=&endDate=&status=` - Session payment details with filtering
+- `POST /api/payments/request` - Send payment request (creates payment_requests record, updates sessions)
+- `PUT /api/payments/status` - Update payment status (creates payment_transactions, updates payment_status_history)
+- `POST /api/payments/reminder` - Send payment reminder
+
 ### **Enhanced Endpoints (New)**
 - `GET /api/therapists/:email/onboarding-status` - Get onboarding progress
 - `POST /api/therapists/:email/onboarding-step` - Update onboarding step
@@ -251,30 +313,44 @@ SELECT * FROM therapist_onboarding WHERE therapist_id = 1;
 - `POST /api/checkin` - Patient check-in with enhanced session tracking
 - `POST /api/calendar-webhook` - Bidirectional calendar sync
 - `GET /api/patients` - Enhanced with dual date system
-- `GET /api/sessions` - Enhanced with billing integration
+- `GET /api/sessions` - Enhanced with billing integration and payment tracking
 - `GET /api/therapists` - Enhanced with onboarding status
 
 ## Development Workflow
 
 ### **Daily Development**
 ```bash
-# Start with fresh data
-npm run db:reset
+# Start with fresh comprehensive payment data
+./db/manage_db.sh reset-comprehensive
 
 # Start development with automatic webhook setup
 npm run dev
 
 # Check database state anytime
-npm run db:check
+./db/manage_db.sh check
 ```
 
 ### **Database Verification**
 The `check` command provides comprehensive verification:
 - ✅ Table structure and relationships
-- 🔍 Enhanced column verification  
+- 🔍 Enhanced column verification with payment tracking
 - 📊 Data summary with onboarding status
 - 💰 Billing configuration overview
 - 🎯 Dual date system validation
+- 💳 Payment data verification
+
+### **Payment Testing Workflow**
+```bash
+# Set up comprehensive payment test data
+./db/manage_db.sh comprehensive
+
+# This creates:
+# - 20 patients with diverse pricing
+# - 200+ sessions with various statuses
+# - Payment requests with different dates
+# - Payment transactions with multiple methods
+# - Complete payment scenarios for testing filters
+```
 
 ## Google Cloud Deployment
 
@@ -323,9 +399,40 @@ gcloud sql connect clinic-db --user=postgres --database=clinic_db
 
 # Run complete schema (no migrations needed!)
 \i complete_schema.sql
+
+# Add comprehensive test data for production testing
+\i seed/01_therapist_seed.sql
+\i seed/02_patients_seed.sql
+\i seed/03_sessions_seed.sql
+\i seed/04_checkins_events_seed.sql
+\i seed/05_payment_test_data.sql
 ```
 
 ## 📊 Key Concepts
+
+### **Payment Management Architecture**
+```sql
+-- Payment flow example
+-- 1. Session completed (status = 'compareceu')
+-- 2. Payment request sent (payment_requested = true)
+-- 3. Payment received (payment_transactions record created)
+-- 4. Session marked as paid (payment_status = 'paid')
+
+-- View complete payment flow for a patient
+SELECT 
+    s.date as session_date,
+    s.session_price,
+    s.payment_requested,
+    s.payment_request_date,
+    s.payment_status,
+    pt.payment_date,
+    pt.payment_method,
+    pt.reference_number
+FROM sessions s
+LEFT JOIN payment_transactions pt ON s.id = pt.session_id
+WHERE s.patient_id = 1
+ORDER BY s.date;
+```
 
 ### **Dual Date System**
 ```sql
@@ -355,9 +462,11 @@ lv_notas_billing_start_date: '2025-06-01'  -- When automated billing starts
 - **Firebase Authentication** with Google Sign-In
 - **Multi-tenant isolation** - Each therapist sees only their data
 - **API key validation** for all requests
-- **Complete audit trails** for billing changes
+- **Complete audit trails** for billing and payment changes
 - **Secure webhook validation**
 - **Google Cloud Secret Manager** integration
+- **Payment data encryption** for sensitive financial information
+- **Rate limiting** on all API endpoints
 
 ## 🌍 Internationalization
 
@@ -365,8 +474,26 @@ lv_notas_billing_start_date: '2025-06-01'  -- When automated billing starts
 - **Brazilian timezone** support (America/Sao_Paulo)
 - **Cultural adaptations** for therapy practice workflow
 - **Localized error messages** and user feedback
+- **Brazilian currency formatting** (R$ with comma decimals)
+- **WhatsApp integration** with Brazilian phone number formatting
 
 ## 📈 Monitoring & Analytics
+
+### **Payment Analytics**
+```sql
+-- Payment performance metrics
+SELECT 
+    DATE_TRUNC('month', session_date) as month,
+    COUNT(*) as total_sessions,
+    COUNT(*) FILTER (WHERE payment_status = 'paid') as paid_sessions,
+    SUM(session_price) as total_revenue,
+    SUM(session_price) FILTER (WHERE payment_status = 'paid') as paid_revenue,
+    ROUND(COUNT(*) FILTER (WHERE payment_status = 'paid') * 100.0 / COUNT(*), 2) as payment_rate
+FROM payment_overview 
+WHERE therapist_email = 'dnkupfer@gmail.com'
+GROUP BY DATE_TRUNC('month', session_date)
+ORDER BY month DESC;
+```
 
 ### **Onboarding Metrics**
 ```sql
@@ -378,15 +505,45 @@ SELECT
 FROM therapists;
 ```
 
-### **Billing Analytics**
+### **Billing Distribution**
 ```sql
--- Billing distribution
+-- Billing cycle analysis
 SELECT 
   current_billing_cycle,
   COUNT(*) as patient_count,
   AVG(current_session_price) as avg_price
 FROM current_billing_settings 
 GROUP BY current_billing_cycle;
+```
+
+## 🧪 Testing Features
+
+### **Payment Testing Scenarios**
+The comprehensive seed data provides realistic testing scenarios:
+
+1. **"Não Cobrado" Patients** - Sessions completed but no payment request sent
+2. **"Aguardando Pagamento" Patients** - Payment requested within last 7 days
+3. **"Pendente" Patients** - Payment requested over 7 days ago
+4. **"Pago" Patients** - Payments completed with transaction records
+5. **"Parcialmente Pago" Patients** - Some sessions paid, others pending
+
+### **Filter Testing**
+- **Patient Filter** - Test with individual patients vs "Todos"
+- **Status Filter** - Test each payment status individually
+- **Date Range Filter** - Test different time periods
+- **Combined Filters** - Test multiple filters simultaneously
+- **Summary Card Updates** - Verify totals update with filters
+
+### **API Testing**
+```bash
+# Test payment endpoints with curl
+curl -X GET "http://localhost:3000/api/payments/summary?therapistEmail=dnkupfer@gmail.com" \
+  -H "X-API-Key: your_api_key" \
+  -H "Content-Type: application/json"
+
+curl -X GET "http://localhost:3000/api/payments/patients?therapistEmail=dnkupfer@gmail.com&status=pago" \
+  -H "X-API-Key: your_api_key" \
+  -H "Content-Type: application/json"
 ```
 
 ## 🚀 Future Roadmap
@@ -403,6 +560,12 @@ GROUP BY current_billing_cycle;
 - **Session notes** with LGPD compliance
 - **Multi-therapist clinics** with group practice management
 
+### **Phase 4: AI-Powered Features**
+- **Payment prediction models** - Predict payment likelihood
+- **Automated payment optimization** - Suggest optimal payment request timing
+- **Patient behavior analysis** - Identify payment patterns
+- **Revenue forecasting** - Predict future revenue based on sessions
+
 ## 📄 License
 
 This project is proprietary software for LV Notas therapy practice management.
@@ -411,4 +574,4 @@ This project is proprietary software for LV Notas therapy practice management.
 
 **Built with ❤️ for modern therapy practice management in Brazil**
 
-*Now featuring enhanced therapist onboarding with dual date billing system for seamless practice transitions!* 🚀
+*Now featuring complete payment management system with advanced filtering, real database integration, and comprehensive Brazilian payment support for seamless therapy practice operations!* 🚀💰

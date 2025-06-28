@@ -1,5 +1,5 @@
 // src/services/api.ts
-import type { Patient, Session, Therapist } from "../types";
+import type { Patient, Session, Therapist } from "../types/index";
 import { getCurrentUser, isDevelopment, getGoogleAccessToken } from "../config/firebase";
 
 const API_URL = isDevelopment ? "http://localhost:3000" : process.env.EXPO_PUBLIC_SAFE_PROXY_URL;
@@ -401,6 +401,43 @@ export const apiService = {
     const result = await response.json();
     console.log("✅ testConnection success:", result);
     return result;
+  },
+
+  // Add these methods to your existing apiService object
+
+  async getPaymentSummary(therapistEmail: string, startDate?: string, endDate?: string): Promise<any> {
+    const headers = await getAuthHeaders();
+    const params = new URLSearchParams({ therapistEmail });
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+
+    const response = await fetch(`${API_URL}/api/payments/summary?${params}`, { headers });
+    if (!response.ok) throw new Error("Failed to fetch payment summary");
+    return response.json();
+  },
+
+  async getPatientPayments(therapistEmail: string, startDate?: string, endDate?: string, status?: string): Promise<any[]> {
+    const headers = await getAuthHeaders();
+    const params = new URLSearchParams({ therapistEmail });
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    if (status) params.append('status', status);
+
+    const response = await fetch(`${API_URL}/api/payments/patients?${params}`, { headers });
+    if (!response.ok) throw new Error("Failed to fetch patient payments");
+    return response.json();
+  },
+
+  async getSessionPayments(therapistEmail: string, startDate?: string, endDate?: string, status?: string): Promise<any[]> {
+    const headers = await getAuthHeaders();
+    const params = new URLSearchParams({ therapistEmail });
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    if (status) params.append('status', status);
+
+    const response = await fetch(`${API_URL}/api/payments/sessions?${params}`, { headers });
+    if (!response.ok) throw new Error("Failed to fetch session payments");
+    return response.json();
   },
 
   // Helper methods

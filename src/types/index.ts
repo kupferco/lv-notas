@@ -3,11 +3,12 @@
 export interface Patient {
   telefone: string;
   email: string;
-  id: number;  // This should be number to match runtime data
+  id: string;
   name: string;
 }
 
 export interface Session {
+  message: any;
   id: string;
   date: string;
   patient_id: string;  // Added: ID of the patient for this session

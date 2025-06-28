@@ -6,8 +6,9 @@
   "scripts": {
     "start": "node dist/server.js",
     "build": "tsc",
-    "dev": "./scripts/start-local.sh",
+    "dev": "tsx scripts/start-dev.ts",
     "dev:simple": "nodemon --exec tsx src/server.ts",
+    "dev:local": "./scripts/start-local.sh",
     "deploy": "npm run build && ./deploy.sh",
     "db:fresh": "cd db && ./manage_db.sh fresh",
     "db:schema": "cd db && ./manage_db.sh schema",
