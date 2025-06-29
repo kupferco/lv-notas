@@ -420,6 +420,43 @@ npm start
 - **Session-level payment management** with interactive status changes
 - **Brazilian localization** including phone number support
 
+# README Roadmap Update
+
+```markdown
+### 🔥 **Immediate Priorities (Next Sprint)**
+**Goal**: Polish patient management and prepare for production deployment
+
+**Critical Tasks:**
+1. **Email Verification System** - Prevent duplicate patient registration by email during import
+   - Add email uniqueness validation in import wizard
+   - Show clear error messages for duplicate emails
+   - Option to merge or skip duplicate patients during import
+
+2. **Centralized Patient Form Architecture** - Unified patient form with type safety
+   - Single `PatientForm.tsx` component with conditional rendering
+   - Unified types in `src/types/patient.ts` 
+   - Short form flag for import wizard vs. complete form for patient management
+   - Consistent validation and field handling across both use cases
+
+3. **Condensed Import Wizard Styling** - Improved UX for bulk operations
+   - Compact form layout to keep progress counter visible
+   - Reduce vertical spacing and optimize form field arrangement
+   - Better visual hierarchy for bulk import workflow
+   - Progress indicator always visible without scrolling
+
+4. **Production Deployment & Testing** - Full system deployment
+   - Deploy backend API to production environment
+   - Deploy frontend to Firebase Hosting
+   - End-to-end testing of all features in production
+   - Performance optimization and monitoring setup
+
+5. **Therapist Data Cleanup Command** - Development and testing utility
+   - `DELETE /api/therapist/wipe` endpoint with confirmation
+   - Complete data removal for therapist offboarding
+   - Cascade delete for all related records (patients, sessions, payments)
+   - Safety measures and audit logging for data deletion
+```
+
 ### 🚀 **Phase 2: Enhanced Automation**
 **Goal**: Advanced payment automation and Brazilian business integration
 
