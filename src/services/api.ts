@@ -1,6 +1,7 @@
 // src/services/api.ts
 import type { Patient, Session, Therapist } from "../types/index";
 import { getCurrentUser, isDevelopment, getGoogleAccessToken } from "../config/firebase";
+import type { CalendarEvent, PatientData } from "../types/onboarding";
 
 const API_URL = isDevelopment ? "http://localhost:3000" : process.env.EXPO_PUBLIC_SAFE_PROXY_URL;
 const API_KEY = process.env.SAFE_PROXY_API_KEY;
@@ -482,8 +483,57 @@ export const apiService = {
     }
   },
 
+
+  async getCalendarEventsForImport(
+    calendarId: string,
+    startDate: string,
+    endDate: string
+  ): Promise<CalendarEvent[]> {
+    const headers = await getAuthHeaders(); // This should include Google access token
+    const params = new URLSearchParams({
+      calendarId,
+      startDate,
+      endDate,
+      useUserAuth: 'true' // Flag to use user OAuth
+    });
+
+    const response = await fetch(`${API_URL}/api/import/calendar/events-for-import?${params}`, {
+      headers
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch calendar events for import");
+    }
+
+    return response.json();
+  },
+
+  async importPatientWithSessions(
+    therapistEmail: string,
+    patientData: PatientData
+  ): Promise<{ patientId: string; sessionIds: string[] }> {
+    const headers = await getAuthHeaders();
+
+    const response = await fetch(`${API_URL}/api/import/patient-with-sessions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        therapistEmail,
+        patientData
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || "Failed to import patient and sessions");
+    }
+
+    return response.json();
+  },
+
   // Helper methods
   getCurrentTherapistEmail,
   canMakeAuthenticatedCall,
   getAuthHeaders,
 };
+

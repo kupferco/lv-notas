@@ -1,10 +1,20 @@
 // src/types/index.ts
 
 export interface Patient {
-  telefone: string;
-  email: string;
   id: string;
   name: string;
+  email: string;
+  telefone: string;
+  // Add all the missing fields to match your enhanced form:
+  endereco?: string;
+  dataNascimento?: string;
+  genero?: string;
+  contatoEmergencia?: string;
+  telefoneEmergencia?: string;
+  sessionPrice?: number; // in cents - this fixes your error!
+  therapyStartDate?: string;
+  lvNotasBillingStartDate?: string;
+  observacoes?: string;
 }
 
 export interface Session {
@@ -32,7 +42,7 @@ export interface Therapist {
 }
 
 export interface OnboardingState {
-  step: 'welcome' | 'auth' | 'calendar-selection' | 'calendar' | 'success' | 'addPatients';
+  step: 'welcome' | 'auth' | 'calendar-selection' | 'calendar' | 'success' | 'import-wizard' | 'addPatients';
   therapist?: Therapist;
   error?: string;
 }

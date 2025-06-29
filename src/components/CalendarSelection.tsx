@@ -11,7 +11,7 @@ interface Calendar {
 }
 
 interface CalendarSelectionProps {
-  onCalendarSelected: (calendarId: string) => void;
+  onCalendarSelected: (calendarId: string, calendarName?: string) => void;
   onBack: () => void;
 }
 
@@ -34,7 +34,7 @@ export const CalendarSelection: React.FC<CalendarSelectionProps> = ({
       setError(null);
       const data = await apiService.getCalendars();
       setCalendars(data);
-      
+
       // Auto-select primary calendar if available
       const primaryCalendar = data.find(cal => cal.primary);
       if (primaryCalendar) {
@@ -50,7 +50,12 @@ export const CalendarSelection: React.FC<CalendarSelectionProps> = ({
 
   const handleContinue = () => {
     if (selectedCalendar) {
-      onCalendarSelected(selectedCalendar);
+      // Find the selected calendar object to get its name
+      const selectedCalendarObj = calendars.find(cal => cal.id === selectedCalendar);
+      const calendarName = selectedCalendarObj?.summary || selectedCalendar;
+
+      // Pass both ID and name
+      onCalendarSelected(selectedCalendar, calendarName);
     }
   };
 
@@ -117,7 +122,7 @@ export const CalendarSelection: React.FC<CalendarSelectionProps> = ({
         {calendars.length === 0 && (
           <View style={styles.noCalendarsContainer}>
             <Text style={styles.noCalendarsText}>
-              Nenhum calendário encontrado. Verifique se você tem calendários no Google Calendar 
+              Nenhum calendário encontrado. Verifique se você tem calendários no Google Calendar
               e se concedeu as permissões necessárias.
             </Text>
           </View>

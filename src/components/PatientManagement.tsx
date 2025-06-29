@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, TextInput, ActivityIndicator, ScrollView } from 'react-native';
 import { apiService } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import type { Patient } from '../types';
+import type { Patient } from '../types/index';
 
 interface PatientManagementProps {
   therapistEmail: string;
@@ -12,22 +12,46 @@ interface PatientManagementProps {
 
 type FormMode = 'add' | 'edit' | null;
 
+interface PatientFormData {
+  nome: string;
+  email: string;
+  telefone: string;
+  endereco: string;
+  dataNascimento: string;
+  genero: string;
+  contatoEmergencia: string;
+  telefoneEmergencia: string;
+  sessionPrice: number; // in cents, matching EventCardStack
+  therapyStartDate: string; // matching EventCardStack
+  lvNotasBillingStartDate: string; // matching EventCardStack
+  observacoes: string;
+}
+
 export const PatientManagement: React.FC<PatientManagementProps> = ({
   therapistEmail,
   onComplete
 }) => {
   console.log('PatientManagement received therapistEmail:', therapistEmail);
-  
+
   const { isAuthenticated, hasValidTokens, isLoading: authLoading } = useAuth();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingPatients, setIsLoadingPatients] = useState(true);
   const [formMode, setFormMode] = useState<FormMode>(null);
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
-  const [patientData, setPatientData] = useState({
+  const [patientData, setPatientData] = useState<PatientFormData>({
     nome: '',
     email: '',
-    telefone: ''
+    telefone: '',
+    endereco: '',
+    dataNascimento: '',
+    genero: '',
+    contatoEmergencia: '',
+    telefoneEmergencia: '',
+    sessionPrice: 30000, // R$ 300,00 in cents
+    therapyStartDate: '',
+    lvNotasBillingStartDate: '',
+    observacoes: ''
   });
 
   // Load patients when component mounts and auth is ready
@@ -52,33 +76,101 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     }
   };
 
+  const formatCurrency = (value: string): string => {
+    const numericValue = value.replace(/[^\d,]/g, '');
+    const parts = numericValue.split(',');
+    if (parts.length > 2) {
+      return parts[0] + ',' + parts.slice(1).join('').slice(0, 2);
+    }
+    if (parts[1] && parts[1].length > 2) {
+      return parts[0] + ',' + parts[1].slice(0, 2);
+    }
+    return numericValue;
+  };
+
+  const formatPhone = (value: string): string => {
+    // Remove all non-numeric characters
+    const numbers = value.replace(/\D/g, '');
+
+    // Apply Brazilian phone formatting
+    if (numbers.length <= 2) return numbers;
+    if (numbers.length <= 7) return `(${numbers.slice(0, 2)}) ${numbers.slice(2)}`;
+    if (numbers.length <= 11) return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7)}`;
+    return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7, 11)}`;
+  };
+
+  const formatDate = (value: string): string => {
+    // Remove non-numeric characters
+    const numbers = value.replace(/\D/g, '');
+
+    // Format as DD/MM/YYYY
+    if (numbers.length <= 8) {
+      return numbers.replace(/(\d{2})(\d{2})(\d{4})/, '$1/$2/$3');
+    }
+
+    return numbers.slice(0, 8).replace(/(\d{2})(\d{2})(\d{4})/, '$1/$2/$3');
+  };
+
+  const handleFieldChange = (field: keyof PatientFormData, value: string | number) => {
+    if (field === 'telefone' || field === 'telefoneEmergencia') {
+      const formattedValue = formatPhone(value as string);
+      setPatientData(prev => ({ ...prev, [field]: formattedValue }));
+    } else if (field === 'sessionPrice') {
+      // Handle sessionPrice as number in cents
+      setPatientData(prev => ({ ...prev, [field]: value as number }));
+    } else {
+      setPatientData(prev => ({ ...prev, [field]: value as string }));
+    }
+  };
+
   const handleSavePatient = async () => {
     if (!patientData.nome.trim() || !patientData.email.trim()) {
       alert('Nome e email são obrigatórios');
       return;
     }
 
+    // Validate email format
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patientData.email)) {
+      alert('Por favor, insira um email válido');
+      return;
+    }
+
+    // Validate session price
+    if (patientData.sessionPrice < 1000) { // R$ 10,00 minimum
+      alert('Valor mínimo da sessão é R$ 10,00');
+      return;
+    }
+
+    // Validate LV Notas billing start date
+    if (!patientData.lvNotasBillingStartDate.trim()) {
+      alert('Data de início da cobrança LV Notas é obrigatória');
+      return;
+    }
+
     setIsLoading(true);
     try {
+      const patientPayload = {
+        nome: patientData.nome.trim(),
+        email: patientData.email.trim().toLowerCase(),
+        telefone: patientData.telefone.replace(/\D/g, ''), // Store only numbers
+        endereco: patientData.endereco.trim(),
+        dataNascimento: patientData.dataNascimento.trim(),
+        genero: patientData.genero.trim(),
+        contatoEmergencia: patientData.contatoEmergencia.trim(),
+        telefoneEmergencia: patientData.telefoneEmergencia.replace(/\D/g, ''),
+        sessionPrice: patientData.sessionPrice, // Already in cents
+        therapyStartDate: patientData.therapyStartDate.trim(),
+        lvNotasBillingStartDate: patientData.lvNotasBillingStartDate.trim(),
+        observacoes: patientData.observacoes.trim(),
+        therapistEmail
+      };
+
       if (formMode === 'add') {
-        console.log('Creating patient with data:', { ...patientData, therapistEmail });
-        await apiService.createPatient({
-          ...patientData,
-          therapistEmail
-        });
+        console.log('Creating patient with data:', patientPayload);
+        await apiService.createPatient(patientPayload);
       } else if (formMode === 'edit' && editingPatientId) {
         console.log('Updating patient:', editingPatientId);
-        console.log('Patient data being sent:', {
-          nome: patientData.nome,
-          email: patientData.email,
-          telefone: patientData.telefone
-        });
-        
-        await apiService.updatePatient(editingPatientId, {
-          nome: patientData.nome,
-          email: patientData.email,
-          telefone: patientData.telefone
-        });
+        await apiService.updatePatient(editingPatientId, patientPayload);
       }
 
       // Reload patients list
@@ -87,12 +179,14 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
 
     } catch (error: any) {
       console.error('Error saving patient:', error);
-      
+
       let errorMessage = 'Erro ao salvar paciente. Tente novamente.';
       if (error.message && error.message.includes('404')) {
         errorMessage = 'Terapeuta não encontrado. Verifique se você está logado corretamente.';
       } else if (error.message && error.message.includes('400')) {
-        errorMessage = 'Dados inválidos. Verifique se nome e email foram preenchidos.';
+        errorMessage = 'Dados inválidos. Verifique se nome e email foram preenchidos corretamente.';
+      } else if (error.message && error.message.includes('email already exists')) {
+        errorMessage = 'Este email já está cadastrado para outro paciente.';
       }
       alert(errorMessage);
     } finally {
@@ -105,20 +199,24 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     setFormMode('edit');
     setEditingPatientId(patient.id);
     setPatientData({
-      nome: patient.name,
+      nome: patient.name || '',
       email: patient.email || '',
-      telefone: patient.telefone || ''
-    });
-    console.log('Form data set to:', {
-      nome: patient.name,
-      email: patient.email || '',
-      telefone: patient.telefone || ''
+      telefone: patient.telefone || '',
+      endereco: patient.endereco || '',
+      dataNascimento: patient.dataNascimento || '',
+      genero: patient.genero || '',
+      contatoEmergencia: patient.contatoEmergencia || '',
+      telefoneEmergencia: patient.telefoneEmergencia || '',
+      sessionPrice: patient.sessionPrice || 30000, // Default R$ 300,00
+      therapyStartDate: patient.therapyStartDate || '',
+      lvNotasBillingStartDate: patient.lvNotasBillingStartDate || '',
+      observacoes: patient.observacoes || ''
     });
   };
 
   const handleDeletePatient = async (patientId: string, patientName: string) => {
     const confirmed = window.confirm(`Tem certeza que deseja excluir o paciente "${patientName}"? Esta ação não pode ser desfeita.`);
-    
+
     if (!confirmed) return;
 
     setIsLoading(true);
@@ -129,24 +227,12 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     } catch (error: any) {
       console.error('Error deleting patient:', error);
       let errorMessage = 'Erro ao excluir paciente. Tente novamente.';
-      
+
       if (error.message && error.message.includes('Cannot delete patient with existing sessions')) {
         errorMessage = 'Este paciente possui sessões cadastradas e não pode ser excluído.';
       }
-      
-      alert(errorMessage);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
-  const handleCalendarImport = async () => {
-    setIsLoading(true);
-    try {
-      // TODO: Implement calendar import logic
-      alert('Funcionalidade em desenvolvimento');
-    } catch (error) {
-      console.error('Error importing from calendar:', error);
+      alert(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -155,7 +241,20 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
   const resetForm = () => {
     setFormMode(null);
     setEditingPatientId(null);
-    setPatientData({ nome: '', email: '', telefone: '' });
+    setPatientData({
+      nome: '',
+      email: '',
+      telefone: '',
+      endereco: '',
+      dataNascimento: '',
+      genero: '',
+      contatoEmergencia: '',
+      telefoneEmergencia: '',
+      sessionPrice: 30000, // R$ 300,00 in cents
+      therapyStartDate: '',
+      lvNotasBillingStartDate: '',
+      observacoes: ''
+    });
   };
 
   // Show loading while auth is being checked
@@ -186,37 +285,149 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
           {formMode === 'add' ? 'Adicionar Paciente' : 'Editar Paciente'}
         </Text>
 
-        <TextInput
-          style={styles.input}
-          placeholder="Nome do paciente *"
-          value={patientData.nome}
-          onChangeText={(text) => setPatientData(prev => ({ ...prev, nome: text }))}
-        />
+        {/* Personal Information Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>👤 Dados do Paciente</Text>
 
-        <TextInput
-          style={styles.input}
-          placeholder="Email *"
-          value={patientData.email}
-          onChangeText={(text) => setPatientData(prev => ({ ...prev, email: text }))}
-          keyboardType="email-address"
-        />
+          <Text style={styles.fieldLabel}>Nome Completo *</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: João da Silva"
+            value={patientData.nome}
+            onChangeText={(text) => handleFieldChange('nome', text)}
+          />
 
-        <TextInput
-          style={styles.input}
-          placeholder="Telefone (opcional)"
-          value={patientData.telefone}
-          onChangeText={(text) => setPatientData(prev => ({ ...prev, telefone: text }))}
-          keyboardType="phone-pad"
-        />
+          <Text style={styles.fieldLabel}>Email *</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: joao@exemplo.com"
+            value={patientData.email}
+            onChangeText={(text) => handleFieldChange('email', text)}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+
+          <Text style={styles.fieldLabel}>Telefone *</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="(11) 99999-9999"
+            value={patientData.telefone}
+            onChangeText={(text) => handleFieldChange('telefone', text)}
+            keyboardType="phone-pad"
+          />
+
+          <Text style={styles.fieldLabel}>Endereço</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Rua, número, bairro, cidade"
+            value={patientData.endereco}
+            onChangeText={(text) => handleFieldChange('endereco', text)}
+            multiline
+          />
+
+          <Text style={styles.fieldLabel}>Data de Nascimento</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="DD/MM/AAAA"
+            value={patientData.dataNascimento}
+            onChangeText={(text) => handleFieldChange('dataNascimento', text)}
+            keyboardType="numeric"
+          />
+
+          <Text style={styles.fieldLabel}>Gênero</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: Masculino, Feminino, Não-binário"
+            value={patientData.genero}
+            onChangeText={(text) => handleFieldChange('genero', text)}
+          />
+        </View>
+
+        {/* Emergency Contact Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🚨 Contato de Emergência</Text>
+
+          <Text style={styles.fieldLabel}>Nome do Contato</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: Maria da Silva (mãe)"
+            value={patientData.contatoEmergencia}
+            onChangeText={(text) => handleFieldChange('contatoEmergencia', text)}
+          />
+
+          <Text style={styles.fieldLabel}>Telefone de Emergência</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="(11) 99999-9999"
+            value={patientData.telefoneEmergencia}
+            onChangeText={(text) => handleFieldChange('telefoneEmergencia', text)}
+            keyboardType="phone-pad"
+          />
+        </View>
+
+        {/* Session Details Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>💰 Detalhes das Sessões</Text>
+
+          <Text style={styles.fieldLabel}>Valor da Sessão *</Text>
+          <View style={styles.priceInputContainer}>
+            <Text style={styles.currencyPrefix}>R$</Text>
+            <TextInput
+              style={styles.priceInput}
+              placeholder="300,00"
+              value={(patientData.sessionPrice / 100).toFixed(2).replace('.', ',')}
+              onChangeText={(value) => {
+                const formatted = formatCurrency(value);
+                const priceInCents = Math.round(parseFloat(formatted.replace(',', '.')) * 100) || 0;
+                handleFieldChange('sessionPrice', priceInCents);
+              }}
+              keyboardType="numeric"
+            />
+          </View>
+
+          <Text style={styles.fieldLabel}>Início da Terapia (opcional)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="DD/MM/AAAA"
+            value={patientData.therapyStartDate}
+            onChangeText={(text) => handleFieldChange('therapyStartDate', text)}
+            keyboardType="numeric"
+          />
+          <Text style={styles.helpText}>Quando o paciente começou a terapia com você</Text>
+
+          <Text style={styles.fieldLabel}>Começar Cobrança LV Notas a Partir de *</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="DD/MM/AAAA"
+            value={patientData.lvNotasBillingStartDate}
+            onChangeText={(text) => handleFieldChange('lvNotasBillingStartDate', text)}
+            keyboardType="numeric"
+          />
+          <Text style={styles.helpText}>O LV Notas começará a rastrear pagamentos a partir desta data</Text>
+        </View>
+
+        {/* Notes Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>📝 Observações</Text>
+
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            placeholder="Observações, notas especiais, objetivos terapêuticos..."
+            value={patientData.observacoes}
+            onChangeText={(text) => handleFieldChange('observacoes', text)}
+            multiline
+            numberOfLines={4}
+          />
+        </View>
 
         <View style={styles.formButtons}>
           <Pressable
-            style={[styles.primaryButton, (!patientData.nome.trim() || !patientData.email.trim()) && styles.buttonDisabled]}
+            style={[styles.primaryButton, (!patientData.nome.trim() || !patientData.email.trim() || !patientData.telefone.trim() || patientData.sessionPrice < 1000 || !patientData.lvNotasBillingStartDate.trim()) && styles.buttonDisabled]}
             onPress={handleSavePatient}
-            disabled={!patientData.nome.trim() || !patientData.email.trim() || isLoading}
+            disabled={!patientData.nome.trim() || !patientData.email.trim() || !patientData.telefone.trim() || patientData.sessionPrice < 1000 || !patientData.lvNotasBillingStartDate.trim() || isLoading}
           >
             <Text style={styles.buttonText}>
-              {isLoading ? 'Salvando...' : formMode === 'add' ? 'Adicionar' : 'Salvar'}
+              {isLoading ? 'Salvando...' : formMode === 'add' ? 'Adicionar Paciente' : 'Salvar Alterações'}
             </Text>
           </Pressable>
 
@@ -228,6 +439,8 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
             <Text style={styles.cancelButtonText}>Cancelar</Text>
           </Pressable>
         </View>
+
+        <View style={styles.bottomSpacer} />
       </ScrollView>
     );
   }
@@ -244,14 +457,6 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
           onPress={() => setFormMode('add')}
         >
           <Text style={styles.smallButtonText}>+ Adicionar Paciente</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.smallButton}
-          onPress={handleCalendarImport}
-          disabled={isLoading}
-        >
-          <Text style={styles.smallButtonText}>📅 Importar do Calendário</Text>
         </Pressable>
       </View>
 
@@ -270,7 +475,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>📋 Nenhum paciente cadastrado</Text>
             <Text style={styles.emptySubtext}>
-              Adicione seu primeiro paciente usando os botões acima
+              Adicione seu primeiro paciente usando o botão acima
             </Text>
           </View>
         ) : (
@@ -281,6 +486,9 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
                   <Text style={styles.patientName}>{patient.name}</Text>
                   <Text style={styles.patientDetail}>📧 {patient.email || 'Email não informado'}</Text>
                   <Text style={styles.patientDetail}>📱 {patient.telefone || 'Telefone não informado'}</Text>
+                  {patient.sessionPrice && (
+                    <Text style={styles.patientDetail}>💰 R$ {(patient.sessionPrice / 100).toFixed(2).replace('.', ',')}</Text>
+                  )}
                 </View>
 
                 <View style={styles.patientActions}>
@@ -311,6 +519,8 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
           <ActivityIndicator size="large" color="#6200ee" />
         </View>
       )}
+
+      <View style={styles.bottomSpacer} />
     </ScrollView>
   );
 };
@@ -336,26 +546,91 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 20,
   },
-  
+
+  // Section styles
+  section: {
+    marginBottom: 32,
+    paddingHorizontal: 20,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#212529',
+    marginBottom: 16,
+    paddingBottom: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: '#6200ee',
+  },
+
+  // Form field styles
+  fieldLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#495057',
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ced4da',
+    borderRadius: 8,
+    padding: 16,
+    fontSize: 16,
+    marginBottom: 8,
+    backgroundColor: '#fff',
+    color: '#212529',
+  },
+  textArea: {
+    height: 100,
+    textAlignVertical: 'top',
+  },
+  priceInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ced4da',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    marginBottom: 8,
+  },
+  currencyPrefix: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#495057',
+    paddingLeft: 16,
+    marginRight: 8,
+  },
+  priceInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#212529',
+    paddingVertical: 16,
+    paddingRight: 16,
+  },
+  helpText: {
+    fontSize: 12,
+    color: '#6c757d',
+    marginBottom: 8,
+    fontStyle: 'italic',
+  },
+
   // Action buttons at top
   actionButtonsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
     paddingHorizontal: 20,
     marginBottom: 32,
-    gap: 12,
   },
   smallButton: {
     backgroundColor: '#6200ee',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
     borderRadius: 8,
-    flex: 1,
-    maxWidth: 200,
+    maxWidth: 250,
   },
   smallButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -364,13 +639,7 @@ const styles = StyleSheet.create({
   patientsSection: {
     paddingHorizontal: 20,
   },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#212529',
-    marginBottom: 16,
-  },
-  
+
   // Patient list
   patientsList: {
     gap: 12,
@@ -455,17 +724,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // Form styles
-  input: {
-    borderWidth: 1,
-    borderColor: '#ced4da',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    marginBottom: 16,
-    backgroundColor: '#fff',
-    marginHorizontal: 20,
-  },
+  // Form buttons
   formButtons: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -475,11 +734,11 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: '#6200ee',
-    paddingVertical: 12,
+    paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 8,
     flex: 1,
-    maxWidth: 150,
+    maxWidth: 180,
   },
   buttonDisabled: {
     backgroundColor: '#ccc',
@@ -492,11 +751,11 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     backgroundColor: '#6c757d',
-    paddingVertical: 12,
+    paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 8,
     flex: 1,
-    maxWidth: 150,
+    maxWidth: 120,
   },
   cancelButtonText: {
     color: '#fff',
@@ -536,9 +795,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 8,
   },
-  helpText: {
-    fontSize: 14,
-    color: '#6c757d',
-    textAlign: 'center',
+
+  // Bottom spacing
+  bottomSpacer: {
+    height: 40,
   },
 });

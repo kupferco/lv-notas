@@ -4,9 +4,10 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator, Modal } from "rea
 import { signOutUser, getCurrentUser, isDevelopment, onAuthStateChange } from "../config/firebase";
 import { apiService } from "../services/api";
 import { CalendarSelection } from "./CalendarSelection";
-import type { Therapist } from "../types";
+import type { Therapist } from "../types/index";
 import type { User } from "firebase/auth";
 import { useAuth } from "../contexts/AuthContext";
+import { CalendarImportWizard } from "./onboarding/CalendarImportWizard";
 
 interface SettingsProps {
   therapistEmail: string;
@@ -23,6 +24,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
   const [calendars, setCalendars] = useState<any[]>([]);
   const [currentCalendarName, setCurrentCalendarName] = useState<string>("");
   const { signOut } = useAuth();
+  const [showImportWizard, setShowImportWizard] = useState(false);
 
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
@@ -224,6 +226,24 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
     window.alert("Esta funcionalidade será implementada em breve. Você poderá exportar seus dados de pacientes e sessões.");
   };
 
+  // Add this function with your other handlers
+  const handleImportPatients = () => {
+    if (!therapist?.googleCalendarId) {
+      window.alert("Você precisa conectar um calendário primeiro para importar pacientes.");
+      return;
+    }
+    setShowImportWizard(true);
+  };
+
+  const handleImportComplete = () => {
+    setShowImportWizard(false);
+    window.alert("Importação de pacientes concluída com sucesso!");
+  };
+
+  const handleImportCancel = () => {
+    setShowImportWizard(false);
+  };
+
   if (isLoading) {
     return (
       <View style={styles.container}>
@@ -239,6 +259,21 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
         <CalendarSelection
           onCalendarSelected={handleCalendarSelected}
           onBack={() => setShowCalendarSelection(false)}
+        />
+      </View>
+    );
+  }
+
+  // Add this check after the existing calendar selection check
+  if (showImportWizard) {
+    return (
+      <View style={styles.container}>
+        <CalendarImportWizard
+          therapistEmail={therapistEmail}
+          calendarId={therapist?.googleCalendarId || ""}
+          onComplete={handleImportComplete}
+          onCancel={handleImportCancel}
+          mode="settings"
         />
       </View>
     );
@@ -312,8 +347,30 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Gerenciamento de Dados</Text>
 
+        {/* Import Patients Button */}
         <Pressable
-          style={styles.secondaryButton}
+          style={[
+            styles.secondaryButton,
+            (!therapist?.googleCalendarId || therapist.googleCalendarId === "") && styles.buttonDisabled
+          ]}
+          onPress={handleImportPatients}
+          disabled={!therapist?.googleCalendarId || therapist.googleCalendarId === ""}
+        >
+          <Text style={styles.secondaryButtonText}>
+            📅 Importar Pacientes do Calendário
+          </Text>
+        </Pressable>
+
+        <Text style={styles.helpText}>
+          Importe pacientes e sessões automaticamente do seu Google Calendar.
+          {(!therapist?.googleCalendarId || therapist.googleCalendarId === "") &&
+            " (Conecte um calendário primeiro)"
+          }
+        </Text>
+
+        {/* Export Data Button */}
+        <Pressable
+          style={[styles.secondaryButton, { marginTop: 15 }]}
           onPress={handleExportData}
         >
           <Text style={styles.secondaryButtonText}>
@@ -504,7 +561,8 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   buttonDisabled: {
-    backgroundColor: "#ccc",
+    backgroundColor: "#f8f9fa",
+    borderColor: "#dee2e6",
   },
   dangerButtonText: {
     color: "#fff",

@@ -13,13 +13,14 @@ type AppState = "loading" | "onboarding" | "authenticated";
 // Main App component that uses AuthContext
 const AppContent: React.FC = () => {
   const [appState, setAppState] = useState<AppState>("loading");
-  const { user, isAuthenticated, isLoading: authLoading, hasValidTokens, signOut } = useAuth();
+  const [retryCount, setRetryCount] = useState(0);
+  const { user, isAuthenticated, isLoading: authLoading, hasValidTokens, signOut, forceRefresh } = useAuth();
 
   useEffect(() => {
     if (!authLoading) {
       initializeApp();
     }
-  }, [authLoading, isAuthenticated, hasValidTokens]);
+  }, [authLoading, isAuthenticated, hasValidTokens, user?.email]);
 
   const initializeApp = async () => {
     try {
@@ -81,11 +82,95 @@ const AppContent: React.FC = () => {
 
   const handleOnboardingComplete = async (email: string) => {
     console.log("✅ Onboarding completed for:", email);
-    setAppState("authenticated");
+    console.log("🔄 Starting post-onboarding initialization...");
+
+    // Prevent infinite retries
+    if (retryCount > 3) {
+      console.error("❌ Too many retry attempts, forcing authenticated state");
+      setAppState("authenticated");
+      return;
+    }
+
+    try {
+      // Force refresh the auth context to pick up latest user state
+      console.log("⚡ Force refreshing auth context...");
+      await forceRefresh();
+      
+      // Small delay to ensure auth state is updated
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Try to get therapist data with retry logic
+      let therapist = null;
+      let attempts = 0;
+      const maxAttempts = 3;
+      
+      while (!therapist && attempts < maxAttempts) {
+        attempts++;
+        console.log(`📋 Attempting to fetch therapist data (attempt ${attempts}/${maxAttempts})`);
+        
+        try {
+          therapist = await apiService.getTherapistByEmail(email);
+          if (therapist) {
+            console.log("✅ Successfully fetched therapist data:", therapist);
+            break;
+          }
+        } catch (error: any) {
+          console.warn(`⚠️ Attempt ${attempts} failed:`, error.message);
+          if (attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+          }
+        }
+      }
+
+      if (therapist && therapist.googleCalendarId) {
+        // Update localStorage immediately
+        if (isDevelopment) {
+          localStorage.setItem("therapist_email", email);
+          localStorage.setItem("therapist_calendar_id", therapist.googleCalendarId);
+          console.log("💾 Updated localStorage with therapist data");
+        }
+
+        console.log("🎯 Successfully completing onboarding, setting authenticated state");
+        setAppState("authenticated");
+        setRetryCount(0); // Reset retry count on success
+        
+      } else {
+        console.error("❌ Therapist data still incomplete after onboarding");
+        console.error("Therapist object:", therapist);
+        
+        // Increment retry count and try again
+        setRetryCount(prev => prev + 1);
+        
+        if (retryCount < 3) {
+          console.log(`🔄 Retrying initialization (${retryCount + 1}/3)...`);
+          setTimeout(() => initializeApp(), 2000);
+        } else {
+          console.error("❌ Max retries reached, forcing authenticated state anyway");
+          setAppState("authenticated");
+        }
+      }
+    } catch (error) {
+      console.error("❌ Error in onboarding completion:", error);
+      
+      // Increment retry count
+      setRetryCount(prev => prev + 1);
+      
+      if (retryCount < 3) {
+        console.log(`🔄 Retrying after error (${retryCount + 1}/3)...`);
+        setTimeout(() => initializeApp(), 2000);
+      } else {
+        console.error("❌ Max retries reached, forcing authenticated state");
+        setAppState("authenticated");
+      }
+    }
   };
 
   const handleLogout = () => {
     console.log("🚪 User logged out");
+
+    // Reset all state
+    setRetryCount(0);
+    setAppState("loading");
 
     if (isDevelopment) {
       localStorage.removeItem("therapist_email");
@@ -93,6 +178,16 @@ const AppContent: React.FC = () => {
       localStorage.removeItem("google_access_token");
     }
 
+    // Force re-initialization after clearing state
+    setTimeout(() => {
+      setAppState("onboarding");
+    }, 500);
+  };
+
+  const emergencyReset = () => {
+    console.log("🚨 Emergency reset triggered");
+    localStorage.clear();
+    setRetryCount(0);
     setAppState("onboarding");
   };
 
@@ -102,6 +197,15 @@ const AppContent: React.FC = () => {
       <Text style={styles.loadingText}>Carregando LV Notas...</Text>
       {isDevelopment && (
         <Text style={styles.devText}>Modo Desenvolvimento</Text>
+      )}
+      <Text style={styles.debugText}>Estado atual: {appState}</Text>
+      {retryCount > 0 && (
+        <Text style={styles.retryText}>Tentativas: {retryCount}/3</Text>
+      )}
+      {retryCount > 2 && (
+        <Text style={styles.emergencyText} onPress={emergencyReset}>
+          🚨 Clique aqui para reset de emergência
+        </Text>
       )}
     </View>
   );
@@ -123,19 +227,25 @@ const AppContent: React.FC = () => {
 
   const renderCurrentScreen = () => {
     console.log("🎨 Rendering screen for appState:", appState);
+    console.log("🔍 Current auth state:", { isAuthenticated, hasValidTokens, userEmail: user?.email });
 
     if (authLoading) {
+      console.log("🔄 Auth still loading, showing loading screen");
       return renderLoadingScreen();
     }
 
     switch (appState) {
       case "loading":
+        console.log("📱 Rendering loading screen");
         return renderLoadingScreen();
       case "onboarding":
+        console.log("🎯 Rendering onboarding screen");
         return renderOnboardingScreen();
       case "authenticated":
+        console.log("✅ Rendering authenticated app (Router)");
         return renderAuthenticatedApp();
       default:
+        console.log("❓ Unknown state, rendering loading screen");
         return renderLoadingScreen();
     }
   };
@@ -192,5 +302,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#888",
     fontStyle: "italic",
+  },
+  debugText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#dc3545",
+    fontStyle: "italic",
+  },
+  retryText: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#fd7e14",
+    fontStyle: "italic",
+  },
+  emergencyText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: "#dc3545",
+    fontWeight: "bold",
+    textDecorationLine: "underline",
+    cursor: "pointer",
   },
 });
