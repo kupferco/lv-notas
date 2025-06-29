@@ -1,10 +1,12 @@
+// src/components/TherapistOnboarding.tsx
 import React, { useState, useEffect } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } from "react-native";
 import { signInWithGoogle, checkAuthState, signOutUser, isDevelopment, auth } from "../config/firebase";
 import { apiService } from "../services/api";
 import { PatientManagement } from "./PatientManagement";
 import { CalendarSelection } from "./CalendarSelection";
-import type { Therapist, OnboardingState } from "../types";
+import type { Therapist, OnboardingState } from "../types/index";
+import { CalendarImportWizard } from "./onboarding/CalendarImportWizard";
 import type { User } from "firebase/auth";
 
 interface TherapistOnboardingProps {
@@ -101,6 +103,7 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
       "calendar-selection": 60,
       calendar: 70,
       success: 80,
+      "import-wizard": 90,  // ADD THIS LINE
       addPatients: 100
     };
     return stepMap[state.step] || 20;
@@ -186,8 +189,8 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     }
   };
 
-  const handleCalendarSelected = async (calendarId: string) => {
-    console.log("Calendar selected:", calendarId);
+  const handleCalendarSelected = async (calendarId: string, calendarName?: string) => {
+    console.log("Calendar selected:", calendarId, calendarName);
 
     // Prevent double-selection by checking if already processing
     if (isLoading) {
@@ -209,9 +212,12 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
         console.log("Calendar update successful");
       }
 
-      // Save calendar selection to localStorage
+      // Save both calendar ID and name to localStorage
       localStorage.setItem("therapist_calendar_id", calendarId);
-      console.log("✅ Saved calendar ID to localStorage:", calendarId);
+      if (calendarName) {
+        localStorage.setItem("therapist_calendar_name", calendarName);
+      }
+      console.log("✅ Saved calendar ID and name to localStorage:", calendarId, calendarName);
 
       // Always proceed to success step
       setState(prev => ({
@@ -236,38 +242,66 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     try {
       await signOutUser();
 
-      // Clear all localStorage data
+      // Clear ALL localStorage data for clean testing
       localStorage.removeItem("therapist_email");
       localStorage.removeItem("therapist_calendar_id");
+      localStorage.removeItem("currentTherapist");
+      localStorage.removeItem("google_access_token");
+
+      // Clear any other cached data
+      localStorage.clear(); // This clears everything - use with caution
 
       setCurrentUser(null);
+      setSelectedCalendarId(""); // Also clear the state
       setState({ step: "welcome" });
+
+      console.log("🚪 All cache cleared, starting fresh");
     } catch (error) {
       console.error("Sign out error:", error);
     }
   };
 
-  const handleFinalize = () => {
-    console.log("🔥 FINALIZAR BUTTON CLICKED");
-    console.log("onComplete function exists:", !!onComplete);
-    console.log("Current therapist:", state.therapist);
-    console.log("Therapist email:", state.therapist?.email);
+const handleFinalize = () => {
+  console.log("🔥 FINALIZAR BUTTON CLICKED");
+  console.log("onComplete function exists:", !!onComplete);
+  console.log("Current therapist:", state.therapist);
+  console.log("Therapist email:", state.therapist?.email);
 
-    const email = state.therapist?.email;
-    if (onComplete && email) {
-      console.log("✅ Calling onComplete with email:", email);
-      onComplete(email);
+  const email = state.therapist?.email;
+  if (onComplete && email) {
+    console.log("✅ Calling onComplete with email:", email);
+    onComplete(email);
+    
+    // Remove the forced navigation - let App.tsx handle the state transition
+    // setTimeout(() => {
+    //   window.history.pushState({}, "", "/dashboard");
+    //   window.dispatchEvent(new Event("popstate"));
+    // }, 100);
+  } else {
+    console.error("❌ Cannot complete - missing onComplete or email");
+    console.error("onComplete:", onComplete);
+    console.error("email:", email);
+  }
+};
 
-      // Force navigation to dashboard after completion
-      setTimeout(() => {
-        window.history.pushState({}, "", "/dashboard");
-        window.dispatchEvent(new Event("popstate"));
-      }, 100);
-    } else {
-      console.error("❌ Cannot complete - missing onComplete or email");
-      console.error("onComplete:", onComplete);
-      console.error("email:", email);
-    }
+  const renderImportWizardStep = () => {
+    // Get calendar ID from state or localStorage
+    const calendarId = selectedCalendarId ||
+      localStorage.getItem("therapist_calendar_id") ||
+      state.therapist?.googleCalendarId ||
+      "";
+
+    console.log("🗓️ Import wizard calendar ID:", calendarId);
+
+    return (
+      <CalendarImportWizard
+        therapistEmail={state.therapist?.email || ""}
+        calendarId={calendarId}
+        onComplete={() => setState(prev => ({ ...prev, step: "success" }))}
+        onCancel={() => setState(prev => ({ ...prev, step: "success" }))}
+        mode="onboarding"
+      />
+    );
   };
 
   const renderWelcomeStep = () => (
@@ -330,37 +364,65 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     </View>
   );
 
-  const renderSuccessStep = () => (
-    <View style={styles.stepContainer}>
-      <Text style={styles.title}>🎉 Tudo pronto!</Text>
-      <Text style={styles.subtitle}>
-        Bem-vindo {state.therapist?.name}! Seu Google Calendar está conectado.
-      </Text>
+  const renderSuccessStep = () => {
+    // Get calendar name from localStorage or show ID as fallback
+    const calendarName = localStorage.getItem("therapist_calendar_name") ||
+      state.therapist?.googleCalendarId ||
+      "Calendário selecionado";
 
-      {currentUser && (
-        <View style={styles.userInfo}>
-          <Text style={styles.userEmail}>📧 {currentUser.email}</Text>
-          <Pressable style={styles.signOutButton} onPress={handleSignOut}>
-            <Text style={styles.signOutText}>Trocar conta</Text>
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={styles.title}>🎉 Tudo pronto!</Text>
+        <Text style={styles.subtitle}>
+          Bem-vindo {state.therapist?.name}! Seu Google Calendar está conectado.
+        </Text>
+
+        {currentUser && (
+          <View style={styles.userInfo}>
+            <Text style={styles.userEmail}>📧 {currentUser.email}</Text>
+            {/* ADD CALENDAR INFO */}
+            <Text style={styles.calendarInfo}>📅 {calendarName}</Text>
+
+            <Pressable style={styles.signOutButton} onPress={handleSignOut}>
+              <Text style={styles.signOutText}>Trocar conta</Text>
+            </Pressable>
+            {/* Debug button for testing */}
+            <Pressable
+              style={styles.signOutButton}
+              onPress={() => {
+                setSelectedCalendarId("");
+                setState(prev => ({ ...prev, step: "calendar-selection" }));
+              }}
+            >
+              <Text style={styles.signOutText}>🔧 Reconfigurar Calendário</Text>
+            </Pressable>
+          </View>
+        )}
+
+        <View style={styles.successInfo}>
+          <Text style={styles.infoTitle}>Próximo passo:</Text>
+          <Text style={styles.infoItem}>• Importe seus pacientes do calendário automaticamente</Text>
+          <Text style={styles.infoItem}>• Ou adicione pacientes manualmente mais tarde</Text>
+        </View>
+
+        <View style={styles.buttonContainer}>
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={() => setState(prev => ({ ...prev, step: "import-wizard" }))}
+          >
+            <Text style={styles.secondaryButtonText}>📅 Importar do Calendário</Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.primaryButton}
+            onPress={handleFinalize}
+          >
+            <Text style={styles.buttonText}>➡️ Ir para App</Text>
           </Pressable>
         </View>
-      )}
-
-      <View style={styles.successInfo}>
-        <Text style={styles.infoTitle}>O que acontece agora:</Text>
-        <Text style={styles.infoItem}>• Eventos do calendário criam sessões automaticamente</Text>
-        <Text style={styles.infoItem}>• Pacientes podem confirmar presença com link único</Text>
-        <Text style={styles.infoItem}>• Todos os dados sincronizam em tempo real</Text>
       </View>
-
-      <Pressable
-        style={styles.secondaryButton}
-        onPress={handleFinalize}
-      >
-        <Text style={styles.secondaryButtonText}>Finalizar e Ir para App</Text>
-      </Pressable>
-    </View>
-  );
+    );
+  };
 
   const renderAddPatientsStep = () => (
     <PatientManagement
@@ -385,6 +447,8 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
         return renderCalendarStep();
       case "success":
         return renderSuccessStep();
+      case "import-wizard":
+        return renderImportWizardStep(); // ADD THIS CASE
       case "addPatients":
         return renderAddPatientsStep();
       default:
@@ -415,6 +479,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8f9fa",
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+    maxWidth: 400,
   },
   progressContainer: {
     padding: 20,
@@ -553,5 +623,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     textAlign: "center",
+  },
+  calendarInfo: {
+    fontSize: 14,
+    color: '#6c757d',
+    marginBottom: 8,
+    fontStyle: 'italic',
   },
 });

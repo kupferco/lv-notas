@@ -14,6 +14,7 @@ interface AuthState {
 interface AuthContextType extends AuthState {
   refreshAuth: () => Promise<void>;
   signOut: () => Promise<void>;
+  forceRefresh: () => Promise<void>; // Add this for post-onboarding refresh
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -69,9 +70,36 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Always check Firebase auth state (no development mode special handling)
       console.log("🔥 Checking Firebase auth state");
       const currentUser = await checkAuthState();
+      console.log("🔥 Got current user from checkAuthState:", currentUser?.email || 'none');
       updateAuthState(currentUser);
     } catch (error) {
       console.error('❌ Error refreshing auth:', error);
+      updateAuthState(null);
+    }
+  };
+
+  // New method for forcing a complete refresh (useful after onboarding)
+  const forceRefresh = async (): Promise<void> => {
+    console.log('⚡ Force refreshing auth state...');
+    setAuthState(prev => ({ ...prev, isLoading: true }));
+    
+    try {
+      // Try multiple methods to get the current user
+      console.log("🔥 Force checking Firebase auth state");
+      const currentUser = await checkAuthState();
+      
+      if (!currentUser) {
+        // If checkAuthState fails, try getCurrentUser
+        console.log("🔄 Trying getCurrentUser as fallback");
+        const fallbackUser = await getCurrentUser();
+        console.log("🔄 Fallback user:", fallbackUser?.email || 'none');
+        updateAuthState(fallbackUser);
+      } else {
+        console.log("✅ Force refresh got user:", currentUser.email);
+        updateAuthState(currentUser);
+      }
+    } catch (error) {
+      console.error('❌ Error in force refresh:', error);
       updateAuthState(null);
     }
   };
@@ -86,7 +114,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     console.log("🔔 Setting up Firebase auth state listener");
     const unsubscribe = onAuthStateChange((user) => {
       console.log('🔔 Firebase auth state changed:', user?.email || 'signed out');
-      updateAuthState(user);
+      
+      // If we get a user but our current state says no user, force update
+      if (user && !authState.user) {
+        console.log("🆕 New user detected, forcing update");
+        updateAuthState(user);
+      } else if (!user && authState.user) {
+        console.log("🚪 User signed out, updating state");
+        updateAuthState(null);
+      } else {
+        console.log("👥 User state consistent, updating normally");
+        updateAuthState(user);
+      }
     });
 
     return unsubscribe;
@@ -111,6 +150,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const contextValue: AuthContextType = {
     ...authState,
     refreshAuth,
+    forceRefresh, // Add the new method
     signOut: handleSignOut,
   };
 

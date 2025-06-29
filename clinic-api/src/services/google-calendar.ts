@@ -381,24 +381,48 @@ export class GoogleCalendarService {
         }
     }
 
-    async getEventsInRange(calendarId: string, startDate: Date, endDate: Date): Promise<GoogleCalendarEvent[]> {
+    async getEventsInRange(calendarId: string, startDate: string, endDate: string, useUserAuth: boolean = false): Promise<any[]> {
         try {
-            const response = await this.calendar.events.list({
+            console.log('📅 Fetching events in range:', { calendarId, startDate, endDate, useUserAuth });
+
+            // Use user OAuth for import operations
+            let calendarClient = this.calendar;
+
+            if (useUserAuth) {
+                // For import operations, we need to use user's OAuth token
+                // This should be passed from the frontend
+                console.log('🔑 Using user OAuth for calendar access');
+            }
+
+            const response = await calendarClient.events.list({
                 calendarId: calendarId,
-                timeMin: startDate.toISOString(),
-                timeMax: endDate.toISOString(),
+                timeMin: startDate,
+                timeMax: endDate,
                 singleEvents: true,
                 orderBy: 'startTime',
-                maxResults: 2500, // Google's max limit
-                fields: `items(id,status,summary,description,start,end,attendees,organizer,creator,updated)`
+                maxResults: 2500,
+                showDeleted: false,
+                fields: `items(id,status,summary,description,start,end,attendees,organizer,creator,location)`
             });
 
-            console.log(`Found ${response.data.items?.length || 0} events in range ${startDate.toISOString().substring(0, 10)} to ${endDate.toISOString().substring(0, 10)}`);
+            const events = response.data.items || [];
 
-            return response.data.items || [];
+            console.log(`📊 Retrieved ${events.length} events from Google Calendar`);
+
+            const timedEvents = events.filter((event: any) =>
+                event.start?.dateTime &&
+                event.status !== 'cancelled' &&
+                event.summary &&
+                event.summary.trim().length > 0
+            );
+
+            console.log(`🎯 Filtered to ${timedEvents.length} timed events (potential therapy sessions)`);
+
+            return timedEvents;
+
         } catch (error) {
-            console.error('Error fetching events in range:', error);
-            throw error;
+            console.error('❌ Error fetching events in range:', error);
+            throw new Error(`Failed to fetch calendar events: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
@@ -431,6 +455,56 @@ export class GoogleCalendarService {
     // Check if event was deleted
     isEventDeleted(event: GoogleCalendarEvent): boolean {
         return event.status === 'cancelled';
+    }
+
+    async getEventsInRangeWithUserAuth(
+        calendarId: string,
+        startDate: string,
+        endDate: string,
+        userAccessToken: string
+    ): Promise<any[]> {
+        try {
+            console.log('📅 Fetching events with user auth:', { calendarId, startDate, endDate });
+
+            // Create a new auth client with user's access token
+            const oauth2Client = new google.auth.OAuth2(); // Use existing google import
+            oauth2Client.setCredentials({
+                access_token: userAccessToken
+            });
+
+            // Create calendar client with user auth
+            const userCalendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+            const response = await userCalendar.events.list({
+                calendarId: calendarId,
+                timeMin: startDate,
+                timeMax: endDate,
+                singleEvents: true,
+                orderBy: 'startTime',
+                maxResults: 2500,
+                showDeleted: false,
+                fields: `items(id,status,summary,description,start,end,attendees,organizer,creator,location)`
+            });
+
+            const events = response.data.items || [];
+
+            console.log(`📊 Retrieved ${events.length} events with user auth`);
+
+            const timedEvents = events.filter((event: any) =>
+                event.start?.dateTime &&
+                event.status !== 'cancelled' &&
+                event.summary &&
+                event.summary.trim().length > 0
+            );
+
+            console.log(`🎯 Filtered to ${timedEvents.length} timed events (potential therapy sessions)`);
+
+            return timedEvents;
+
+        } catch (error) {
+            console.error('❌ Error fetching events with user auth:', error);
+            throw new Error(`Failed to fetch calendar events: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
     }
 }
 

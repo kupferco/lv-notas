@@ -39,6 +39,7 @@ import { googleCalendarService } from './services/google-calendar.js';
 import calendarsRoute from './routes/calendars.js';
 import onboardingRoute from './routes/onboarding.js';
 import paymentsRoute from './routes/payments.js';
+import importRoute from './routes/import.js';
 import pool from './config/database.js';
 
 const app = express();
@@ -120,6 +121,7 @@ const setupRoutes = () => {
     app.use('/api/calendars', authenticateRequest, calendarsRoute);
     app.use('/api/onboarding', authenticateRequest, onboardingRoute);
     app.use('/api/payments', authenticateRequest, paymentsRoute);
+    app.use('/api/import', authenticateRequest, importRoute);
 
     // app.post('/api/setup-webhook', authenticateRequest, async (req: Request, res: Response) => {
     // Replace your existing setup-webhook endpoint (around line 120) with this:
