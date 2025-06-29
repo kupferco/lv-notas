@@ -1,8 +1,15 @@
 // src/components/payments/PaymentActionButton.tsx
 
 import React from 'react';
-import { Pressable, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { PaymentActionButtonProps } from '../../types/payments';
+import { Pressable, Text, StyleSheet } from 'react-native';
+
+interface PaymentActionButtonProps {
+  showButton: boolean;
+  buttonText: string;
+  buttonType: 'invoice' | 'reminder' | '';
+  onPress: () => void;
+  disabled?: boolean;
+}
 
 export const PaymentActionButton: React.FC<PaymentActionButtonProps> = ({
   showButton,
@@ -11,127 +18,80 @@ export const PaymentActionButton: React.FC<PaymentActionButtonProps> = ({
   onPress,
   disabled = false
 }) => {
-  // Don't render anything if button shouldn't be shown
-  if (!showButton) {
+  if (!showButton || !buttonText) {
     return null;
   }
 
   const getButtonStyle = () => {
-    if (disabled) {
-      return [styles.button, styles.disabledButton];
-    }
-
     switch (buttonType) {
       case 'invoice':
-        return [styles.button, styles.invoiceButton];
+        return [styles.button, styles.invoiceButton, disabled && styles.buttonDisabled];
       case 'reminder':
-        return [styles.button, styles.reminderButton];
+        return [styles.button, styles.reminderButton, disabled && styles.buttonDisabled];
       default:
-        return [styles.button, styles.defaultButton];
+        return [styles.button, styles.defaultButton, disabled && styles.buttonDisabled];
     }
   };
 
-  const getTextStyle = () => {
-    if (disabled) {
-      return [styles.buttonText, styles.disabledButtonText];
-    }
-
-    switch (buttonType) {
-      case 'invoice':
-        return [styles.buttonText, styles.invoiceButtonText];
-      case 'reminder':
-        return [styles.buttonText, styles.reminderButtonText];
-      default:
-        return [styles.buttonText, styles.defaultButtonText];
-    }
-  };
-
-  const getButtonIcon = () => {
-    switch (buttonType) {
-      case 'invoice':
-        return '💰';
-      case 'reminder':
-        return '📝';
-      default:
-        return '';
+  const handlePress = () => {
+    if (!disabled && onPress) {
+      console.log(`🔘 PaymentActionButton pressed: ${buttonText} (${buttonType})`);
+      onPress();
     }
   };
 
   return (
     <Pressable
       style={getButtonStyle()}
-      onPress={onPress}
+      onPress={handlePress}
       disabled={disabled}
-      android_ripple={{ color: 'rgba(255, 255, 255, 0.3)' }}
     >
-      {disabled ? (
-        <ActivityIndicator size="small" color="#6c757d" />
-      ) : (
-        <Text style={getTextStyle()}>
-          {buttonText}
-        </Text>
-      )}
+      <Text style={[styles.buttonText, disabled && styles.buttonTextDisabled]}>
+        {buttonText}
+      </Text>
     </Pressable>
   );
 };
 
 const styles = StyleSheet.create({
   button: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    paddingVertical: 2,        // Very small padding
+    paddingHorizontal: 6,      // Very small padding
+    borderRadius: 8,           // Small pill
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 100,
-    maxWidth: 180,
-    minHeight: 40,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    minWidth: 28,              // Very narrow - just for emoji
+    marginBottom: 2,
+    alignSelf: 'flex-end',     // Right align
+  },
+
+  buttonText: {
+    fontSize: 12,              // Just show emoji clearly
+    fontWeight: '600',
+    color: '#fff',
   },
   invoiceButton: {
-    backgroundColor: '#6200ee',
-    borderWidth: 2,
-    borderColor: '#6200ee',
+    backgroundColor: '#28a745',
+    borderWidth: 1,
+    borderColor: '#28a745',
   },
   reminderButton: {
-    backgroundColor: '#dc3545',
-    borderWidth: 2,
-    borderColor: '#dc3545',
+    backgroundColor: '#ffc107',
+    borderWidth: 1,
+    borderColor: '#ffc107',
   },
   defaultButton: {
+    backgroundColor: '#6200ee',
+    borderWidth: 1,
+    borderColor: '#6200ee',
+  },
+  buttonDisabled: {
     backgroundColor: '#6c757d',
-    borderWidth: 2,
     borderColor: '#6c757d',
+    opacity: 0.6,
   },
-  disabledButton: {
-    backgroundColor: '#f8f9fa',
-    borderWidth: 2,
-    borderColor: '#dee2e6',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  buttonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'center',
-    lineHeight: 16,
-  },
-  invoiceButtonText: {
+  buttonTextDisabled: {
     color: '#fff',
-  },
-  reminderButtonText: {
-    color: '#fff',
-  },
-  defaultButtonText: {
-    color: '#fff',
-  },
-  disabledButtonText: {
-    color: '#6c757d',
+    opacity: 0.8,
   },
 });

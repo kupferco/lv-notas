@@ -6,6 +6,7 @@ import { Picker } from '@react-native-picker/picker';
 import { PatientPaymentCardProps, PaymentStatusDetails } from '../../types/payments';
 import { PaymentStatusBadge } from './PaymentStatusBadge';
 import { PaymentActionButton } from './PaymentActionButton';
+import { isSimpleMode, getStatusDisplayLabel } from '../../config/paymentsMode';
 
 export const PatientPaymentCard: React.FC<PatientPaymentCardProps> = ({
   patient,
@@ -19,7 +20,59 @@ export const PatientPaymentCard: React.FC<PatientPaymentCardProps> = ({
   };
 
   const getPaymentStatusDetails = (): PaymentStatusDetails => {
-    // Check session status counts from the API
+    if (isSimpleMode()) {
+      return getSimpleModeStatusDetails();
+    } else {
+      return getAdvancedModeStatusDetails();
+    }
+  };
+
+  const getSimpleModeStatusDetails = (): PaymentStatusDetails => {
+    // Simple mode logic: Only "Paid" or "Pending"
+
+    // If everything is paid
+    if (patient.pending_amount === 0 && patient.paid_amount > 0) {
+      return {
+        status: 'pago',
+        color: '#28a745',
+        text: 'Pago',
+        showButton: false,
+        buttonText: '',
+        buttonType: '',
+        displayAmount: formatCurrency(patient.paid_amount),
+        amountLabel: 'Pago'
+      };
+    }
+
+    // If partially paid
+    if (patient.paid_amount > 0 && patient.pending_amount > 0) {
+      return {
+        status: 'parcialmente_pago_pendente',
+        color: '#dc3545',
+        text: 'Parcialmente Pago',
+        showButton: true,
+        buttonText: '💰 Cobrar Restante',
+        buttonType: 'invoice',
+        displayAmount: formatCurrency(patient.pending_amount),
+        amountLabel: 'Pendente'
+      };
+    }
+
+    // If nothing paid yet - all pending
+    return {
+      status: 'pendente',
+      color: '#dc3545',
+      text: 'Pendente',
+      showButton: true,
+      buttonText: '💰 Cobrar',
+      buttonType: 'invoice',
+      displayAmount: formatCurrency(patient.pending_amount),
+      amountLabel: 'Pendente'
+    };
+  };
+
+  const getAdvancedModeStatusDetails = (): PaymentStatusDetails => {
+    // Advanced mode logic: Full granular status priority
     const hasPendingSessions = patient.pendente_sessions > 0;
     const hasAwaitingSessions = patient.aguardando_sessions > 0;
 
@@ -195,16 +248,44 @@ export const PatientPaymentCard: React.FC<PatientPaymentCardProps> = ({
           )}
         </View>
 
-        {/* Show request date if payment was requested */}
-        {patient.payment_requested && patient.payment_request_date && (
-          <Text style={styles.requestDate}>
-            Cobrança enviada em: {formatDate(patient.payment_request_date)}
-          </Text>
-        )}
+        {/* Show request date if payment was requested - only in advanced mode or if relevant */}
+        {(!isSimpleMode() || statusDetails.status.includes('aguardando')) &&
+          patient.payment_requested &&
+          patient.payment_request_date && (
+            <Text style={styles.requestDate}>
+              Cobrança enviada em: {formatDate(patient.payment_request_date)}
+            </Text>
+          )}
       </View>
 
       {/* Action Section */}
       <View style={styles.actionSection}>
+        {(() => {
+          // Debug logging outside JSX
+          console.log('🔍 DEBUG Action Section:', {
+            patientName: patient.patient_name,
+            hasOnSendPaymentRequest: !!onSendPaymentRequest,
+            hasOnChasePayment: !!onChasePayment,
+            showButton: statusDetails.showButton,
+            buttonText: statusDetails.buttonText,
+            buttonType: statusDetails.buttonType,
+            statusDetailsStatus: statusDetails.status
+          });
+
+          const shouldShowActionButton = (onSendPaymentRequest || onChasePayment) && statusDetails.showButton;
+
+          if (shouldShowActionButton) {
+            console.log('✅ Should render PaymentActionButton');
+          } else {
+            console.log('❌ NOT rendering PaymentActionButton:', {
+              hasHandlers: !!(onSendPaymentRequest || onChasePayment),
+              showButton: statusDetails.showButton
+            });
+          }
+
+          return null; // IIFE returns null, doesn't render anything
+        })()}
+
         {/* Action Button - Only show if functions are available */}
         {(onSendPaymentRequest || onChasePayment) && statusDetails.showButton && (
           <PaymentActionButton
@@ -223,6 +304,24 @@ export const PatientPaymentCard: React.FC<PatientPaymentCardProps> = ({
           <Text style={styles.detailsButtonText}>📋 Ver Detalhes</Text>
         </Pressable>
       </View>
+
+      {/* Debug info for mode switching - only show in advanced mode */}
+      {!isSimpleMode() && (
+        <View style={styles.debugSection}>
+          <Text style={styles.debugText}>
+            Modo: Avançado | Pendente: {patient.pendente_sessions} | Aguardando: {patient.aguardando_sessions}
+          </Text>
+        </View>
+      )}
+
+      {/* Simple mode indicator */}
+      {isSimpleMode() && (
+        <View style={styles.debugSection}>
+          <Text style={styles.debugText}>
+            Modo: Simples | Total não pago: {patient.pending_amount > 0 ? formatCurrency(patient.pending_amount) : 'R$ 0,00'}
+          </Text>
+        </View>
+      )}
     </View >
   );
 };
@@ -312,29 +411,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontStyle: 'italic',
   },
-  actionSection: {
-    padding: 16,
-  },
-  actionLabel: {
-    fontSize: 13,
-    color: '#6c757d',
-    marginBottom: 8,
-    fontWeight: '500',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  dropdownContainer: {
-    flex: 1,
-    maxWidth: 180,
-  },
-  statusDropdown: {
-    fontSize: 13,
-    minHeight: 40,
-  },
   paymentDate: {
     fontSize: 12,
     color: '#28a745',
@@ -345,20 +421,40 @@ const styles = StyleSheet.create({
     color: '#6c757d',
     marginTop: 2,
   },
+  actionSection: {
+    padding: 16,
+    alignItems: 'flex-end',    // Right align all buttons
+  },
+
   detailsButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: 2,        // Very small padding
+    paddingHorizontal: 6,      // Very small padding  
+    borderRadius: 8,           // Small pill
     backgroundColor: '#f8f9fa',
     borderWidth: 1,
     borderColor: '#dee2e6',
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 100,
+    minWidth: 28,              // Very narrow - just for emoji
   },
+
   detailsButtonText: {
-    fontSize: 12,
+    fontSize: 12,              // Just show emoji clearly
     color: '#495057',
-    fontWeight: '500',
+    fontWeight: '600',
+  },
+  debugSection: {
+    padding: 12,
+    backgroundColor: '#f8f9fa',
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  debugText: {
+    fontSize: 10,
+    color: '#6c757d',
+    fontStyle: 'italic',
+    textAlign: 'center',
   },
 });

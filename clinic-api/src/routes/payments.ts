@@ -78,37 +78,40 @@ router.get("/patients", asyncHandler(async (req, res) => {
 
   const result = await pool.query(`
     SELECT 
-  patient_id,
-  patient_name,
-  COUNT(*) as total_sessions,
-  COALESCE(SUM(session_price), 0) as total_amount,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'paid'), 0) as paid_amount,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status != 'paid'), 0) as pending_amount,
-  'monthly' as billing_cycle,
-  MAX(session_date) as last_session_date,
-  BOOL_OR(payment_requested) as payment_requested,
-  MAX(payment_request_date) as payment_request_date,
-  -- Add session status counts
-  COUNT(*) FILTER (WHERE payment_status = 'pendente') as pendente_sessions,
-  COUNT(*) FILTER (WHERE payment_status = 'aguardando_pagamento') as aguardando_sessions,
-  COUNT(*) FILTER (WHERE payment_status = 'pending') as nao_cobrado_sessions,
-  COUNT(*) FILTER (WHERE payment_status = 'paid') as paid_sessions,
-  -- Add payment transaction information
-  MAX(payment_date) as last_payment_date,
-  STRING_AGG(DISTINCT payment_method, ', ') as payment_methods,
-  COUNT(DISTINCT payment_transaction_id) FILTER (WHERE payment_transaction_id IS NOT NULL) as payment_count
-FROM payment_overview
-WHERE therapist_email = $1
-  AND ($2::date IS NULL OR session_date::date >= $2::date)
-  AND ($3::date IS NULL OR session_date::date <= $3::date)
-  ${statusFilter}
-GROUP BY patient_id, patient_name
-ORDER BY patient_name
-  `, [therapistEmail, startDate || null, endDate || null]);
+      po.patient_id,
+      po.patient_name,
+      p.telefone,  -- Add phone number from patients table
+      COUNT(*) as total_sessions,
+      COALESCE(SUM(po.session_price), 0) as total_amount,
+      COALESCE(SUM(po.session_price) FILTER (WHERE po.payment_status = 'paid'), 0) as paid_amount,
+      COALESCE(SUM(po.session_price) FILTER (WHERE po.payment_status != 'paid'), 0) as pending_amount,
+      'monthly' as billing_cycle,
+      MAX(po.session_date) as last_session_date,
+      BOOL_OR(po.payment_requested) as payment_requested,
+      MAX(po.payment_request_date) as payment_request_date,
+      -- Add session status counts
+      COUNT(*) FILTER (WHERE po.payment_status = 'pendente') as pendente_sessions,
+      COUNT(*) FILTER (WHERE po.payment_status = 'aguardando_pagamento') as aguardando_sessions,
+      COUNT(*) FILTER (WHERE po.payment_status = 'pending') as nao_cobrado_sessions,
+      COUNT(*) FILTER (WHERE po.payment_status = 'paid') as paid_sessions,
+      -- Add payment transaction information
+      MAX(po.payment_date) as last_payment_date,
+      STRING_AGG(DISTINCT po.payment_method, ', ') as payment_methods,
+      COUNT(DISTINCT po.payment_transaction_id) FILTER (WHERE po.payment_transaction_id IS NOT NULL) as payment_count
+    FROM payment_overview po
+    JOIN patients p ON po.patient_id = p.id  -- Add join to get phone number
+    WHERE po.therapist_email = $1
+      AND ($2::date IS NULL OR po.session_date::date >= $2::date)
+      AND ($3::date IS NULL OR po.session_date::date <= $3::date)
+      ${statusFilter}
+    GROUP BY po.patient_id, po.patient_name, p.telefone  -- Add telefone to GROUP BY
+    ORDER BY po.patient_name
+`, [therapistEmail, startDate || null, endDate || null]);
 
   const patients = result.rows.map(row => ({
     patient_id: row.patient_id,
     patient_name: row.patient_name,
+    telefone: row.telefone,  // Add this line
     total_sessions: parseInt(row.total_sessions),
     total_amount: parseFloat(row.total_amount),
     paid_amount: parseFloat(row.paid_amount),

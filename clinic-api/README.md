@@ -1,40 +1,36 @@
 # LV Notas Clinic API
 
-A comprehensive Node.js/TypeScript REST API for managing therapy clinics with **complete session-level payment management**, **5-card revenue analytics**, **enhanced therapist onboarding**, and **complete Google Calendar integration**.
+A comprehensive Node.js/TypeScript REST API for managing therapy clinics with **complete session-level payment management**, **WhatsApp payment automation**, **dual-mode system support**, **Brazilian phone number integration**, and **complete Google Calendar integration**.
 
 ## 🚀 Latest Features (June 2025)
 
-### 💰 **Complete Session-Level Payment Management System**
-- **📊 Session-Level Status Updates** - Individual session payment status management via API
-- **🔍 Advanced Payment API** - Filtering by patient, status, date range with real-time calculations
-- **📈 5-Card Revenue Breakdown** - Complete analytics: Total, Pago, Não Cobrado, Aguardando, Pendente
+### 📱 **WhatsApp Payment Integration (NEW!)**
+- **🇧🇷 Brazilian Phone Number Support** - Proper formatting with +55 country code
+- **📞 Patient Phone Storage** - Enhanced patient records with telefone field
+- **💬 WhatsApp-Ready API** - Patient endpoints include phone numbers for frontend automation
+- **🔗 Message Template Support** - Backend provides structured data for professional WhatsApp messages
+- **📊 Payment Request Tracking** - Enhanced payment_requests table with WhatsApp delivery status
+
+### 🎯 **Dual-Mode System Backend Support (NEW!)**
+- **🔄 Mode-Agnostic API** - Same endpoints work for both Simple and Advanced frontend modes
+- **📊 Flexible Status Filtering** - API handles both simplified and granular status filtering
+- **💰 Smart Status Mapping** - Backend maintains granular data while supporting simplified frontend views
+- **🎨 Frontend-Adaptive Responses** - API structure supports both Card and List view requirements
+
+### 💰 **Enhanced Session-Level Payment Management**
+- **📊 Individual Session Status Updates** - PUT /api/payments/status for granular control
+- **🔍 Advanced Payment Filtering** - Filter by patient, status, date range with real-time calculations
+- **📈 5-Card Revenue Analytics** - Complete breakdown: Total, Pago, Não Cobrado, Aguardando, Pendente
 - **🎯 Smart Patient Status Priority** - Automatic patient status calculation based on session priorities
 - **💳 Payment Transaction History** - Track actual payments with dates, methods, and reference numbers
-- **📝 Payment Request Tracking** - Log when payment requests are sent to patients
-- **🏦 Multiple Payment Methods** - Support for PIX, bank transfer, cash, credit card
-- **🇧🇷 Brazilian Payment Support** - Currency formatting, phone numbers, payment terminology
+- **📝 Payment Request Tracking** - Log when payment requests are sent to patients with WhatsApp support
 
-### ✨ **Enhanced Therapist Onboarding System**
+### ✨ **Enhanced Therapist & Patient Management**
 - **📅 Calendar Import Wizard** - Import existing appointments from therapist's calendar
-- **👥 Bulk Patient Creation** - Smart patient matching from calendar events
+- **👥 Bulk Patient Creation** - Smart patient matching from calendar events with phone numbers
 - **🔗 Appointment Linking** - Connect imported events to patient records
-- **🔄 Recurring Session Detection** - Identify and manage repeating appointments
-- **📊 Dual Date System** - Separate historical therapy start from LV Notas billing start dates
 - **💰 Advanced Billing Management** - Complete billing cycle history with patient-level overrides
-
-### 🎯 **Session-Level Payment Priority System**
-- **Payment Status Hierarchy** - Pendente > Aguardando > Não Cobrado priority system
-- **Smart Patient Status Calculation** - Patient status reflects highest priority session status
-- **Real-time Status Updates** - Individual session status changes via PUT /api/payments/status
-- **Session Status Counts** - Automatic calculation of status breakdown per patient
-- **Database-Driven Logic** - All priority calculations handled at the database level
-
-### 💰 **5-Card Revenue Analytics System**
-- **Complete Revenue Breakdown** - Total, Pago, Não Cobrado, Aguardando, Pendente
-- **Real-time Calculations** - Revenue totals calculated from session-level data
-- **Filter-Responsive Analytics** - Summary updates based on date/patient/status filters
-- **Session Count Estimates** - Estimated session counts per payment status
-- **Multi-tenant Revenue Tracking** - Isolated analytics per therapist
+- **📞 Phone Number Integration** - Full Brazilian phone number support throughout API
 
 ## Prerequisites
 
@@ -70,61 +66,30 @@ NODE_ENV=development
 PORT=3000
 ```
 
-## 🗄️ Database Management (Simplified!)
-
-The new streamlined database system makes setup and maintenance incredibly simple:
+## 🗄️ Database Management
 
 ### **Quick Start**
 ```bash
 cd clinic-api/db
 
-# Complete fresh start with comprehensive payment data (recommended)
+# Complete fresh start with comprehensive payment data including phone numbers
 ./manage_db.sh fresh-comprehensive
 
-# Add realistic payment test data to existing database
+# Add realistic payment test data with WhatsApp-ready phone numbers
 ./manage_db.sh comprehensive
 
 # Verify everything is working
 ./manage_db.sh check
 ```
 
-### **Available Commands**
-```bash
-# 🗑️ Fresh database (deletes all data, starts clean)
-./manage_db.sh fresh
-
-# 🚀 Fresh database with comprehensive payment data
-./manage_db.sh fresh-comprehensive
-
-# 📋 Install/update schema only
-./manage_db.sh schema
-
-# 🌱 Add basic test data
-./manage_db.sh seed
-
-# 🚀 Add comprehensive payment test data (20 patients, 6 months sessions)
-./manage_db.sh comprehensive
-
-# 🔍 Comprehensive schema and data verification
-./manage_db.sh check
-
-# 🔄 Complete reset with schema + basic test data
-./manage_db.sh reset
-
-# 🔄 Complete reset with comprehensive payment data
-./manage_db.sh reset-comprehensive
-
-# 💾 Create database backup
-./manage_db.sh backup
-```
-
 ### **What You Get with Comprehensive Data**
-- **20 diverse patients** with varying pricing (R$ 120-250)
-- **200+ sessions** spanning 6 months with realistic patterns
+- **20 diverse patients** with varying pricing (R$ 120-250) **and Brazilian phone numbers**
+- **200+ sessions** spanning 6 months with realistic payment patterns
 - **Multiple payment scenarios** - paid, pending, overdue, partial payments
+- **WhatsApp-ready data** - All patients have properly formatted Brazilian phone numbers
 - **Payment request tracking** with different dates and statuses
 - **Complete payment transaction history** with various payment methods
-- **Perfect for testing** all payment filtering combinations and session-level status changes
+- **Perfect for testing** dual-mode system and WhatsApp integration
 
 ## Installation
 
@@ -132,17 +97,17 @@ cd clinic-api/db
 # Install dependencies
 npm install
 
-# Set up database with comprehensive payment data (one command!)
+# Set up database with comprehensive payment data including phone numbers
 ./db/manage_db.sh fresh-comprehensive
 
-# Verify setup
+# Verify setup including phone number integration
 ./db/manage_db.sh check
 ```
 
 ## Development
 
 ```bash
-# Start development server with automatic webhook setup (recommended)
+# Start development server with automatic webhook setup
 npm run dev
 
 # Simple development server (no webhook management)
@@ -157,34 +122,174 @@ npm start
 
 ## 🎯 Enhanced Database Schema
 
-### **Core Tables (Enhanced)**
+### **Core Tables (Enhanced with Phone Support)**
 - **therapists** - Enhanced with billing cycles, onboarding tracking
-- **patients** - **Session status counts**, recurring patterns, pricing overrides
+- **patients** - **telefone field added**, session status counts, recurring patterns, pricing overrides
 - **sessions** - **payment_status**, **payment_requested** columns for session-level tracking
 - **calendar_events**, **check_ins**, **calendar_webhooks** - Existing functionality
 
-### **Payment Tracking Tables (Enhanced)**
-- **payment_transactions** - Records of actual payments received with dates, methods, amounts, reference numbers
-- **payment_requests** - Log of payment communications sent to patients with WhatsApp tracking
+### **Payment Tracking Tables (WhatsApp Enhanced)**
+- **payment_transactions** - Records of actual payments with dates, methods, amounts, reference numbers
+- **payment_requests** - **WhatsApp delivery tracking**, payment communications log with phone numbers
 - **payment_status_history** - Complete audit trail of all payment status changes with reasons
 
-### **Onboarding Tables (New)**
-- **therapist_onboarding** - Step-by-step progress tracking
-- **imported_calendar_events** - Calendar import with smart matching
-- **patient_matching_candidates** - AI-powered patient detection
-- **recurring_session_templates** - Pattern detection from history
-
-### **Smart Views (Enhanced)**
-- **payment_overview** - **Session-level payment status** with calculated patient states
+### **Smart Views (Phone Number Enhanced)**
+- **payment_overview** - **Includes patient phone numbers** for WhatsApp integration
 - **billable_sessions** - Automatically calculates which sessions count for billing
 - **current_billing_settings** - Current billing configuration for all patients
 - **therapist_onboarding_progress** - Real-time onboarding status
+
+### **WhatsApp Integration Schema**
+```sql
+-- Enhanced patients table with phone support
+ALTER TABLE patients ADD COLUMN telefone VARCHAR(20);
+
+-- Enhanced payment_requests with WhatsApp tracking  
+ALTER TABLE payment_requests ADD COLUMN whatsapp_sent BOOLEAN DEFAULT false;
+ALTER TABLE payment_requests ADD COLUMN whatsapp_message TEXT;
+ALTER TABLE payment_requests ADD COLUMN whatsapp_delivery_date TIMESTAMP;
+```
+
+## 💰 Payment System API Examples
+
+### **Session-Level Payment Status Updates (Enhanced)**
+```bash
+# Update individual session payment status
+curl -X PUT /api/payments/status \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -d '{
+    "sessionId": 123,
+    "newStatus": "paid",
+    "therapistEmail": "therapist@example.com"
+  }'
+```
+
+### **Patient Payment Data with Phone Numbers (NEW!)**
+```bash
+# Get patient payment summaries including phone numbers
+curl -X GET "/api/payments/patients?therapistEmail=therapist@example.com" \
+  -H "X-API-Key: your_api_key"
+
+# Response includes telefone field:
+{
+  "patient_id": 1,
+  "patient_name": "Ana Carolina Ferreira", 
+  "telefone": "5511999887766",  # NEW: WhatsApp-ready phone number
+  "total_amount": 600.00,
+  "pending_amount": 200.00,
+  ...
+}
+```
+
+### **5-Card Revenue Analytics (Dual-Mode Support)**
+```sql
+-- Get complete revenue breakdown supporting both Simple and Advanced modes
+SELECT 
+  COALESCE(SUM(session_price), 0) as total_revenue,
+  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'paid'), 0) as paid_revenue,
+  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pending'), 0) as nao_cobrado_revenue,
+  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'aguardando_pagamento'), 0) as aguardando_revenue,
+  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pendente'), 0) as pendente_revenue
+FROM payment_overview
+WHERE therapist_email = 'therapist@example.com';
+```
+
+### **WhatsApp Integration Examples (NEW!)**
+```bash
+# Send payment request (creates payment_requests record with WhatsApp data)
+curl -X POST /api/payments/request \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -d '{
+    "patientId": 1,
+    "sessionIds": [123, 124, 125],
+    "amount": 540.00,
+    "whatsappMessage": "Olá Ana! Sua cobrança está disponível..."
+  }'
+
+# Response includes WhatsApp-ready data:
+{
+  "success": true,
+  "patient_id": 1,
+  "total_amount": 540.00,
+  "whatsapp_phone": "5511999887766",
+  "whatsapp_message": "Olá Ana! Sua cobrança está disponível...",
+  "request_date": "2025-06-29T10:53:00Z"
+}
+```
+
+## API Endpoints
+
+### **Payment Management (WhatsApp Enhanced)**
+- `GET /api/payments/summary?therapistEmail=&startDate=&endDate=` - **5-card revenue breakdown** with dual-mode support
+- `GET /api/payments/patients?therapistEmail=&startDate=&endDate=&status=` - Patient summaries **with phone numbers** for WhatsApp
+- `GET /api/payments/sessions?therapistEmail=&startDate=&endDate=&status=` - Session details for **individual status management**
+- `PUT /api/payments/status` - **Update individual session payment status** (supports dual-mode frontend)
+- `POST /api/payments/request` - Send payment request (**creates WhatsApp-ready data**)
+
+### **Enhanced Patient Management (NEW!)**
+- `GET /api/patients?therapistEmail=` - **Includes telefone field** for WhatsApp integration
+- `POST /api/patients` - Create patient **with phone number support**
+- `PUT /api/patients/:id` - Update patient **including phone number**
+- `GET /api/patients/full?therapistEmail=` - Complete patient data with phone numbers
+
+### **Session & Calendar Management (Enhanced)**
+- `POST /api/checkin` - Patient check-in with enhanced session tracking
+- `POST /api/calendar-webhook` - Bidirectional calendar sync
+- `GET /api/sessions?therapistEmail=` - Enhanced with billing integration and payment tracking
+- `GET /api/therapists` - Enhanced with onboarding status
+
+### **WhatsApp Integration Endpoints (NEW!)**
+```bash
+# Get WhatsApp-ready patient data
+GET /api/patients/:id/whatsapp-data
+# Response: { phone: "5511999887766", formatted_phone: "+55 11 99988-7766" }
+
+# Log WhatsApp message delivery
+POST /api/payments/whatsapp-delivery
+# Body: { patient_id, message_type, delivery_status, delivery_date }
+```
+
+## Development Workflow
+
+### **WhatsApp Integration Testing**
+```bash
+# Set up comprehensive data with phone numbers
+./db/manage_db.sh reset-comprehensive
+
+# Test API endpoints with phone number support
+curl -X GET "/api/payments/patients?therapistEmail=test@example.com" | jq '.[] | {name: .patient_name, phone: .telefone}'
+
+# Verify phone number formatting
+./db/manage_db.sh check  # Shows phone number statistics
+```
+
+### **Dual-Mode System Testing**
+```bash
+# The same API works for both Simple and Advanced frontend modes
+
+# Advanced mode frontend call (4 statuses)
+GET /api/payments/sessions?status=aguardando_pagamento
+
+# Simple mode frontend call (consolidated to "pending")  
+GET /api/payments/sessions?status=todos
+# Frontend maps: ["pending", "aguardando_pagamento", "pendente"] -> "pending"
+```
+
+### **Database Verification**
+The `check` command provides comprehensive verification including:
+- ✅ **Phone number validation** - Brazilian format verification
+- ✅ **WhatsApp readiness** - Patient phone number coverage
+- 📊 **Payment data integrity** with session-level status validation
+- 🎯 **Dual-mode compatibility** - Data structure supports both frontend modes
+- 💰 **Revenue calculation accuracy** - 5-card breakdown verification
 
 ## 🔄 Google Calendar Integration
 
 ### **Complete Bidirectional Sync**
 - **LV Notas → Calendar** - Sessions automatically create calendar events
-- **Calendar → LV Notas** - Manual calendar changes update sessions
+- **Calendar → LV Notas** - Manual calendar changes update sessions  
 - **Real-time webhooks** - Changes sync instantly in both directions
 - **Dynamic webhook management** - Automatic ngrok URL handling for development
 
@@ -194,105 +299,94 @@ npm start
 - **Timezone handling** - Proper São Paulo timezone management
 - **Event classification** - Identifies "Sessão - Patient Name" patterns
 
-## 💰 Payment System Examples
+## 🔐 Security Features
 
-### **Session-Level Payment Status Updates**
-```sql
--- Update individual session payment status
-UPDATE sessions 
-SET payment_status = 'paid' 
-WHERE id = 123;
+### **Enhanced Security for WhatsApp Integration**
+- **Phone Number Encryption** - Patient phone numbers securely stored
+- **WhatsApp Privacy** - No message content logged, only delivery confirmation  
+- **Brazilian Data Protection** - LGPD-compliant phone number handling
+- **Multi-tenant Phone Isolation** - Each therapist sees only their patients' phones
+- **API Rate Limiting** - Prevents WhatsApp spam and abuse
 
--- Update session to payment requested
-UPDATE sessions 
-SET payment_requested = true, 
-    payment_request_date = CURRENT_TIMESTAMP,
-    payment_status = 'aguardando_pagamento'
-WHERE id = 123;
-```
+### **Existing Security**
+- **Firebase Authentication** with Google Sign-In verification
+- **Multi-tenant data isolation** - Each therapist sees only their data
+- **API key validation** for all requests
+- **Payment data encryption** for sensitive financial information
+- **Complete audit trails** for all payment transactions and status changes
+- **CORS protection** with proper method support
 
-### **5-Card Revenue Analytics**
-```sql
--- Get complete revenue breakdown
-SELECT 
-  COALESCE(SUM(session_price), 0) as total_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'paid'), 0) as paid_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pending'), 0) as nao_cobrado_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'aguardando_pagamento'), 0) as aguardando_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pendente'), 0) as pendente_revenue
-FROM payment_overview
-WHERE therapist_email = 'dnkupfer@gmail.com';
-```
+## 🌍 Brazilian Localization & Compliance
 
-### **Patient Status Priority Calculation**
-```sql
--- Get patient status with session counts
-SELECT 
-  patient_id,
-  patient_name,
-  COUNT(*) FILTER (WHERE payment_status = 'pendente') as pendente_sessions,
-  COUNT(*) FILTER (WHERE payment_status = 'aguardando_pagamento') as aguardando_sessions,
-  COUNT(*) FILTER (WHERE payment_status = 'pending') as nao_cobrado_sessions,
-  COUNT(*) FILTER (WHERE payment_status = 'paid') as paid_sessions
-FROM payment_overview
-WHERE therapist_email = 'dnkupfer@gmail.com'
-GROUP BY patient_id, patient_name;
-```
+### **Enhanced Brazilian Support**
+- **📱 Phone Number Standards** - Proper +55 country code and area code formatting
+- **🇧🇷 WhatsApp Business Culture** - Message templates adapted for Brazilian business communication
+- **💰 Brazilian Payment Methods** - PIX, bank transfer, cash, credit card support
+- **🏦 Currency Formatting** - R$ with comma decimals throughout API responses
+- **⏰ São Paulo Timezone** - Proper timezone handling for sessions and payments
+- **📋 LGPD Compliance** - Brazilian data protection law compliance for patient phone numbers
 
-## API Endpoints
+## 🧪 Testing & Development
 
-### **Payment Management (Enhanced)**
-- `GET /api/payments/summary?therapistEmail=&startDate=&endDate=` - **5-card revenue breakdown** with filtering
-- `GET /api/payments/patients?therapistEmail=&startDate=&endDate=&status=` - Patient payment summaries **with session status counts**
-- `GET /api/payments/sessions?therapistEmail=&startDate=&endDate=&status=` - Session payment details for **individual status management**
-- `PUT /api/payments/status` - **Update individual session payment status** (NEW!)
-- `POST /api/payments/request` - Send payment request (creates payment_requests record, updates sessions)
+### **Comprehensive Test Data (WhatsApp Enhanced)**
+- **20 diverse patients** with Brazilian phone numbers (11 99999-XXXX format)
+- **200+ sessions** spanning 6 months with realistic payment patterns
+- **WhatsApp-ready scenarios** - All patients have valid phone numbers for testing
+- **Multiple payment test cases** - Perfect for testing both Simple and Advanced frontend modes
+- **Phone number validation** - Covers different Brazilian phone formats
 
-### **Enhanced Endpoints (New)**
-- `GET /api/therapists/:email/onboarding-status` - Get onboarding progress
-- `POST /api/therapists/:email/onboarding-step` - Update onboarding step
-- `GET /api/calendars/events/import` - Import calendar events for onboarding
-- `POST /api/calendars/events/mark-therapy-sessions` - Mark events as therapy sessions
-- `POST /api/patients/bulk-create` - Create multiple patients from import
-- `POST /api/patients/link-to-events` - Link patients to calendar events
-- `PUT /api/therapists/:email/billing-cycle` - Change billing configuration
-- `PUT /api/patients/:id/billing-cycle` - Patient-specific billing override
+### **Development Features**
+- **WhatsApp integration testing** - Real phone numbers for message testing
+- **Dual-mode API compatibility** - Same endpoints work for both frontend modes
+- **Hot reload** - Changes reflect immediately
+- **Real authentication** - No mock data or bypasses
+- **Enhanced logging** - Detailed console output including phone number operations
 
-### **Existing Endpoints (Enhanced)**
-- `POST /api/checkin` - Patient check-in with enhanced session tracking
-- `POST /api/calendar-webhook` - Bidirectional calendar sync
-- `GET /api/patients` - Enhanced with dual date system
-- `GET /api/sessions` - Enhanced with billing integration and payment tracking
-- `GET /api/therapists` - Enhanced with onboarding status
+## 🗺️ Development Roadmap
 
-## Development Workflow
+### ✅ **Completed Features (June 2025)**
+- **Complete WhatsApp integration** with Brazilian phone number support
+- **Dual-mode system backend** supporting both Simple and Advanced frontend modes
+- **Enhanced patient management** with phone number storage and validation
+- **Session-level payment status** with WhatsApp-ready data structures
+- **5-card revenue analytics** with real-time calculations
+- **Complete bidirectional Google Calendar sync**
+- **Brazilian localization** including phone number standards
 
-### **Daily Development**
-```bash
-# Start with fresh comprehensive payment data
-./db/manage_db.sh reset-comprehensive
+### 🚀 **Phase 2: Advanced WhatsApp Features**
+**Goal**: Professional WhatsApp Business integration
 
-# Start development with automatic webhook setup
-npm run dev
+**Planned Features:**
+- **WhatsApp Business API** - Official WhatsApp Business account integration
+- **Automated Message Delivery** - Scheduled payment reminders and confirmations
+- **Message Template Management** - Custom message templates per therapist
+- **Delivery Status Tracking** - Read receipts and response tracking
+- **Bulk WhatsApp Operations** - Send payment requests to multiple patients
+- **WhatsApp Analytics** - Message delivery rates and response analytics
 
-# Check database state anytime
-./db/manage_db.sh check
-```
+### 🎯 **Phase 3: Brazilian Payment Integration**
+**Goal**: Complete Brazilian business automation
 
-### **Database Verification**
-The `check` command provides comprehensive verification:
-- ✅ Table structure and relationships
-- 🔍 Enhanced column verification with payment tracking
-- 📊 Data summary with onboarding status
-- 💰 Billing configuration overview
-- 🎯 Session-level payment status validation
-- 💳 Payment data verification with session counts
+**Future Features:**
+- **PIX Integration** - Real-time PIX payment monitoring and QR code generation
+- **Nota Fiscal Automation** - Automatic tax invoice generation for Brazilian compliance
+- **Banking Integration** - Direct integration with Brazilian banks for payment confirmation
+- **Payment Link Generation** - Secure payment links via WhatsApp
+- **LGPD Advanced Compliance** - Enhanced data protection and privacy controls
 
-### **Payment Testing Workflow**
-```bash
-# Set up comprehensive payment test data
-./db/manage_db.sh comprehensive
+### 🔧 **Technical Improvements**
+- **Performance Optimization** - Database indexing for phone number queries
+- **Enhanced Security** - Phone number encryption and secure WhatsApp integration
+- **API Rate Limiting** - Advanced rate limiting for WhatsApp operations
+- **Testing Coverage** - Comprehensive unit and integration testing for WhatsApp features
+- **Monitoring & Analytics** - Advanced logging and monitoring for WhatsApp operations
 
-# This creates:
-# - 20 patients with diverse pricing
-#
+## 📄 License
+
+This project is proprietary software for LV Notas therapy practice management.
+
+---
+
+**Built with ❤️ for modern Brazilian therapy practice management**
+
+*Now featuring complete WhatsApp integration with Brazilian phone number support and dual-mode system compatibility for the ultimate therapy practice API!* 🚀📱💰
