@@ -469,6 +469,19 @@ export const apiService = {
     console.log("✅ updatePaymentStatus success");
   },
 
+  async sendPaymentRequest(patientId: string): Promise<void> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/payments/request`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ patientId }),
+    });
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to send payment request: ${error}`);
+    }
+  },
+
   // Helper methods
   getCurrentTherapistEmail,
   canMakeAuthenticatedCall,

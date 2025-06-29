@@ -1,15 +1,22 @@
 // src/config/paymentsMode.ts
 
 export type PaymentMode = 'simple' | 'advanced';
+export type ViewMode = 'card' | 'list';
 
 export const config = {
   // Payment Mode Configuration
-  paymentMode: 'advanced' as PaymentMode, // Change to 'simple' to enable simple mode
+  paymentMode: 'simple' as PaymentMode, // Change to 'simple' to enable simple mode
+  // View Mode Configuration  
+  viewMode: 'list' as ViewMode, // Change to 'list' to enable list view
 };
 
 // Payment mode utility functions
 export const isSimpleMode = () => config.paymentMode === 'simple';
 export const isAdvancedMode = () => config.paymentMode === 'advanced';
+
+// View mode utility functions
+export const isCardView = () => config.viewMode === 'card';
+export const isListView = () => config.viewMode === 'list';
 
 // Status mappings for different modes
 export const getStatusMapping = () => {

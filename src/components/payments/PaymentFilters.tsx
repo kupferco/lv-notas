@@ -4,6 +4,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { PaymentFiltersProps, QuickFilterType } from '../../types/payments';
+import { isSimpleMode, isAdvancedMode } from '../../config/paymentsMode';
 
 export const PaymentFilters: React.FC<PaymentFiltersProps> = ({
   filters,
@@ -17,11 +18,44 @@ export const PaymentFilters: React.FC<PaymentFiltersProps> = ({
     { key: 'last_6_months' as QuickFilterType, label: 'Últimos 6 Meses' }
   ];
 
+  // Get status filter options based on current mode
+  const getStatusFilterOptions = () => {
+    if (isSimpleMode()) {
+      return [
+        { label: '📋 Todos', value: 'todos' },
+        { label: '✅ Pago', value: 'pago' },
+        { label: '○ Pendente', value: 'pendente' }
+      ];
+    } else {
+      return [
+        { label: '📋 Todos', value: 'todos' },
+        { label: '○ Não Cobrado', value: 'nao_cobrado' },
+        { label: '⏳ Aguardando', value: 'aguardando_pagamento' },
+        { label: '✅ Pago', value: 'pago' },
+        { label: '⚠️ Pendente', value: 'pendente' }
+      ];
+    }
+  };
+
   const handleQuickFilterPress = (filterType: QuickFilterType) => {
     if (onFiltersChange.onQuickFilterChange) {
       onFiltersChange.onQuickFilterChange(filterType);
     }
   };
+
+  // Get the status filter options for current mode
+  const statusFilterOptions = getStatusFilterOptions();
+
+  // Ensure the current status filter is valid for the current mode
+  const isCurrentStatusValid = statusFilterOptions.some(option => option.value === filters.statusFilter);
+  
+  // If current filter is not valid for the mode, we should reset it to 'todos'
+  React.useEffect(() => {
+    if (!isCurrentStatusValid && onFiltersChange.onStatusFilterChange) {
+      console.log('🔄 Resetting invalid status filter to "todos" for current mode');
+      onFiltersChange.onStatusFilterChange('todos');
+    }
+  }, [isCurrentStatusValid, onFiltersChange.onStatusFilterChange]);
 
   return (
     <View style={styles.container}>
@@ -29,25 +63,37 @@ export const PaymentFilters: React.FC<PaymentFiltersProps> = ({
       <View style={styles.filterSection}>
         <Text style={styles.sectionLabel}>Filtros:</Text>
 
-        {/* Quick filter buttons */}
-        <View style={styles.quickFilters}>
-          {quickFilterOptions.map(filter => (
-            <Pressable
-              key={filter.key}
-              style={[
-                styles.quickFilterButton,
-                filters.quickFilter === filter.key && styles.quickFilterButtonActive
-              ]}
-              onPress={() => handleQuickFilterPress(filter.key)}
-            >
-              <Text style={[
-                styles.quickFilterText,
-                filters.quickFilter === filter.key && styles.quickFilterTextActive
-              ]}>
-                {filter.label}
-              </Text>
-            </Pressable>
-          ))}
+        {/* Quick filter buttons and Export button row */}
+        <View style={styles.filtersRow}>
+          <View style={styles.quickFilters}>
+            {quickFilterOptions.map(filter => (
+              <Pressable
+                key={filter.key}
+                style={[
+                  styles.quickFilterButton,
+                  filters.quickFilter === filter.key && styles.quickFilterButtonActive
+                ]}
+                onPress={() => handleQuickFilterPress(filter.key)}
+              >
+                <Text style={[
+                  styles.quickFilterText,
+                  filters.quickFilter === filter.key && styles.quickFilterTextActive
+                ]}>
+                  {filter.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          
+          {/* Export Button */}
+          <Pressable
+            style={styles.exportButton}
+            onPress={() => alert('📊 Funcionalidade de exportação será implementada em breve!\n\nPermitirá exportar a visualização atual em formato Excel ou PDF.')}
+          >
+            <Text style={styles.exportButtonText}>
+              📊 Exportar
+            </Text>
+          </Pressable>
         </View>
 
         {/* Date Range Display */}
@@ -76,23 +122,27 @@ export const PaymentFilters: React.FC<PaymentFiltersProps> = ({
           </Picker>
         </View>
 
-        {/* Payment Status Filter */}
+        {/* Payment Status Filter - Mode-aware */}
         <View style={styles.filterDropdownContainer}>
-          <Text style={styles.filterLabel}>Status:</Text>
+          <Text style={styles.filterLabel}>
+            Status{isSimpleMode() ? ' (Simples)' : ' (Avançado)'}:
+          </Text>
           <Picker
             style={styles.smallPicker}
-            selectedValue={filters.statusFilter}
+            selectedValue={isCurrentStatusValid ? filters.statusFilter : 'todos'}
             onValueChange={(value) => {
               if (onFiltersChange.onStatusFilterChange) {
                 onFiltersChange.onStatusFilterChange(value);
               }
             }}
           >
-            <Picker.Item label="📋 Todos" value="todos" />
-            <Picker.Item label="📄 Não Cobrado" value="nao_cobrado" />
-            <Picker.Item label="⏰ Aguardando" value="aguardando_pagamento" />
-            <Picker.Item label="✅ Pago" value="pago" />
-            <Picker.Item label="🔔 Pendente" value="pendente" />
+            {statusFilterOptions.map(option => (
+              <Picker.Item
+                key={option.value}
+                label={option.label}
+                value={option.value}
+              />
+            ))}
           </Picker>
         </View>
 
@@ -138,11 +188,17 @@ const styles = StyleSheet.create({
     color: '#495057',
     marginBottom: 10,
   },
+  filtersRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
   quickFilters: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 15,
+    flex: 1,
   },
   quickFilterButton: {
     paddingHorizontal: 12,
@@ -187,6 +243,20 @@ const styles = StyleSheet.create({
     color: '#6c757d',
     marginBottom: 5,
     fontWeight: '500',
+  },
+  exportButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#28a745',
+    borderWidth: 1,
+    borderColor: '#28a745',
+    alignSelf: 'flex-start',
+  },
+  exportButtonText: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
   },
   smallPicker: {
     // Remove all the custom styling to make it native

@@ -4,6 +4,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { SessionPaymentDetail } from '../../types/payments';
+import { isSimpleMode, getStatusOptions, getStatusDisplayLabel, getStatusMapping } from '../../config/paymentsMode';
 
 interface SessionPaymentCardProps {
   session: SessionPaymentDetail;
@@ -24,48 +25,91 @@ export const SessionPaymentCard: React.FC<SessionPaymentCardProps> = ({
   };
 
   const getStatusConfig = (status: string) => {
-    switch (status) {
+    // In simple mode, map the status to display version
+    const displayStatus = isSimpleMode() ?
+      (status === 'paid' ? 'paid' : 'pending') :
+      status;
+
+    switch (displayStatus) {
       case 'paid':
-        return { 
-          color: '#28a745', 
-          backgroundColor: '#d4edda', 
+        return {
+          color: '#28a745',
+          backgroundColor: '#d4edda',
           borderColor: '#28a745',
           label: 'Pago',
           icon: '✓'
         };
       case 'aguardando_pagamento':
-        return { 
-          color: '#fd7e14', 
-          backgroundColor: '#fff3cd', 
+        return {
+          color: '#fd7e14',
+          backgroundColor: '#fff3cd',
           borderColor: '#fd7e14',
           label: 'Aguardando',
           icon: '⏳'
         };
       case 'pendente':
-        return { 
-          color: '#dc3545', 
-          backgroundColor: '#f8d7da', 
+        return {
+          color: '#dc3545',
+          backgroundColor: '#f8d7da',
           borderColor: '#dc3545',
           label: 'Pendente',
           icon: '⚠️'
         };
-      case 'pending': // Default database status for "não cobrado"
+      case 'pending': // This includes the consolidated "pending" in simple mode
       default:
-        return { 
-          color: '#6c757d', 
-          backgroundColor: '#f8f9fa', 
-          borderColor: '#6c757d',
-          label: 'Não Cobrado',
-          icon: '○'
-        };
+        if (isSimpleMode()) {
+          return {
+            color: '#dc3545',
+            backgroundColor: '#f8d7da',
+            borderColor: '#dc3545',
+            label: 'Pendente',
+            icon: '○'
+          };
+        } else {
+          return {
+            color: '#6c757d',
+            backgroundColor: '#f8f9fa',
+            borderColor: '#6c757d',
+            label: 'Não Cobrado',
+            icon: '○'
+          };
+        }
     }
   };
 
-  const currentStatus = getStatusConfig(session.payment_status);
+  // Get the current status for display purposes
+  const getDisplayStatus = () => {
+    if (isSimpleMode()) {
+      // In simple mode, map all non-paid statuses to 'pending'
+      return session.payment_status === 'paid' ? 'paid' : 'pending';
+    }
+    return session.payment_status;
+  };
+
+  const displayStatus = getDisplayStatus();
+  const currentStatus = getStatusConfig(displayStatus);
+  const statusOptions = getStatusOptions();
 
   const handleStatusChange = (newStatus: string) => {
     if (onStatusChange && newStatus !== session.payment_status) {
-      onStatusChange(session.session_id, newStatus);
+      // In simple mode, when user selects 'pending', we map it to the actual backend status
+      // For now, we'll default to 'pending' (não cobrado) when they select pending in simple mode
+      // The backend will still store the granular status
+
+      let actualStatus = newStatus;
+
+      // If in simple mode and user selected 'pending', use the original status or default to 'pending'
+      if (isSimpleMode() && newStatus === 'pending') {
+        // Keep the existing granular status if it's already a pending variant,
+        // otherwise default to 'pending' (não cobrado)
+        if (['pending', 'aguardando_pagamento', 'pendente'].includes(session.payment_status)) {
+          actualStatus = session.payment_status; // Keep existing granular status
+        } else {
+          actualStatus = 'pending'; // Default to não cobrado
+        }
+      }
+
+      onStatusChange(session.session_id, actualStatus);
     }
   };
 
@@ -88,23 +132,24 @@ export const SessionPaymentCard: React.FC<SessionPaymentCardProps> = ({
         {/* Status Picker styled as Pill */}
         <View style={styles.statusPickerContainer}>
           <View style={[
-            styles.statusPickerWrapper, 
-            { 
+            {
               backgroundColor: currentStatus.backgroundColor,
-              borderColor: currentStatus.borderColor 
+              borderColor: currentStatus.borderColor
             }
           ]}>
-            <Text style={styles.statusIcon}>{currentStatus.icon}</Text>
             <Picker
-              selectedValue={session.payment_status}
+              selectedValue={displayStatus}
               onValueChange={handleStatusChange}
               style={[styles.statusPicker, { color: currentStatus.color }]}
               dropdownIconColor={currentStatus.color}
             >
-              <Picker.Item label="○ Não Cobrado" value="pending" />
-              <Picker.Item label="⏳ Aguardando" value="aguardando_pagamento" />
-              <Picker.Item label="⚠️ Pendente" value="pendente" />
-              <Picker.Item label="✓ Pago" value="paid" />
+              {statusOptions.map(option => (
+                <Picker.Item
+                  key={option.value}
+                  label={option.label}
+                  value={option.value}
+                />
+              ))}
             </Picker>
           </View>
         </View>
@@ -116,6 +161,12 @@ export const SessionPaymentCard: React.FC<SessionPaymentCardProps> = ({
         {session.days_since_session && (
           <Text style={styles.daysInfo}>
             {session.days_since_session} dias atrás
+          </Text>
+        )}
+        {/* Debug info - show actual status in advanced mode only */}
+        {!isSimpleMode() && session.payment_status !== displayStatus && (
+          <Text style={styles.debugInfo}>
+            Status: {getStatusDisplayLabel(session.payment_status)}
           </Text>
         )}
       </View>
@@ -178,20 +229,7 @@ const styles = StyleSheet.create({
     color: '#28a745',
   },
   statusPickerContainer: {
-    minWidth: 130,
-  },
-  statusPickerWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingLeft: 8,
-    paddingRight: 4,
-    overflow: 'hidden',
-  },
-  statusIcon: {
-    fontSize: 14,
-    marginRight: 4,
+    minWidth: isSimpleMode() ? 110 : 130,
   },
   statusPicker: {
     flex: 1,
@@ -206,6 +244,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: '#f1f3f4',
+    flexWrap: 'wrap',
   },
   sessionId: {
     fontSize: 12,
@@ -215,5 +254,11 @@ const styles = StyleSheet.create({
   daysInfo: {
     fontSize: 12,
     color: '#6c757d',
+  },
+  debugInfo: {
+    fontSize: 10,
+    color: '#6c757d',
+    fontStyle: 'italic',
+    marginTop: 2,
   },
 });

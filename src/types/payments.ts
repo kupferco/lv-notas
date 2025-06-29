@@ -19,6 +19,7 @@ export interface PatientPaymentSummary {
   aguardando_sessions: number;
   nao_cobrado_sessions: number;
   paid_sessions: number;
+  telefone?: string;
 }
 
 export interface SessionPaymentDetail {
