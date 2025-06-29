@@ -7,6 +7,7 @@ const API_URL = isDevelopment ? "http://localhost:3000" : process.env.EXPO_PUBLI
 const API_KEY = process.env.SAFE_PROXY_API_KEY;
 
 const getAuthHeaders = async () => {
+  console.log("📡 API CALL MADE at", new Date().toISOString(), "- Stack:", new Error().stack?.split('\n')[2]?.trim());
   console.log("=== getAuthHeaders Debug ===");
 
   let authHeader = "";
@@ -166,6 +167,7 @@ export const apiService = {
 
   // Therapist methods
   async getTherapistByEmail(email: string): Promise<Therapist | null> {
+    console.log("55555 🔄 getTherapistByEmail called for:", email, "at", new Date().toISOString());
     try {
       if (!canMakeAuthenticatedCall()) {
         console.log("⚠️ Authentication not ready, skipping therapist fetch");

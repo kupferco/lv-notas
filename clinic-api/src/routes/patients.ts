@@ -1,8 +1,8 @@
 // clinic-api/src/routes/patients.ts
 import express, { Router, Request, Response, NextFunction } from "express";
 import pool from "../config/database.js";
-import { 
-  Patient, 
+import {
+  Patient,
   BulkPatientCreateRequest,
   BillingCycleChangeRequest,
   BillingCycle,
@@ -57,7 +57,7 @@ router.get("/", asyncHandler(async (req, res) => {
 
 // POST /api/patients - Create new patient
 router.post("/", asyncHandler(async (req, res) => {
-  const { nome, email, telefone, therapistEmail } = req.body;
+  const { nome, email, telefone, therapistEmail, sessionPrice } = req.body;
 
   console.log("=== CREATE PATIENT REQUEST ===");
   console.log("Request body:", { nome, email, telefone, therapistEmail });
@@ -105,10 +105,10 @@ router.post("/", asyncHandler(async (req, res) => {
     // Create the patient with therapist_id
     console.log("Creating patient with data:", [nome, email || null, telefone || null, therapistId]);
     const result = await pool.query(
-      `INSERT INTO patients (nome, email, telefone, therapist_id) 
-       VALUES ($1, $2, $3, $4) 
-       RETURNING id, nome as name, email, telefone`,
-      [nome, email || null, telefone || null, therapistId]
+      `INSERT INTO patients (nome, email, telefone, therapist_id, preco) 
+   VALUES ($1, $2, $3, $4, $5) 
+   RETURNING id, nome as name, email, telefone`,
+      [nome, email || null, telefone || null, therapistId, sessionPrice || null]
     );
 
     console.log("Patient created successfully:", result.rows[0]);
@@ -228,10 +228,10 @@ router.get("/full", asyncHandler(async (req, res) => {
 
 // POST /api/patients/enhanced - Create patient with dual date system
 router.post("/enhanced", asyncHandler(async (req, res) => {
-  const { 
-    nome, 
-    email, 
-    telefone, 
+  const {
+    nome,
+    email,
+    telefone,
     therapistEmail,
     therapy_start_date,
     lv_notas_billing_start_date,
@@ -285,9 +285,9 @@ router.post("/enhanced", asyncHandler(async (req, res) => {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
       RETURNING *`,
       [
-        nome, 
-        email, 
-        telefone || null, 
+        nome,
+        email,
+        telefone || null,
         therapistId,
         therapy_start_date ? new Date(therapy_start_date) : null,
         new Date(lv_notas_billing_start_date),
@@ -336,7 +336,7 @@ router.post("/bulk", asyncHandler(async (req, res) => {
     // Process each patient
     for (let i = 0; i < patients.length; i++) {
       const patient = patients[i];
-      
+
       try {
         // Validate required fields
         if (!patient.nome || !patient.lv_notas_billing_start_date) {

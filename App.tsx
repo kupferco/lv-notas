@@ -14,15 +14,23 @@ type AppState = "loading" | "onboarding" | "authenticated";
 const AppContent: React.FC = () => {
   const [appState, setAppState] = useState<AppState>("loading");
   const [retryCount, setRetryCount] = useState(0);
+  const [isInitializing, setIsInitializing] = useState(false);
   const { user, isAuthenticated, isLoading: authLoading, hasValidTokens, signOut, forceRefresh } = useAuth();
 
   useEffect(() => {
     if (!authLoading) {
       initializeApp();
     }
-  }, [authLoading, isAuthenticated, hasValidTokens, user?.email]);
+  }, [authLoading, isAuthenticated, hasValidTokens]);
 
   const initializeApp = async () => {
+    // Prevent duplicate initialization calls
+    if (isInitializing) {
+      console.log("⏸️ Already initializing, skipping duplicate call");
+      return;
+    }
+
+    setIsInitializing(true);
     try {
       console.log("🚀 Initializing LV Notas App");
       console.log("Auth state:", { isAuthenticated, hasValidTokens, userEmail: user?.email });
@@ -46,7 +54,7 @@ const AppContent: React.FC = () => {
       }
 
       const email = user?.email;
-      if (!email) {
+      if (!isAuthenticated || !hasValidTokens || !email) {
         console.log("No email available, showing onboarding");
         setAppState("onboarding");
         return;
@@ -95,19 +103,19 @@ const AppContent: React.FC = () => {
       // Force refresh the auth context to pick up latest user state
       console.log("⚡ Force refreshing auth context...");
       await forceRefresh();
-      
+
       // Small delay to ensure auth state is updated
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
       // Try to get therapist data with retry logic
       let therapist = null;
       let attempts = 0;
       const maxAttempts = 3;
-      
+
       while (!therapist && attempts < maxAttempts) {
         attempts++;
         console.log(`📋 Attempting to fetch therapist data (attempt ${attempts}/${maxAttempts})`);
-        
+
         try {
           therapist = await apiService.getTherapistByEmail(email);
           if (therapist) {
@@ -133,14 +141,14 @@ const AppContent: React.FC = () => {
         console.log("🎯 Successfully completing onboarding, setting authenticated state");
         setAppState("authenticated");
         setRetryCount(0); // Reset retry count on success
-        
+
       } else {
         console.error("❌ Therapist data still incomplete after onboarding");
         console.error("Therapist object:", therapist);
-        
+
         // Increment retry count and try again
         setRetryCount(prev => prev + 1);
-        
+
         if (retryCount < 3) {
           console.log(`🔄 Retrying initialization (${retryCount + 1}/3)...`);
           setTimeout(() => initializeApp(), 2000);
@@ -151,10 +159,10 @@ const AppContent: React.FC = () => {
       }
     } catch (error) {
       console.error("❌ Error in onboarding completion:", error);
-      
+
       // Increment retry count
       setRetryCount(prev => prev + 1);
-      
+
       if (retryCount < 3) {
         console.log(`🔄 Retrying after error (${retryCount + 1}/3)...`);
         setTimeout(() => initializeApp(), 2000);

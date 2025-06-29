@@ -127,23 +127,31 @@ router.post("/", asyncHandler(async (req, res) => {
 
     const patient = patientResult.rows[0];
 
-    // Create the session in database first
-    const result = await pool.query(
-      `INSERT INTO sessions (date, patient_id, therapist_id, status)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, date, google_calendar_event_id, patient_id, therapist_id, status, created_at`,
-      [date, patientId, therapistId, status]
+    // Get patient's price for this session
+    const patientPriceResult = await pool.query(
+      "SELECT preco FROM patients WHERE id = $1",
+      [patientId]
     );
 
-    let session = {
-      id: result.rows[0].id.toString(),
-      date: result.rows[0].date,
-      google_calendar_event_id: result.rows[0].google_calendar_event_id,
-      patient_id: result.rows[0].patient_id.toString(),
-      therapist_id: result.rows[0].therapist_id.toString(),
-      status: result.rows[0].status,
-      created_at: result.rows[0].created_at
-    };
+    const sessionPrice = patientPriceResult.rows[0]?.preco || null;
+
+    // Create the session in database first
+    const result = await pool.query(
+      `INSERT INTO sessions (date, patient_id, therapist_id, status, session_price)
+   VALUES ($1, $2, $3, $4, $5)
+   RETURNING id, date, google_calendar_event_id, patient_id, therapist_id, status, session_price, created_at`,
+      [date, patientId, therapistId, status, sessionPrice]
+    );
+
+      let session = {
+        id: result.rows[0].id.toString(),
+        date: result.rows[0].date,
+        google_calendar_event_id: result.rows[0].google_calendar_event_id,
+        patient_id: result.rows[0].patient_id.toString(),
+        therapist_id: result.rows[0].therapist_id.toString(),
+        status: result.rows[0].status,
+        created_at: result.rows[0].created_at
+      };
 
     // Create Google Calendar event if patient has email and therapist has calendar selected
     if (patient.email && therapist.google_calendar_id) {

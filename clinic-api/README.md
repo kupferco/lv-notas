@@ -342,6 +342,11 @@ The `check` command provides comprehensive verification including:
 - **Real authentication** - No mock data or bypasses
 - **Enhanced logging** - Detailed console output including phone number operations
 
+### Currency Handling
+- **Database storage**: Values stored in cents (30000 = R$ 300,00) for precision
+- **API responses**: Automatically converted to currency format (300.00) 
+- **Frontend display**: Direct formatting from API responses with Brazilian standards (R$ 300,00)
+
 ## 🗺️ Development Roadmap
 
 ### ✅ **Completed Features (June 2025)**

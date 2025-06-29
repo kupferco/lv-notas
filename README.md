@@ -420,6 +420,11 @@ npm start
 - **Session-level payment management** with interactive status changes
 - **Brazilian localization** including phone number support
 
+### Currency Handling
+- **Database storage**: Values stored in cents (30000 = R$ 300,00) for precision
+- **API responses**: Automatically converted to currency format (300.00) 
+- **Frontend display**: Direct formatting from API responses with Brazilian standards (R$ 300,00)
+
 # README Roadmap Update
 
 ```markdown

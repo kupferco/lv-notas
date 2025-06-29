@@ -33,13 +33,13 @@ router.get("/summary", asyncHandler(async (req, res) => {
   COUNT(*) as total_sessions,
   COUNT(*) FILTER (WHERE payment_status = 'paid') as paid_sessions,
   COUNT(*) FILTER (WHERE payment_status != 'paid') as pending_sessions,
-  COALESCE(SUM(session_price), 0) as total_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'paid'), 0) as paid_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status != 'paid'), 0) as pending_revenue,
+  COALESCE(SUM(session_price), 0) / 100.0 as total_revenue,
+  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'paid'), 0) / 100.0 as paid_revenue,
+  COALESCE(SUM(session_price) FILTER (WHERE payment_status != 'paid'), 0) / 100.0 as pending_revenue,
   -- Add the new breakdowns
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pending'), 0) as nao_cobrado_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'aguardando_pagamento'), 0) as aguardando_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pendente'), 0) as pendente_revenue
+  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pending'), 0) / 100.0 as nao_cobrado_revenue,
+  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'aguardando_pagamento'), 0) / 100.0 as aguardando_revenue,
+  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pendente'), 0) / 100.0 as pendente_revenue
 FROM payment_overview
 WHERE therapist_email = $1
   AND ($2::date IS NULL OR session_date::date >= $2::date)
@@ -82,9 +82,9 @@ router.get("/patients", asyncHandler(async (req, res) => {
       po.patient_name,
       p.telefone,  -- Add phone number from patients table
       COUNT(*) as total_sessions,
-      COALESCE(SUM(po.session_price), 0) as total_amount,
-      COALESCE(SUM(po.session_price) FILTER (WHERE po.payment_status = 'paid'), 0) as paid_amount,
-      COALESCE(SUM(po.session_price) FILTER (WHERE po.payment_status != 'paid'), 0) as pending_amount,
+      COALESCE(SUM(po.session_price), 0) / 100.0 as total_amount,
+      COALESCE(SUM(po.session_price) FILTER (WHERE po.payment_status = 'paid'), 0) / 100.0 as paid_amount,
+      COALESCE(SUM(po.session_price) FILTER (WHERE po.payment_status != 'paid'), 0) / 100.0 as pending_amount,
       'monthly' as billing_cycle,
       MAX(po.session_date) as last_session_date,
       BOOL_OR(po.payment_requested) as payment_requested,
@@ -160,7 +160,7 @@ router.get("/sessions", asyncHandler(async (req, res) => {
       session_date,
       patient_name,
       patient_id,
-      session_price,
+      session_price / 100.0 as session_price,
       payment_status,
       days_since_session
     FROM payment_overview
