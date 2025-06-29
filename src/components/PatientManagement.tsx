@@ -487,7 +487,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
                   <Text style={styles.patientDetail}>📧 {patient.email || 'Email não informado'}</Text>
                   <Text style={styles.patientDetail}>📱 {patient.telefone || 'Telefone não informado'}</Text>
                   {patient.sessionPrice && (
-                    <Text style={styles.patientDetail}>💰 R$ {(patient.sessionPrice / 100).toFixed(2).replace('.', ',')}</Text>
+                    <Text style={styles.patientDetail}>💰 R$ {patient.sessionPrice}</Text>
                   )}
                 </View>
 
