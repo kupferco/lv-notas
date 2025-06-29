@@ -24,6 +24,7 @@ import {
     PaymentStatusFilter,
     ViewType
 } from '../../types/payments';
+import { whatsappService } from '../../services/whatsapp';
 
 export const PaymentsOverview = () => {
     const { user } = useAuth();
@@ -238,15 +239,70 @@ export const PaymentsOverview = () => {
         setFilters(prev => ({ ...prev, patientFilter: patientId }));
     };
 
-    // Payment action handlers (simplified - only for sessions now)
+    // Payment action handlers - now with config-based WhatsApp functionality
     const handleSendPaymentRequest = async (patient: PatientPaymentSummary) => {
-        console.log(`Sending payment request to ${patient.patient_name}`);
-        // TODO: Implement actual payment request logic if needed
+        console.log(`💰 Sending payment request to ${patient.patient_name}`);
+
+        try {
+            // Show preview first (optional - for user confirmation)
+            const whatsappData = whatsappService.previewMessage(patient, 'invoice');
+
+            const confirmed = window.confirm(
+                `Enviar cobrança via WhatsApp para ${patient.patient_name}?\n\n` +
+                `Telefone: ${whatsappData.phone}\n` +
+                `Valor pendente: R$ ${patient.pending_amount.toFixed(2).replace('.', ',')}\n\n` +
+                `Clique OK para abrir WhatsApp com a mensagem pronta.`
+            );
+
+            if (confirmed) {
+                // Send WhatsApp message (now uses config templates)
+                whatsappService.sendPaymentRequest(patient);
+
+                // Optional: Call API to mark as payment requested
+                try {
+                    await apiService.sendPaymentRequest(patient.patient_id.toString());
+                } catch (apiError) {
+                    console.log('Note: Could not update payment request status in database:', apiError);
+                }
+
+                // Reload data to reflect changes
+                await loadPaymentsData();
+
+                console.log('✅ Payment request sent successfully');
+            }
+        } catch (error: any) {
+            console.error('❌ Error sending payment request:', error);
+            alert(`Erro ao enviar cobrança: ${error.message}`);
+        }
     };
 
     const handleChasePayment = async (patient: PatientPaymentSummary) => {
-        console.log(`Chasing payment for ${patient.patient_name}`);
-        // TODO: Implement actual payment chase logic if needed
+        console.log(`📝 Sending payment reminder to ${patient.patient_name}`);
+
+        try {
+            // Show preview first (optional - for user confirmation)
+            const whatsappData = whatsappService.previewMessage(patient, 'reminder');
+
+            const confirmed = window.confirm(
+                `Enviar lembrete via WhatsApp para ${patient.patient_name}?\n\n` +
+                `Telefone: ${whatsappData.phone}\n` +
+                `Valor pendente: R$ ${patient.pending_amount.toFixed(2).replace('.', ',')}\n\n` +
+                `Clique OK para abrir WhatsApp com o lembrete pronto.`
+            );
+
+            if (confirmed) {
+                // Send WhatsApp reminder (now uses config templates)
+                whatsappService.sendPaymentReminder(patient);
+
+                // Reload data to reflect any changes
+                await loadPaymentsData();
+
+                console.log('✅ Payment reminder sent successfully');
+            }
+        } catch (error: any) {
+            console.error('❌ Error sending payment reminder:', error);
+            alert(`Erro ao enviar lembrete: ${error.message}`);
+        }
     };
 
     const handleViewPatientDetails = (patientId: number) => {
