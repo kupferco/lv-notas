@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, TextInput, Alert } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { apiService } from '../services/api';
-import { Session, Patient } from '../types';
+import { Session, Patient } from '../types/index';
 
 type SessionStatus = 'agendada' | 'compareceu' | 'cancelada';
 type SessionFilter = 'all' | 'agendada' | 'compareceu' | 'cancelada';

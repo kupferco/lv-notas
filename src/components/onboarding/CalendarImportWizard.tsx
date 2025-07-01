@@ -1,6 +1,6 @@
 // src/components/onboarding/CalendarImportWizard.tsx
 import React, { useState, useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView, ScrollView } from 'react-native';
 import { WizardSettings } from './WizardSettings';
 import { GroupedPatientStack } from './GroupedPatientStack';
 import { WizardSummary } from './WizardSummary';
@@ -232,6 +232,7 @@ export const CalendarImportWizard: React.FC<CalendarImportWizardProps> = ({
         <GroupedPatientStack
             events={wizardState.events}
             defaultPrice={wizardState.defaultSessionPrice}
+            therapistEmail={therapistEmail} // Add this line
             onPatientProcessed={handleEventProcessed}
             onPatientSkipped={handleEventSkipped}
             onCancel={onCancel}
@@ -265,31 +266,11 @@ export const CalendarImportWizard: React.FC<CalendarImportWizardProps> = ({
         }
     };
 
+    // CalendarImportWizard.tsx - KEEP this simple version
     return (
-        <SafeAreaView style={styles.container}>
-            {/* Progress Bar */}
-            <View style={styles.progressContainer}>
-                <View style={styles.progressBar}>
-                    <View
-                        style={[
-                            styles.progressFill,
-                            { width: `${getProgressPercentage()}%` }
-                        ]}
-                    />
-                </View>
-                <Text style={styles.progressText}>
-                    {wizardState.step === 'importing'
-                        ? `Importação de Pacientes`
-                        : `Importação de Pacientes - ${Math.round(getProgressPercentage())}%`
-                    }
-                </Text>
-            </View>
-
-            {/* Main Content */}
-            <View style={styles.content}>
-                {renderCurrentStep()}
-            </View>
-        </SafeAreaView>
+        <View style={styles.container}>
+            {renderCurrentStep()}
+        </View>
     );
 };
 
@@ -298,31 +279,11 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#f8f9fa',
     },
-    progressContainer: {
-        padding: 20,
-        backgroundColor: '#fff',
-        borderBottomWidth: 1,
-        borderBottomColor: '#e9ecef',
-    },
-    progressBar: {
-        height: 4,
-        backgroundColor: '#e9ecef',
-        borderRadius: 2,
-        overflow: 'hidden',
-        marginBottom: 8,
-    },
-    progressFill: {
-        height: '100%',
-        backgroundColor: '#6200ee',
-        borderRadius: 2,
-    },
-    progressText: {
-        fontSize: 14,
-        color: '#6c757d',
-        textAlign: 'center',
-    },
-    content: {
+    scrollableContent: {
         flex: 1,
+    },
+    scrollContentContainer: {
+        paddingBottom: 20,
     },
     centerContainer: {
         flex: 1,

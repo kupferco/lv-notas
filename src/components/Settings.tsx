@@ -1,6 +1,6 @@
 // src/components/Settings.tsx
 import React, { useState, useEffect } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Modal } from "react-native";
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Modal, ScrollView } from "react-native";
 import { signOutUser, getCurrentUser, isDevelopment, onAuthStateChange } from "../config/firebase";
 import { apiService } from "../services/api";
 import { CalendarSelection } from "./CalendarSelection";
@@ -267,20 +267,18 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
   // Add this check after the existing calendar selection check
   if (showImportWizard) {
     return (
-      <View style={styles.container}>
-        <CalendarImportWizard
-          therapistEmail={therapistEmail}
-          calendarId={therapist?.googleCalendarId || ""}
-          onComplete={handleImportComplete}
-          onCancel={handleImportCancel}
-          mode="settings"
-        />
-      </View>
+      <CalendarImportWizard
+        therapistEmail={therapistEmail}
+        calendarId={therapist?.googleCalendarId || ""}
+        onComplete={handleImportComplete}
+        onCancel={handleImportCancel}
+        mode="settings"
+      />
     );
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container}>
       <Text style={styles.title}>Configurações</Text>
 
       {/* Account Information Section */}
@@ -446,13 +444,13 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
           </View>
         </View>
       </Modal>
-    </View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    // flex: 1,
     backgroundColor: "#f8f9fa",
     padding: 20,
     maxWidth: 800,

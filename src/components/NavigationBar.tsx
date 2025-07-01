@@ -61,9 +61,15 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: '#fff',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 0, // Increase this for more padding
+    paddingBottom: 20,   // Add extra bottom padding
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   title: {
     fontSize: 20,
