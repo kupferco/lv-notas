@@ -3,7 +3,7 @@
 import express, { Router, Request, Response, NextFunction } from "express";
 import pool from "../config/database.js";
 import { onboardingService } from "../services/onboarding.js";
-import { 
+import {
   CalendarImportRequest,
   CalendarImportResponse,
   BulkPatientCreateRequest
@@ -37,7 +37,7 @@ router.post("/import-calendar", asyncHandler(async (req, res) => {
 
   try {
     console.log(`Starting calendar import for ${therapistEmail}, looking back ${lookbackMonths} months`);
-    
+
     const result = await onboardingService.importCalendarEvents({
       therapistEmail,
       lookbackMonths,
@@ -49,9 +49,9 @@ router.post("/import-calendar", asyncHandler(async (req, res) => {
     return res.json(result);
   } catch (error: any) {
     console.error("Calendar import failed:", error);
-    return res.status(500).json({ 
-      error: "Calendar import failed", 
-      details: error.message 
+    return res.status(500).json({
+      error: "Calendar import failed",
+      details: error.message
     });
   }
 }));
@@ -93,8 +93,8 @@ router.put("/mark-therapy-sessions", asyncHandler(async (req, res) => {
   const { therapistEmail, eventIds, isTherapySession } = req.body;
 
   if (!therapistEmail || !eventIds || typeof isTherapySession !== 'boolean') {
-    return res.status(400).json({ 
-      error: "therapistEmail, eventIds array, and isTherapySession boolean are required" 
+    return res.status(400).json({
+      error: "therapistEmail, eventIds array, and isTherapySession boolean are required"
     });
   }
 
@@ -120,9 +120,9 @@ router.put("/mark-therapy-sessions", asyncHandler(async (req, res) => {
       [isTherapySession, eventIds, therapistId]
     );
 
-    return res.json({ 
+    return res.json({
       message: `Updated ${result.rowCount} events`,
-      updated_count: result.rowCount 
+      updated_count: result.rowCount
     });
   } catch (error: any) {
     console.error("Error marking therapy sessions:", error);
@@ -232,8 +232,8 @@ router.post("/create-patients-from-candidates", asyncHandler(async (req, res) =>
   const { therapistEmail, candidateIds, billingStartDate } = req.body;
 
   if (!therapistEmail || !candidateIds || !Array.isArray(candidateIds) || !billingStartDate) {
-    return res.status(400).json({ 
-      error: "therapistEmail, candidateIds array, and billingStartDate are required" 
+    return res.status(400).json({
+      error: "therapistEmail, candidateIds array, and billingStartDate are required"
     });
   }
 
@@ -323,8 +323,8 @@ router.post("/link-events-to-patients", asyncHandler(async (req, res) => {
 
   // links = [{ candidateId: 123, patientId: 456, createSession: true, countsForBilling: false }]
   if (!therapistEmail || !links || !Array.isArray(links)) {
-    return res.status(400).json({ 
-      error: "therapistEmail and links array are required" 
+    return res.status(400).json({
+      error: "therapistEmail and links array are required"
     });
   }
 
@@ -369,21 +369,43 @@ router.post("/link-events-to-patients", asyncHandler(async (req, res) => {
 
         // Create session if requested
         if (createSession) {
+          console.log("🔥 CALENDAR IMPORT SESSION CREATION");
+          console.log("📝 Session data being inserted:");
+          console.log("  📅 Date:", candidate.start_time);
+          console.log("  👤 Patient ID:", patientId);
+          console.log("  👨‍⚕️ Therapist ID:", therapistId);
+          console.log("  📆 Google Event ID:", candidate.google_event_id);
+          console.log("  📊 Status: 'compareceu'");
+          console.log("  💰 Counts for billing:", countsForBilling);
+          console.log("  💵 Session price query: (SELECT preco FROM patients WHERE id = $2)");
+          console.log("  🔍 Patient ID for price lookup:", patientId);
+
+          // Check what the patient's price actually is
+          const priceCheck = await pool.query("SELECT preco FROM patients WHERE id = $1", [patientId]);
+          console.log("  💰 Patient's actual price from DB:", priceCheck.rows[0]?.preco);
+
           const sessionResult = await pool.query(
             `INSERT INTO sessions (
-              date, patient_id, therapist_id, google_calendar_event_id, 
-              status, counts_for_billing
-            ) VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING *`,
+      date, patient_id, therapist_id, google_calendar_event_id, 
+      status, counts_for_billing, session_price
+    ) VALUES ($1, $2, $3, $4, $5, $6, (SELECT preco FROM patients WHERE id = $2))
+    RETURNING *`,
             [
               candidate.start_time,
               patientId,
               therapistId,
               candidate.google_event_id,
-              'compareceu', // Imported events are typically past sessions
+              'compareceu',
               countsForBilling
             ]
           );
+
+          console.log("✅ Session created with data:", {
+            id: sessionResult.rows[0].id,
+            session_price: sessionResult.rows[0].session_price,
+            patient_id: sessionResult.rows[0].patient_id,
+            date: sessionResult.rows[0].date
+          });
 
           linkedSessions.push(sessionResult.rows[0]);
         }
@@ -453,7 +475,7 @@ router.get("/summary/:therapistEmail", asyncHandler(async (req, res) => {
          WHERE therapist_id = $1`,
         [therapistId]
       ),
-      
+
       // Patient candidates
       pool.query(
         `SELECT COUNT(*) as total_candidates,
@@ -463,7 +485,7 @@ router.get("/summary/:therapistEmail", asyncHandler(async (req, res) => {
          WHERE therapist_id = $1`,
         [therapistId]
       ),
-      
+
       // Created sessions
       pool.query(
         `SELECT COUNT(*) as imported_sessions,

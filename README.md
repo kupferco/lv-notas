@@ -127,6 +127,16 @@ A comprehensive Node.js/TypeScript system for managing therapy clinics with **re
 - **Calendar import functionality** for reverse sync
 - **Professional patient cards** with consistent UI
 
+### 🚀 **Smart Patient-Grouped Calendar Import (NEW!)**
+- ✅ **Intelligent Event Grouping** - Groups hundreds of recurring sessions by unique patient names
+- ✅ **One Card Per Patient** - Shows ~20 patient cards instead of 300+ individual event cards  
+- ✅ **Smart Patient Detection** - Extracts patient names from various event title formats
+- ✅ **Session Frequency Analysis** - Automatically detects weekly/biweekly/monthly patterns
+- ✅ **Non-Tech-Savvy Friendly** - Perfect for therapists who aren't computer experts
+- ✅ **Email-Free Operation** - Works with title-only events (no attendees required)
+- ✅ **Realistic Test Data Generator** - Script creates authentic therapy calendar scenarios
+- ✅ **Progress Feedback** - Real-time progress indicators during import process
+
 ### 🚀 **Modern Navigation**
 - **URL-based routing** with Portuguese endpoints:
   - `/` - Dashboard (home)

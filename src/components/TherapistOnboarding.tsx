@@ -261,28 +261,28 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     }
   };
 
-const handleFinalize = () => {
-  console.log("🔥 FINALIZAR BUTTON CLICKED");
-  console.log("onComplete function exists:", !!onComplete);
-  console.log("Current therapist:", state.therapist);
-  console.log("Therapist email:", state.therapist?.email);
+  const handleFinalize = () => {
+    console.log("🔥 FINALIZAR BUTTON CLICKED");
+    console.log("onComplete function exists:", !!onComplete);
+    console.log("Current therapist:", state.therapist);
+    console.log("Therapist email:", state.therapist?.email);
 
-  const email = state.therapist?.email;
-  if (onComplete && email) {
-    console.log("✅ Calling onComplete with email:", email);
-    onComplete(email);
-    
-    // Remove the forced navigation - let App.tsx handle the state transition
-    // setTimeout(() => {
-    //   window.history.pushState({}, "", "/dashboard");
-    //   window.dispatchEvent(new Event("popstate"));
-    // }, 100);
-  } else {
-    console.error("❌ Cannot complete - missing onComplete or email");
-    console.error("onComplete:", onComplete);
-    console.error("email:", email);
-  }
-};
+    const email = state.therapist?.email;
+    if (onComplete && email) {
+      console.log("✅ Calling onComplete with email:", email);
+      onComplete(email);
+
+      // Remove the forced navigation - let App.tsx handle the state transition
+      // setTimeout(() => {
+      //   window.history.pushState({}, "", "/dashboard");
+      //   window.dispatchEvent(new Event("popstate"));
+      // }, 100);
+    } else {
+      console.error("❌ Cannot complete - missing onComplete or email");
+      console.error("onComplete:", onComplete);
+      console.error("email:", email);
+    }
+  };
 
   const renderImportWizardStep = () => {
     // Get calendar ID from state or localStorage
@@ -293,6 +293,7 @@ const handleFinalize = () => {
 
     console.log("🗓️ Import wizard calendar ID:", calendarId);
 
+    // Return wizard WITHOUT the stepContainer wrapper
     return (
       <CalendarImportWizard
         therapistEmail={state.therapist?.email || ""}
@@ -458,18 +459,6 @@ const handleFinalize = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {mode === "full" && (
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: `${getProgressPercentage()}%` }
-              ]}
-            />
-          </View>
-        </View>
-      )}
       {renderCurrentStep()}
     </SafeAreaView>
   );

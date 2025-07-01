@@ -27,6 +27,61 @@ interface PatientFormData {
   observacoes: string;
 }
 
+// Helper function to convert database date format (YYYY-MM-DD) to form format (DD/MM/YYYY)
+const formatDateForForm = (dateInput: string | Date | null | undefined): string => {
+  if (!dateInput) return '';
+
+  try {
+    let dateString: string;
+
+    // If it's an ISO string (contains 'T'), parse it as a Date and extract components
+    if (typeof dateInput === 'string' && dateInput.includes('T')) {
+      const date = new Date(dateInput);
+      const year = date.getFullYear();
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const day = date.getDate().toString().padStart(2, '0');
+      return `${day}/${month}/${year}`;
+    }
+
+    // If it's a Date object, extract the date parts directly
+    if (dateInput instanceof Date) {
+      const year = dateInput.getFullYear();
+      const month = (dateInput.getMonth() + 1).toString().padStart(2, '0');
+      const day = dateInput.getDate().toString().padStart(2, '0');
+      return `${day}/${month}/${year}`;
+    } else {
+      dateString = dateInput;
+    }
+
+    // If it's already in DD/MM/YYYY format, return as is
+    if (dateString.includes('/')) return dateString;
+
+    // Convert from YYYY-MM-DD to DD/MM/YYYY
+    const [year, month, day] = dateString.split('-');
+    return `${day}/${month}/${year}`;
+  } catch (error) {
+    console.error('Error formatting date:', dateInput, error);
+    return '';
+  }
+};
+
+// Helper function to convert form date format (DD/MM/YYYY) to database format (YYYY-MM-DD)
+const formatDateForDB = (dateString: string): string => {
+  if (!dateString) return '';
+
+  try {
+    // If it's already in YYYY-MM-DD format, return as is
+    if (dateString.includes('-')) return dateString;
+
+    // Convert from DD/MM/YYYY to YYYY-MM-DD
+    const [day, month, year] = dateString.split('/');
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  } catch (error) {
+    console.error('Error formatting date for DB:', dateString, error);
+    return '';
+  }
+};
+
 export const PatientManagement: React.FC<PatientManagementProps> = ({
   therapistEmail,
   onComplete
@@ -170,7 +225,17 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
         await apiService.createPatient(patientPayload);
       } else if (formMode === 'edit' && editingPatientId) {
         console.log('Updating patient:', editingPatientId);
-        await apiService.updatePatient(editingPatientId, patientPayload);
+        // For updates, only send the fields that the API expects
+        const updatePayload = {
+          nome: patientData.nome.trim(),
+          email: patientData.email.trim().toLowerCase(),
+          telefone: patientData.telefone.replace(/\D/g, ''),
+          sessionPrice: patientData.sessionPrice,
+          therapyStartDate: formatDateForDB(patientData.therapyStartDate.trim()) || undefined,
+          lvNotasBillingStartDate: formatDateForDB(patientData.lvNotasBillingStartDate.trim()),
+          observacoes: patientData.observacoes.trim()
+        };
+        await apiService.updatePatient(editingPatientId, updatePayload);
       }
 
       // Reload patients list
@@ -196,6 +261,9 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
 
   const handleEditPatient = (patient: Patient) => {
     console.log('Editing patient:', patient);
+    // console.log('Patient therapy start date:', patient.therapyStartDate);
+    // console.log('Patient LV Notas billing start:', patient.lvNotasBillingStartDate);
+
     setFormMode('edit');
     setEditingPatientId(patient.id);
     setPatientData({
@@ -208,8 +276,8 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
       contatoEmergencia: patient.contatoEmergencia || '',
       telefoneEmergencia: patient.telefoneEmergencia || '',
       sessionPrice: patient.sessionPrice || 30000, // Default R$ 300,00
-      therapyStartDate: patient.therapyStartDate || '',
-      lvNotasBillingStartDate: patient.lvNotasBillingStartDate || '',
+      therapyStartDate: formatDateForForm(patient.therapyStartDate), // Convert YYYY-MM-DD to DD/MM/YYYY
+      lvNotasBillingStartDate: formatDateForForm(patient.lvNotasBillingStartDate), // Convert YYYY-MM-DD to DD/MM/YYYY
       observacoes: patient.observacoes || ''
     });
   };
@@ -487,7 +555,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
                   <Text style={styles.patientDetail}>📧 {patient.email || 'Email não informado'}</Text>
                   <Text style={styles.patientDetail}>📱 {patient.telefone || 'Telefone não informado'}</Text>
                   {patient.sessionPrice && (
-                    <Text style={styles.patientDetail}>💰 R$ {(patient.sessionPrice / 100).toFixed(2).replace('.', ',')}</Text>
+                    <Text style={styles.patientDetail}>💰 R$ {patient.sessionPrice}</Text>
                   )}
                 </View>
 

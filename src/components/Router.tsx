@@ -9,6 +9,7 @@ import { Sessions } from './Sessions';
 import { PatientManagement } from './PatientManagement';
 import { PaymentsOverview } from './payments/PaymentsOverview';
 import { Settings } from './Settings';
+import { Dashboard } from './dashboard/Dashboard';
 
 // Simple URL-based routing
 export const getCurrentPath = (): string => {
@@ -51,16 +52,9 @@ export const Router: React.FC = () => {
     switch (currentRoute) {
       case '/':
       case '/dashboard':
-        return (
-          <View style={styles.centerContainer}>
-            <Text style={styles.welcomeText}>
-              Bem-vindo ao LV Notas, {user.displayName}!
-            </Text>
-            <Text style={styles.subtitleText}>
-              Use a navegação acima para acessar as funcionalidades.
-            </Text>
-          </View>
-        );
+        return <Dashboard />;
+      case '/payments':
+        return <PaymentsOverview />;
       case '/payments':
         return <PaymentsOverview />;
       case '/check-in':
@@ -69,23 +63,23 @@ export const Router: React.FC = () => {
         return <Sessions />;
       case '/pacientes':
         return (
-          <PatientManagement 
-            therapistEmail={user.email || ''} 
+          <PatientManagement
+            therapistEmail={user.email || ''}
             onComplete={() => {
               // Navigate back to patients list or refresh
               console.log('Patient management completed');
-            }} 
+            }}
           />
         );
       case '/configuracoes':
         return (
-          <Settings 
-            therapistEmail={user.email || ''} 
+          <Settings
+            therapistEmail={user.email || ''}
             onLogout={() => {
               // Handle logout - this should call your auth context logout
               console.log('Logout requested');
               // You might want to call: auth.signOut() or similar
-            }} 
+            }}
           />
         );
       default:
@@ -99,8 +93,13 @@ export const Router: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <NavigationBar />
-      <View style={styles.content}>
+      {/* Layer 1: Fixed Main Navigation */}
+      <View style={styles.topNavBar}>
+        <NavigationBar />
+      </View>
+
+      {/* Layer 2: Content Area (where wizard progress will go when active) */}
+      <View style={styles.contentArea}>
         {renderContent()}
       </View>
     </View>
@@ -109,12 +108,25 @@ export const Router: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    height: '100vh',
+    display: 'flex',
+    flexDirection: 'column',
     backgroundColor: '#f8f9fa',
+  } as any,
+  topNavBar: {
+    height: 90, // Fixed height for main nav
+    backgroundColor: '#fff',
+    flexShrink: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 5,
   },
-  content: {
+  contentArea: {
     flex: 1,
-  },
+    overflow: 'hidden',
+  } as any,
   centerContainer: {
     flex: 1,
     justifyContent: 'center',

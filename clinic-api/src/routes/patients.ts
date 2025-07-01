@@ -42,9 +42,17 @@ router.get("/", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "therapistEmail parameter is required" });
   }
 
-  // Include email and telefone in the SELECT
+  // Include all patient fields with proper camelCase aliases
   const result = await pool.query(
-    `SELECT p.id, p.nome as name, p.email, p.telefone 
+    `SELECT 
+       p.id, 
+       p.nome as name, 
+       p.email, 
+       p.telefone,
+       p.preco as "sessionPrice",
+       p.therapy_start_date as "therapyStartDate",
+       p.lv_notas_billing_start_date as "lvNotasBillingStartDate",
+       p.notes as observacoes
      FROM patients p 
      INNER JOIN therapists t ON p.therapist_id = t.id 
      WHERE t.email = $1 
@@ -127,7 +135,15 @@ router.post("/", asyncHandler(async (req, res) => {
 // PUT /api/patients/:id - Update patient  
 router.put("/:id", asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { nome, email, telefone } = req.body;
+  const {
+    nome,
+    email,
+    telefone,
+    sessionPrice,
+    therapyStartDate,
+    lvNotasBillingStartDate,
+    observacoes
+  } = req.body;
 
   console.log('UPDATE PATIENT DEBUG:');
   console.log('Patient ID:', id);
@@ -140,10 +156,34 @@ router.put("/:id", asyncHandler(async (req, res) => {
   try {
     const result = await pool.query(
       `UPDATE patients 
-       SET nome = $1, email = $2, telefone = $3 
-       WHERE id = $4 
-       RETURNING id, nome as name, email, telefone`,
-      [nome, email || null, telefone || null, id]
+       SET 
+         nome = $1, 
+         email = $2, 
+         telefone = $3,
+         preco = $4,
+         therapy_start_date = $5,
+         lv_notas_billing_start_date = $6,
+         notes = $7
+       WHERE id = $8 
+       RETURNING 
+         id, 
+         nome as name, 
+         email, 
+         telefone,
+         preco as sessionPrice,
+         therapy_start_date as therapyStartDate,
+         lv_notas_billing_start_date as lvNotasBillingStartDate,
+         notes as observacoes`,
+      [
+        nome,
+        email || null,
+        telefone || null,
+        sessionPrice || null,
+        therapyStartDate || null,
+        lvNotasBillingStartDate || null,
+        observacoes || null,
+        id
+      ]
     );
 
     if (result.rows.length === 0) {

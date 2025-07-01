@@ -148,9 +148,9 @@ router.post("/patient-with-sessions", asyncHandler(async (req, res) => {
                 // Create new session
                 const sessionResult = await client.query(
                     `INSERT INTO sessions 
-           (date, google_calendar_event_id, patient_id, therapist_id, status, created_at)
-           VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-           RETURNING id`,
+   (date, google_calendar_event_id, patient_id, therapist_id, status, session_price, created_at)
+   VALUES ($1, $2, $3, $4, $5, (SELECT preco FROM patients WHERE id = $3), CURRENT_TIMESTAMP)
+   RETURNING id`,
                     [
                         session.date,
                         session.googleEventId,

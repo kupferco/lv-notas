@@ -2,7 +2,7 @@
 
 import pool from "../config/database.js";
 import { googleCalendarService } from "./google-calendar.js";
-import { 
+import {
   ImportedCalendarEvent,
   PatientMatchingCandidate,
   CalendarImportRequest,
@@ -11,7 +11,7 @@ import {
 } from "../types/index.js";
 
 export class OnboardingService {
-  
+
   // ============================================================================
   // CALENDAR IMPORT WITH SMART FILTERING
   // ============================================================================
@@ -44,12 +44,16 @@ export class OnboardingService {
       console.log(`Importing calendar events from ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
       // Get events from Google Calendar
-      const googleEvents = await googleCalendarService.getEventsInRange(calendarId, startDate, endDate);
+      const googleEvents = await googleCalendarService.getEventsInRange(
+        calendarId,
+        startDate.toISOString(),
+        endDate.toISOString()
+      );
       console.log(`Found ${googleEvents.length} total events in calendar`);
 
       // Filter events (either all events or just potential therapy sessions)
-      const filteredEvents = includeAllEvents 
-        ? googleEvents 
+      const filteredEvents = includeAllEvents
+        ? googleEvents
         : googleEvents.filter(event => this.isPotentialTherapySession(event));
 
       console.log(`Filtered to ${filteredEvents.length} potential therapy sessions`);
@@ -74,7 +78,7 @@ export class OnboardingService {
             googleEvent.description || null,
             new Date(googleEvent.start?.dateTime || googleEvent.start?.date || ''),
             new Date(googleEvent.end?.dateTime || googleEvent.end?.date || ''),
-            JSON.stringify(googleEvent.attendees?.map(a => a.email) || []),
+            JSON.stringify(googleEvent.attendees?.map((a: any) => a.email) || []),
             this.calculateEventConfidence(googleEvent)
           ]
         );
@@ -129,7 +133,7 @@ export class OnboardingService {
   // ============================================================================
 
   private async extractPatientCandidates(
-    therapistId: number, 
+    therapistId: number,
     event: ImportedCalendarEvent
   ): Promise<PatientMatchingCandidate[]> {
     const candidates: PatientMatchingCandidate[] = [];
@@ -143,10 +147,10 @@ export class OnboardingService {
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
         [
-          therapistId, 
-          event.id, 
-          nameFromSummary, 
-          'summary_parsing', 
+          therapistId,
+          event.id,
+          nameFromSummary,
+          'summary_parsing',
           85, // High confidence for structured summaries
           true
         ]
@@ -218,7 +222,7 @@ export class OnboardingService {
     ];
 
     // Check for therapy keywords
-    const hasTherapyKeywords = therapyKeywords.some(keyword => 
+    const hasTherapyKeywords = therapyKeywords.some(keyword =>
       summary.includes(keyword) || description.includes(keyword)
     );
 
@@ -251,12 +255,12 @@ export class OnboardingService {
     let confidence = 0;
 
     const summary = (event.summary || '').toLowerCase();
-    
+
     // High confidence indicators
     if (summary.includes('sessão') || summary.includes('terapia')) confidence += 40;
     if (event.attendees && event.attendees.length > 0) confidence += 30;
     if (summary.match(/^(sessão|terapia|consulta)\s*[-:]\s*.+/i)) confidence += 20;
-    
+
     // Medium confidence indicators  
     if (summary.includes('consulta') || summary.includes('atendimento')) confidence += 15;
     if (this.calculateEventDuration(event) >= 45) confidence += 10;
@@ -299,7 +303,7 @@ export class OnboardingService {
   private extractNameFromEmail(email: string): string {
     // Extract name part before @ and clean it up
     const localPart = email.split('@')[0];
-    
+
     // Convert common email formats to names
     // john.doe -> John Doe
     // maria_silva -> Maria Silva
@@ -348,7 +352,7 @@ export class OnboardingService {
     for (const candidate of candidates) {
       // Create a key based on name and email (if available)
       const key = `${candidate.extracted_name.toLowerCase()}|${candidate.extracted_email || ''}`;
-      
+
       // Keep the candidate with highest confidence score
       if (!uniqueMap.has(key) || (uniqueMap.get(key)?.confidence_score || 0) < candidate.confidence_score) {
         uniqueMap.set(key, candidate);
@@ -396,10 +400,10 @@ export class OnboardingService {
         }
 
         // Try to match by name similarity
-        const nameMatch = existingPatients.find(p => 
+        const nameMatch = existingPatients.find(p =>
           this.calculateNameSimilarity(candidate.extracted_name, p.nome) > 0.8
         );
-        
+
         if (nameMatch) {
           await pool.query(
             `UPDATE patient_matching_candidates 
@@ -432,7 +436,7 @@ export class OnboardingService {
     const words1 = n1.split(' ');
     const words2 = n2.split(' ');
     const commonWords = words1.filter(word => words2.includes(word));
-    
+
     return commonWords.length / Math.max(words1.length, words2.length);
   }
 
@@ -444,10 +448,10 @@ export class OnboardingService {
     try {
       // This will call the existing endpoint we already created
       console.log(`Updating onboarding progress: ${therapistEmail} -> ${step}`);
-      
+
       // You can add additional logic here if needed for the onboarding workflow
       // For now, this is mainly a placeholder that could trigger other services
-      
+
     } catch (error) {
       console.error("Error updating onboarding progress:", error);
       throw error;
