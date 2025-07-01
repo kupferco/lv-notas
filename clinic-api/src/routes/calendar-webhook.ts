@@ -47,7 +47,7 @@ router.post("/", asyncHandler(async (req, res) => {
   const channelId = req.headers["x-goog-channel-id"];
   const resourceState = req.headers["x-goog-resource-state"] as string;
   const resourceId = req.headers["x-goog-resource-id"];
-  
+
   console.log(`\n=== WEBHOOK EVENT RECEIVED [${timestamp}] ===`);
   console.log("Channel ID:", channelId);
   console.log("Resource State:", resourceState);
@@ -68,7 +68,7 @@ router.post("/", asyncHandler(async (req, res) => {
   // For actual calendar changes, fetch the event data
   if (resourceState === 'exists') {
     console.log("🔄 Processing 'exists' notification - calendar change detected");
-    
+
     try {
       console.log("📡 Fetching recent events from Google Calendar...");
       const events = await googleCalendarService.getRecentEvents();
@@ -96,7 +96,7 @@ router.post("/", asyncHandler(async (req, res) => {
         console.log("\n🔄 Attempting reverse sync...");
         const calendarId = process.env.GOOGLE_CALENDAR_ID || '';
         const reverseResult = await sessionSyncService.processReverseSync(event, calendarId);
-        
+
         console.log("🎯 Reverse sync result:", {
           action: reverseResult.action,
           sessionId: reverseResult.sessionId,
@@ -106,7 +106,7 @@ router.post("/", asyncHandler(async (req, res) => {
         // If reverse sync handled it, we're done
         if (reverseResult.action !== 'skip') {
           console.log(`✅ Reverse sync ${reverseResult.action}: ${reverseResult.message}`);
-          
+
           // Log the reverse sync event
           try {
             await pool.query(
@@ -127,14 +127,14 @@ router.post("/", asyncHandler(async (req, res) => {
           } catch (dbError: any) {
             console.error("❌ Error logging reverse sync event:", dbError);
           }
-          
+
           console.log("✅ Reverse sync processing complete");
           return;
         }
 
         // EXISTING: Fall back to original logic for LV Notas-created events
         console.log("\n🔄 Reverse sync skipped, trying original event processing...");
-        
+
         const result = await sessionSyncService.processCalendarEvent(event);
         console.log("🎯 Original processing result:", {
           eventType: result.eventType,
@@ -173,7 +173,7 @@ router.post("/", asyncHandler(async (req, res) => {
         }
 
         console.log(`\n🎯 Executing ${result.eventType} action for session ${result.sessionId}...`);
-        
+
         switch (result.eventType) {
           case 'new':
             if (!result.sessionId) {
@@ -181,12 +181,8 @@ router.post("/", asyncHandler(async (req, res) => {
               try {
                 const sessionResult = await pool.query(
                   `INSERT INTO sessions (
-                                  date, 
-                                  google_calendar_event_id,
-                                  patient_id,
-                                  therapist_id,
-                                  status
-                              ) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+  date, google_calendar_event_id, patient_id, therapist_id, status, session_price
+) VALUES ($1, $2, $3, $4, $5, (SELECT preco FROM patients WHERE id = $3))`,
                   [
                     new Date(event.start?.dateTime || event.start?.date || ''),
                     event.id,
@@ -258,7 +254,7 @@ router.post("/", asyncHandler(async (req, res) => {
   } else {
     console.log(`ℹ️  Received resource state '${resourceState}' - no action needed`);
   }
-  
+
   console.log("=== WEBHOOK PROCESSING COMPLETE ===\n");
 }));
 

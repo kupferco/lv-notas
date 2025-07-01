@@ -1,5 +1,6 @@
 import { SAFE_PROXY_API_KEY } from "@env";
 import { auth, initializeFirebase } from './firebase';
+
 // import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 // import { Platform } from "react-native";
 

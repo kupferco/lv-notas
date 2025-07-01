@@ -15,13 +15,18 @@ export const SessionPaymentList: React.FC<SessionPaymentListProps> = ({
   sessions,
   onStatusChange
 }) => {
-  const formatCurrency = (amount: number): string => {
+  const formatCurrency = (amount: number | null | undefined): string => {
+    // Handle null, undefined, or invalid amounts
+    if (amount === null || amount === undefined || isNaN(amount)) {
+      return 'R$ 0,00 ⚠️'; // Show warning that price is missing
+    }
+
     return `R$ ${amount.toFixed(2).replace('.', ',')}`;
   };
 
   const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('pt-BR', { 
-      day: '2-digit', 
+    return new Date(dateString).toLocaleDateString('pt-BR', {
+      day: '2-digit',
       month: '2-digit',
       year: '2-digit'
     });
@@ -29,31 +34,31 @@ export const SessionPaymentList: React.FC<SessionPaymentListProps> = ({
 
   const getStatusConfig = (status: string) => {
     // In simple mode, map the status to display version
-    const displayStatus = isSimpleMode() ? 
-      (status === 'paid' ? 'paid' : 'pending') : 
+    const displayStatus = isSimpleMode() ?
+      (status === 'paid' ? 'paid' : 'pending') :
       status;
 
     switch (displayStatus) {
       case 'paid':
-        return { 
-          color: '#28a745', 
-          backgroundColor: '#d4edda', 
+        return {
+          color: '#28a745',
+          backgroundColor: '#d4edda',
           borderColor: '#28a745',
           label: 'Pago',
           icon: '✓'
         };
       case 'aguardando_pagamento':
-        return { 
-          color: '#fd7e14', 
-          backgroundColor: '#fff3cd', 
+        return {
+          color: '#fd7e14',
+          backgroundColor: '#fff3cd',
           borderColor: '#fd7e14',
           label: 'Aguardando',
           icon: '⏳'
         };
       case 'pendente':
-        return { 
-          color: '#dc3545', 
-          backgroundColor: '#f8d7da', 
+        return {
+          color: '#dc3545',
+          backgroundColor: '#f8d7da',
           borderColor: '#dc3545',
           label: 'Pendente',
           icon: '⚠️'
@@ -61,17 +66,17 @@ export const SessionPaymentList: React.FC<SessionPaymentListProps> = ({
       case 'pending':
       default:
         if (isSimpleMode()) {
-          return { 
-            color: '#dc3545', 
-            backgroundColor: '#f8d7da', 
+          return {
+            color: '#dc3545',
+            backgroundColor: '#f8d7da',
             borderColor: '#dc3545',
             label: 'Pendente',
             icon: '○'
           };
         } else {
-          return { 
-            color: '#6c757d', 
-            backgroundColor: '#f8f9fa', 
+          return {
+            color: '#6c757d',
+            backgroundColor: '#f8f9fa',
             borderColor: '#6c757d',
             label: 'Não Cobrado',
             icon: '○'
@@ -90,7 +95,7 @@ export const SessionPaymentList: React.FC<SessionPaymentListProps> = ({
   const handleStatusChange = (session: SessionPaymentDetail, newStatus: string) => {
     if (onStatusChange && newStatus !== session.payment_status) {
       let actualStatus = newStatus;
-      
+
       // If in simple mode and user selected 'pending', preserve granular status when possible
       if (isSimpleMode() && newStatus === 'pending') {
         if (['pending', 'aguardando_pagamento', 'pendente'].includes(session.payment_status)) {
@@ -99,7 +104,7 @@ export const SessionPaymentList: React.FC<SessionPaymentListProps> = ({
           actualStatus = 'pending';
         }
       }
-      
+
       onStatusChange(session.session_id, actualStatus);
     }
   };
@@ -122,7 +127,7 @@ export const SessionPaymentList: React.FC<SessionPaymentListProps> = ({
         {sessions.map((session) => {
           const displayStatus = getDisplayStatus(session);
           const statusConfig = getStatusConfig(displayStatus);
-          
+
           return (
             <View key={session.session_id} style={styles.dataRow}>
               {/* Patient Name */}
@@ -152,9 +157,9 @@ export const SessionPaymentList: React.FC<SessionPaymentListProps> = ({
               {/* Status Picker */}
               <View style={[styles.dataCell, styles.statusColumn]}>
                 <View style={[
-                  { 
+                  {
                     backgroundColor: statusConfig.backgroundColor,
-                    borderColor: statusConfig.borderColor 
+                    borderColor: statusConfig.borderColor
                   }
                 ]}>
                   <Picker
@@ -164,10 +169,10 @@ export const SessionPaymentList: React.FC<SessionPaymentListProps> = ({
                     dropdownIconColor={statusConfig.color}
                   >
                     {statusOptions.map(option => (
-                      <Picker.Item 
-                        key={option.value} 
-                        label={option.label} 
-                        value={option.value} 
+                      <Picker.Item
+                        key={option.value}
+                        label={option.label}
+                        value={option.value}
                       />
                     ))}
                   </Picker>

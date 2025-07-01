@@ -8,6 +8,7 @@ import type { PatientData } from '../../types/onboarding';
 interface GroupedPatientCardProps {
     groupedPatient: GroupedPatient;
     defaultPrice: number; // in cents
+    defaultTrackingStartDate: string; // Add this line
     onSave: (patientData: PatientData) => void;
     onSkip: () => void;
     currentIndex: number;
@@ -17,6 +18,7 @@ interface GroupedPatientCardProps {
 export const GroupedPatientCard: React.FC<GroupedPatientCardProps> = ({
     groupedPatient,
     defaultPrice,
+    defaultTrackingStartDate,
     onSave,
     onSkip,
     currentIndex,
@@ -28,6 +30,7 @@ export const GroupedPatientCard: React.FC<GroupedPatientCardProps> = ({
     const [sessionPrice, setSessionPrice] = useState(defaultPrice);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [isExpanded, setIsExpanded] = useState(false);
+    const [trackingStartDate, setTrackingStartDate] = useState(defaultTrackingStartDate);
 
     // Add this useEffect after your useState declarations
     useEffect(() => {
@@ -38,9 +41,10 @@ export const GroupedPatientCard: React.FC<GroupedPatientCardProps> = ({
         setEmail(groupedPatient.suggestedEmail);
         setPhone(''); // Always start with empty phone
         setSessionPrice(defaultPrice);
+        setTrackingStartDate(defaultTrackingStartDate); // Add this line
         setErrors({}); // Clear any previous errors
         setIsExpanded(false); // Collapse sessions list for new patient
-    }, [groupedPatient.id, currentIndex, defaultPrice]); // Watch for patient changes
+    }, [groupedPatient.id, currentIndex, defaultPrice, defaultTrackingStartDate]); // Add defaultTrackingStartDate to dependencies
 
     // Analyze session pattern
     const frequencyAnalysis = PatientGroupingService.analyzeSessionFrequency(groupedPatient);
@@ -105,6 +109,21 @@ export const GroupedPatientCard: React.FC<GroupedPatientCardProps> = ({
             newErrors.sessionPrice = 'Valor mínimo é R$ 10,00';
         }
 
+        // Add tracking date validation
+        if (!trackingStartDate.trim()) {
+            newErrors.trackingStartDate = 'Data de início da cobrança é obrigatória';
+        } else {
+            const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+            if (!dateRegex.test(trackingStartDate)) {
+                newErrors.trackingStartDate = 'Formato inválido. Use AAAA-MM-DD';
+            } else {
+                const date = new Date(trackingStartDate);
+                if (isNaN(date.getTime())) {
+                    newErrors.trackingStartDate = 'Data inválida';
+                }
+            }
+        }
+
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
@@ -118,7 +137,7 @@ export const GroupedPatientCard: React.FC<GroupedPatientCardProps> = ({
             phone: phone.replace(/\D/g, ''),
             sessionPrice: sessionPrice,
             therapyStartDate: groupedPatient.firstSessionDate,
-            lvNotasBillingStartDate: new Date().toISOString().split('T')[0], // Start billing from today
+            lvNotasBillingStartDate: trackingStartDate, // Update this line
             sessions: groupedPatient.allEvents.map(event => ({
                 date: event.start?.dateTime || event.start?.date || '',
                 googleEventId: event.id,
@@ -258,11 +277,25 @@ export const GroupedPatientCard: React.FC<GroupedPatientCardProps> = ({
                         </View>
                         {errors.sessionPrice && <Text style={styles.errorText}>{errors.sessionPrice}</Text>}
                     </View>
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Data de Início da Cobrança LV Notas *</Text>
+                        <TextInput
+                            style={[styles.textInput, errors.trackingStartDate && styles.inputError]}
+                            value={trackingStartDate}
+                            onChangeText={setTrackingStartDate}
+                            placeholder="AAAA-MM-DD"
+                            placeholderTextColor="#999"
+                        />
+                        <Text style={styles.inputHint}>
+                            O LV Notas começará a rastrear pagamentos a partir desta data
+                        </Text>
+                        {errors.trackingStartDate && <Text style={styles.errorText}>{errors.trackingStartDate}</Text>}
+                    </View>
 
                     <View style={styles.infoBox}>
                         <Text style={styles.infoTitle}>💡 Sobre a cobrança:</Text>
                         <Text style={styles.infoText}>
-                            • O LV Notas começará a rastrear pagamentos a partir de hoje
+                            • O LV Notas rastreará pagamentos a partir da data escolhida
                         </Text>
                         <Text style={styles.infoText}>
                             • Todas as {groupedPatient.sessionCount} sessões serão importadas
@@ -506,5 +539,10 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#0c5460',
         marginBottom: 4,
+    },
+    inputHint: {
+        fontSize: 12,
+        color: '#6c757d',
+        marginTop: 4,
     },
 });

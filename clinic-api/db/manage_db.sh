@@ -47,6 +47,147 @@ check_db_exists() {
     fi
 }
 
+# Function to clean up specific user data
+cleanup_user() {
+    local target_email="$1"
+    
+    if [ -z "$target_email" ]; then
+        echo -e "${YELLOW}Enter the email address to clean up:${NC}"
+        read -p "Email: " target_email
+    fi
+    
+    # Validate email format (basic check)
+    if [[ ! "$target_email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+        echo -e "${RED}❌ Invalid email format: $target_email${NC}"
+        exit 1
+    fi
+    
+    echo ""
+    echo -e "${RED}⚠️  WARNING: This will PERMANENTLY DELETE all data for:${NC}"
+    echo -e "${RED}    📧 $target_email${NC}"
+    echo ""
+    echo -e "${RED}This includes:${NC}"
+    echo -e "${RED}  • Therapist profile${NC}"
+    echo -e "${RED}  • All patients${NC}"
+    echo -e "${RED}  • All sessions${NC}"
+    echo -e "${RED}  • All check-ins${NC}"
+    echo -e "${RED}  • All calendar events${NC}"
+    echo -e "${RED}  • All payment data${NC}"
+    echo ""
+    echo -e "${YELLOW}Type 'DELETE' to confirm (case-sensitive):${NC}"
+    read -p "Confirmation: " confirmation
+    
+    if [ "$confirmation" != "DELETE" ]; then
+        echo -e "${YELLOW}❌ Cleanup cancelled${NC}"
+        return 1
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}🗑️  Starting cleanup for $target_email...${NC}"
+    
+    # Create temporary SQL file for cleanup
+    local temp_sql_file=$(mktemp)
+    cat > "$temp_sql_file" << 'CLEANUP_SQL'
+-- User cleanup script
+BEGIN;
+
+-- Display what we're about to delete
+\echo 'Starting cleanup process...'
+
+-- Show current data counts before deletion
+SELECT 
+  'Current data counts:' as summary,
+  (SELECT COUNT(*) FROM therapists WHERE email = :'target_email') as therapists,
+  (SELECT COUNT(*) FROM patients WHERE therapist_id = (SELECT id FROM therapists WHERE email = :'target_email')) as patients,
+  (SELECT COUNT(*) FROM sessions WHERE therapist_id = (SELECT id FROM therapists WHERE email = :'target_email')) as sessions,
+  (SELECT COUNT(*) FROM check_ins WHERE session_id IN (
+    SELECT id FROM sessions WHERE therapist_id = (SELECT id FROM therapists WHERE email = :'target_email')
+  )) as check_ins,
+  (SELECT COUNT(*) FROM calendar_events WHERE email = :'target_email') as calendar_events;
+
+-- Delete in correct order to respect foreign key constraints
+
+-- 1. Delete payment-related data first (if tables exist)
+DO $
+BEGIN
+    -- Delete payment transactions for this therapist's sessions
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payment_transactions') THEN
+        EXECUTE format('DELETE FROM payment_transactions WHERE session_id IN (SELECT id FROM sessions WHERE therapist_id = (SELECT id FROM therapists WHERE email = %L))', :'target_email');
+    END IF;
+    
+    -- Delete payment requests for this therapist's patients  
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payment_requests') THEN
+        EXECUTE format('DELETE FROM payment_requests WHERE patient_id IN (SELECT id FROM patients WHERE therapist_id = (SELECT id FROM therapists WHERE email = %L))', :'target_email');
+    END IF;
+    
+    -- Delete payment status history for this therapist's sessions
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payment_status_history') THEN
+        EXECUTE format('DELETE FROM payment_status_history WHERE session_id IN (SELECT id FROM sessions WHERE therapist_id = (SELECT id FROM therapists WHERE email = %L))', :'target_email');
+    END IF;
+END
+$;
+
+-- 2. Delete check-ins for this therapist's sessions
+DELETE FROM check_ins 
+WHERE session_id IN (
+  SELECT id FROM sessions 
+  WHERE therapist_id = (SELECT id FROM therapists WHERE email = :'target_email')
+);
+
+-- 3. Delete calendar events for this therapist
+DELETE FROM calendar_events WHERE email = :'target_email';
+
+-- 4. Delete sessions for this therapist
+DELETE FROM sessions 
+WHERE therapist_id = (SELECT id FROM therapists WHERE email = :'target_email');
+
+-- 5. Delete patients for this therapist
+DELETE FROM patients 
+WHERE therapist_id = (SELECT id FROM therapists WHERE email = :'target_email');
+
+-- 6. Delete onboarding data for this therapist (if table exists)
+DO $
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'therapist_onboarding') THEN
+        EXECUTE format('DELETE FROM therapist_onboarding WHERE therapist_id = (SELECT id FROM therapists WHERE email = %L)', :'target_email');
+    END IF;
+END
+$;
+
+-- 7. Delete the therapist record
+DELETE FROM therapists WHERE email = :'target_email';
+
+-- Show final counts
+SELECT 
+  'Cleanup completed!' as summary,
+  (SELECT COUNT(*) FROM therapists) as remaining_therapists,
+  (SELECT COUNT(*) FROM patients) as remaining_patients,
+  (SELECT COUNT(*) FROM sessions) as remaining_sessions;
+
+COMMIT;
+CLEANUP_SQL
+    
+    # Execute the cleanup
+    if psql -h $DB_HOST -U $DB_USER $DB_NAME -f "$temp_sql_file"; then
+        echo ""
+        echo -e "${GREEN}✅ Cleanup completed successfully!${NC}"
+        echo -e "${GREEN}📧 All data for $target_email has been removed${NC}"
+        echo ""
+        echo -e "${YELLOW}Next steps:${NC}"
+        echo -e "${YELLOW}  1. Clear browser localStorage/cookies${NC}"
+        echo -e "${YELLOW}  2. Test fresh onboarding process${NC}"
+        echo -e "${YELLOW}  3. Optionally run: $0 check${NC}"
+        echo ""
+        echo -e "${GREEN}🎉 Ready for fresh testing!${NC}"
+    else
+        echo -e "${RED}❌ Cleanup failed. Check the error messages above.${NC}"
+        exit 1
+    fi
+    
+    # Clean up temp file
+    rm "$temp_sql_file"
+}
+
 case "$1" in
     "fresh")
         echo -e "${YELLOW}🗑️  Creating fresh database (WARNING: This will delete all existing data!)${NC}"
@@ -152,6 +293,14 @@ case "$1" in
             echo -e "${RED}❌ Operation cancelled${NC}"
         fi
         ;;
+    "cleanup-user")
+        echo -e "${YELLOW}🧹 Cleaning up specific user data...${NC}"
+        if ! check_db_exists; then
+            echo -e "${RED}❌ Database doesn't exist. Run '$0 schema' first.${NC}"
+            exit 1
+        fi
+        cleanup_user "$2"
+        ;;
     "backup")
         echo -e "${YELLOW}💾 Creating database backup...${NC}"
         backup_file="backup_$(date +%Y%m%d_%H%M%S).sql"
@@ -170,7 +319,12 @@ case "$1" in
         echo -e "  ${GREEN}check${NC}                - 🔍 Verify schema and show data summary"
         echo -e "  ${GREEN}reset${NC}                - 🔄 Fresh database + schema + basic test data"
         echo -e "  ${GREEN}reset-comprehensive${NC}  - 🔄 Fresh database + schema + comprehensive data"
+        echo -e "  ${GREEN}cleanup-user [email]${NC}  - 🧹 Remove all data for specific user/therapist"
         echo -e "  ${GREEN}backup${NC}               - 💾 Create database backup"
+        echo
+        echo -e "${YELLOW}Examples for User Management:${NC}"
+        echo -e "  $0 cleanup-user your-email@example.com  # Clean specific user"
+        echo -e "  $0 cleanup-user                         # Clean user (will prompt for email)"
         echo
         echo -e "${YELLOW}Examples for Payment Testing:${NC}"
         echo -e "  $0 fresh-comprehensive  # Complete fresh start with payment test data"

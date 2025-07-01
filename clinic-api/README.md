@@ -66,7 +66,7 @@ NODE_ENV=development
 PORT=3000
 ```
 
-## 🗄️ Database Management
+## 🗄️ ## 🗄️ Database Management
 
 ### **Quick Start**
 ```bash
@@ -82,6 +82,37 @@ cd clinic-api/db
 ./manage_db.sh check
 ```
 
+### **User-Specific Cleanup (NEW!)**
+```bash
+# Clean up specific user data (keeps database structure)
+./manage_db.sh cleanup-user your-email@example.com
+
+# Clean up user data (interactive - will prompt for email)
+./manage_db.sh cleanup-user
+
+# Perfect for development workflows - test onboarding repeatedly
+```
+
+### **Complete Database Operations**
+```bash
+# Fresh database operations
+./manage_db.sh fresh                    # Basic fresh start
+./manage_db.sh fresh-comprehensive      # Fresh start + comprehensive test data
+
+# Reset operations (same as fresh but more explicit)
+./manage_db.sh reset                    # Reset + basic test data
+./manage_db.sh reset-comprehensive      # Reset + comprehensive test data
+
+# Schema and data operations
+./manage_db.sh schema                   # Install/update schema only
+./manage_db.sh seed                     # Add basic test data
+./manage_db.sh comprehensive            # Add comprehensive test data
+
+# Utility operations
+./manage_db.sh check                    # Verify schema and show data summary
+./manage_db.sh backup                   # Create database backup
+```
+
 ### **What You Get with Comprehensive Data**
 - **20 diverse patients** with varying pricing (R$ 120-250) **and Brazilian phone numbers**
 - **200+ sessions** spanning 6 months with realistic payment patterns
@@ -91,17 +122,48 @@ cd clinic-api/db
 - **Complete payment transaction history** with various payment methods
 - **Perfect for testing** dual-mode system and WhatsApp integration
 
-## Installation
+### **Development Workflows**
 
+#### **🔄 Quick User Reset (Development)**
 ```bash
-# Install dependencies
-npm install
+# Clean your test user and start fresh onboarding
+./manage_db.sh cleanup-user dnkupfer@gmail.com
+# Then test the onboarding process again
+```
 
-# Set up database with comprehensive payment data including phone numbers
-./db/manage_db.sh fresh-comprehensive
+#### **🚀 Complete Fresh Start**
+```bash
+# Nuclear option - completely fresh database with realistic data
+./manage_db.sh fresh-comprehensive
+```
 
-# Verify setup including phone number integration
-./db/manage_db.sh check
+#### **📊 Data Verification**
+```bash
+# Check database health and data integrity
+./manage_db.sh check
+```
+
+### **Available Commands Reference**
+
+| Command | Description | Use Case |
+|---------|-------------|----------|
+| `fresh` | 🗑️ Create completely fresh database | Complete clean slate |
+| `fresh-comprehensive` | 🚀 Fresh database + comprehensive data | Full realistic testing setup |
+| `schema` | 📋 Install/update schema only | Schema updates |
+| `seed` | 🌱 Add basic test data | Quick development data |
+| `comprehensive` | 🚀 Add comprehensive payment test data | Realistic testing scenarios |
+| `check` | 🔍 Verify schema and show data summary | Health check |
+| `reset` | 🔄 Fresh database + basic test data | Development reset |
+| `reset-comprehensive` | 🔄 Fresh database + comprehensive data | Full development reset |
+| `cleanup-user [email]` | 🧹 Remove all data for specific user | **User-specific cleanup** |
+| `backup` | 💾 Create database backup | Data backup |
+
+### **Database Safety Features**
+- ✅ **Interactive confirmations** for destructive operations
+- ✅ **Email validation** for user cleanup operations  
+- ✅ **Data preview** before deletion
+- ✅ **Graceful error handling** with clear messages
+- ✅ **Backup creation** for data protection
 ```
 
 ## Development

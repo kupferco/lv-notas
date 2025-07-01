@@ -275,7 +275,15 @@ export const apiService = {
     return response.json();
   },
 
-  async updatePatient(patientId: string, patient: { nome: string; email?: string; telefone?: string }): Promise<Patient> {
+  async updatePatient(patientId: string, patient: {
+    nome: string;
+    email?: string;
+    telefone?: string;
+    sessionPrice?: number;
+    therapyStartDate?: string;
+    lvNotasBillingStartDate?: string;
+    observacoes?: string;
+  }): Promise<Patient> {
     if (!canMakeAuthenticatedCall()) {
       throw new Error("Authentication required for API calls");
     }

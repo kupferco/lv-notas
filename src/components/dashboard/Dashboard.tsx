@@ -13,7 +13,7 @@ export const Dashboard: React.FC = () => {
   return (
     <View style={styles.container}>
       {/* Fixed Dashboard Header */}
-      <View style={styles.fixedDashboardHeader}>
+      {/* <View style={styles.fixedDashboardHeader}>
         <Text style={styles.headerTitle}>📊 Dashboard Analytics</Text>
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
@@ -29,14 +29,15 @@ export const Dashboard: React.FC = () => {
             <Text style={styles.statLabel}>Revenue</Text>
           </View>
         </View>
-      </View>
+      </View> */}
 
       {/* Scrollable Dashboard Content */}
       <ScrollView 
         style={styles.scrollableContent}
         contentContainerStyle={styles.scrollContentContainer}
       >
-        <Text style={styles.contentTitle}>Recent Activity</Text>
+        <Text style={styles.contentTitle}>Em breve</Text>
+        {/* <Text style={styles.contentTitle}>Recent Activity</Text>
         <Text style={styles.instructions}>
           This content should scroll while the dashboard header stays fixed above.
           The main navigation should also stay fixed at the very top.
@@ -54,7 +55,7 @@ export const Dashboard: React.FC = () => {
           <Text style={styles.bottomText}>
             If you can see this, the scrolling works! Both the main nav and dashboard header should be visible.
           </Text>
-        </View>
+        </View> */}
       </ScrollView>
     </View>
   );

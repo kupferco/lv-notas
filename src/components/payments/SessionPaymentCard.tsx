@@ -15,7 +15,12 @@ export const SessionPaymentCard: React.FC<SessionPaymentCardProps> = ({
   session,
   onStatusChange
 }) => {
-  const formatCurrency = (amount: number): string => {
+  const formatCurrency = (amount: number | null | undefined): string => {
+    // Handle null, undefined, or invalid amounts
+    if (amount === null || amount === undefined || isNaN(amount)) {
+      return 'R$ 0,00 ⚠️'; // Show warning that price is missing
+    }
+
     return `R$ ${amount.toFixed(2).replace('.', ',')}`;
   };
 

@@ -5,9 +5,9 @@ import { View, Text, TextInput, Pressable, StyleSheet, ScrollView } from 'react-
 interface WizardSettingsProps {
     defaultPrice: number; // in cents
     totalEvents: number;
-    onComplete: (settings: { defaultPrice: number }) => void;
+    onComplete: (settings: { defaultPrice: number; defaultTrackingStartDate: string }) => void;
     onCancel: () => void;
-    onNavigateToPatients: () => void; // Add this new prop
+    onNavigateToPatients: () => void;
     mode: 'onboarding' | 'settings';
 }
 
@@ -23,6 +23,10 @@ export const WizardSettings: React.FC<WizardSettingsProps> = ({
         (defaultPrice / 100).toFixed(2).replace('.', ',')
     );
     const [error, setError] = useState<string | null>(null);
+    const [trackingStartDate, setTrackingStartDate] = useState<string>(
+        new Date().toISOString().split('T')[0] // Today's date as default
+    );
+    const [dateError, setDateError] = useState<string | null>(null);
 
     const formatCurrency = (value: string): string => {
         // Remove non-numeric characters except comma
@@ -49,6 +53,10 @@ export const WizardSettings: React.FC<WizardSettingsProps> = ({
     };
 
     const validateAndProceed = () => {
+        // Reset errors
+        setError(null);
+        setDateError(null);
+
         // Convert R$ format to cents
         const numericPrice = parseFloat(sessionPrice.replace(',', '.'));
 
@@ -67,8 +75,37 @@ export const WizardSettings: React.FC<WizardSettingsProps> = ({
             return;
         }
 
+        // Validate tracking start date
+        if (!trackingStartDate.trim()) {
+            setDateError('Data de início da cobrança é obrigatória');
+            return;
+        }
+
+        const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+        if (!dateRegex.test(trackingStartDate)) {
+            setDateError('Formato de data inválido. Use AAAA-MM-DD');
+            return;
+        }
+
+        const startDate = new Date(trackingStartDate);
+        if (isNaN(startDate.getTime())) {
+            setDateError('Data inválida');
+            return;
+        }
+
+        // Check if date is too far in the past (more than 2 years)
+        const twoYearsAgo = new Date();
+        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+        if (startDate < twoYearsAgo) {
+            setDateError('Data não pode ser anterior a 2 anos atrás');
+            return;
+        }
+
         const priceInCents = Math.round(numericPrice * 100);
-        onComplete({ defaultPrice: priceInCents });
+        onComplete({
+            defaultPrice: priceInCents,
+            defaultTrackingStartDate: trackingStartDate
+        });
     };
 
     const handleSkipImport = () => {
@@ -121,6 +158,30 @@ export const WizardSettings: React.FC<WizardSettingsProps> = ({
 
                             {error && (
                                 <Text style={styles.errorText}>{error}</Text>
+                            )}
+                        </View>
+
+                        {/* Default LV Notas Tracking Start Date */}
+                        <View style={styles.section}>
+                            <Text style={styles.sectionTitle}>📅 Data Padrão de Início da Cobrança LV Notas</Text>
+                            <Text style={styles.sectionDescription}>
+                                A partir de qual data o LV Notas deve começar a rastrear pagamentos.
+                                Você poderá ajustar individualmente para cada paciente.
+                            </Text>
+
+                            <TextInput
+                                style={styles.dateInput}
+                                value={trackingStartDate}
+                                onChangeText={setTrackingStartDate}
+                                placeholder="AAAA-MM-DD"
+                                placeholderTextColor="#999"
+                            />
+                            <Text style={styles.dateHint}>
+                                Formato: AAAA-MM-DD (ex: 2025-01-01)
+                            </Text>
+
+                            {dateError && (
+                                <Text style={styles.errorText}>{dateError}</Text>
                             )}
                         </View>
 
@@ -436,5 +497,21 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#6c757d',
         fontWeight: '600',
+    },
+    dateInput: {
+        borderWidth: 1,
+        borderColor: '#ced4da',
+        borderRadius: 8,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        fontSize: 16,
+        color: '#212529',
+        backgroundColor: '#fff',
+        marginBottom: 8,
+    },
+    dateHint: {
+        fontSize: 12,
+        color: '#6c757d',
+        fontStyle: 'italic',
     },
 });

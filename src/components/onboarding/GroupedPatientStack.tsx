@@ -6,10 +6,13 @@ import { GroupedPatientCard } from './GroupedPatientCard';
 import type { CalendarEvent, PatientData } from '../../types/onboarding';
 import { apiService } from '../../services/api';
 
+const DOT_PROGRESS_MAX = 20;
+
 interface GroupedPatientStackProps {
     events: CalendarEvent[];
     defaultPrice: number; // in cents
-    therapistEmail: string; // Add this line
+    defaultTrackingStartDate: string; // Add this line
+    therapistEmail: string;
     onPatientProcessed: (patientData: PatientData) => void;
     onPatientSkipped: () => void;
     onCancel: () => void;
@@ -18,7 +21,8 @@ interface GroupedPatientStackProps {
 export const GroupedPatientStack: React.FC<GroupedPatientStackProps> = ({
     events,
     defaultPrice,
-    therapistEmail, // Add this line
+    defaultTrackingStartDate, // Add this line
+    therapistEmail,
     onPatientProcessed,
     onPatientSkipped,
     onCancel
@@ -146,7 +150,7 @@ export const GroupedPatientStack: React.FC<GroupedPatientStackProps> = ({
 
                 {/* Progress Dots */}
                 <View style={styles.progressDots}>
-                    {groupedPatients.slice(0, 10).map((_, index) => (
+                    {groupedPatients.slice(0, DOT_PROGRESS_MAX).map((_, index) => (
                         <View
                             key={index}
                             style={[
@@ -156,8 +160,8 @@ export const GroupedPatientStack: React.FC<GroupedPatientStackProps> = ({
                             ]}
                         />
                     ))}
-                    {groupedPatients.length > 10 && (
-                        <Text style={styles.progressMore}>+{groupedPatients.length - 10}</Text>
+                    {groupedPatients.length > DOT_PROGRESS_MAX && (
+                        <Text style={styles.progressMore}>+{groupedPatients.length - DOT_PROGRESS_MAX}</Text>
                     )}
                 </View>
             </View>
@@ -166,6 +170,7 @@ export const GroupedPatientStack: React.FC<GroupedPatientStackProps> = ({
             <GroupedPatientCard
                 groupedPatient={currentPatient}
                 defaultPrice={defaultPrice}
+                defaultTrackingStartDate={defaultTrackingStartDate} // Add this line
                 onSave={handlePatientSaved}
                 onSkip={handlePatientSkipped}
                 currentIndex={currentPatientIndex}

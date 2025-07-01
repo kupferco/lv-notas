@@ -1,13 +1,13 @@
 // src/services/whatsapp.ts
 
-import { PatientPaymentSummary } from '../types/payments';
+import { PatientPaymentSummary, WhatsAppMessageData } from '../types/payments';
 import { messageTemplates, generateWhatsAppMessage } from '../config/paymentsMode';
 
-export interface WhatsAppMessageData {
-    phone: string;
-    message: string;
-    whatsappUrl: string;
-}
+// export interface WhatsAppMessageData {
+//     phone: string;
+//     message: string;
+//     whatsappUrl: string;
+// }
 
 export class WhatsAppService {
     private formatPhoneNumber(phone: string): string {
@@ -65,8 +65,7 @@ export class WhatsAppService {
     public createWhatsAppLink(patient: PatientPaymentSummary, messageType: 'invoice' | 'reminder'): WhatsAppMessageData {
         // Get patient phone - use your phone for testing, but fallback to patient phone in production
         const testPhone = '+447866750132';
-        // const patientPhone = patient.telefone || testPhone;
-        const patientPhone = testPhone;
+        const patientPhone = patient.telefone || testPhone;
 
         const formattedPhone = this.formatPhoneNumber(patientPhone);
 
@@ -78,15 +77,15 @@ export class WhatsAppService {
         const encodedMessage = encodeURIComponent(message);
 
         // Create WhatsApp URL
-        const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
+        const whatsappUrl = `https://wa.me/${testPhone}?text=${encodedMessage}`;
+        // const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
 
         return {
             phone: formattedPhone,
             message: message,
-            whatsappUrl: whatsappUrl
+            whatsappUrl: whatsappUrl,
         };
     }
-
     public openWhatsAppLink(whatsappData: WhatsAppMessageData): void {
         // Open WhatsApp link in new tab/window
         window.open(whatsappData.whatsappUrl, '_blank');

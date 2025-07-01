@@ -27,6 +27,7 @@ export const CalendarImportWizard: React.FC<CalendarImportWizardProps> = ({
     const [wizardState, setWizardState] = useState<WizardState>({
         step: 'loading',
         defaultSessionPrice: 30000, // R$ 300,00 in cents
+        defaultTrackingStartDate: new Date().toISOString().split('T')[0], // Today's date
         events: [],
         processedPatients: [],
         currentEventIndex: 0,
@@ -93,13 +94,14 @@ export const CalendarImportWizard: React.FC<CalendarImportWizardProps> = ({
         }
     };
 
-    const handleSettingsComplete = (settings: { defaultPrice: number }) => {
+    const handleSettingsComplete = (settings: { defaultPrice: number; defaultTrackingStartDate: string }) => {
         console.log('⚙️ Wizard settings completed:', settings);
 
         setWizardState(prev => ({
             ...prev,
             step: 'importing',
-            defaultSessionPrice: settings.defaultPrice
+            defaultSessionPrice: settings.defaultPrice,
+            defaultTrackingStartDate: settings.defaultTrackingStartDate
         }));
     };
 
@@ -232,7 +234,8 @@ export const CalendarImportWizard: React.FC<CalendarImportWizardProps> = ({
         <GroupedPatientStack
             events={wizardState.events}
             defaultPrice={wizardState.defaultSessionPrice}
-            therapistEmail={therapistEmail} // Add this line
+            defaultTrackingStartDate={wizardState.defaultTrackingStartDate} // Add this line
+            therapistEmail={therapistEmail}
             onPatientProcessed={handleEventProcessed}
             onPatientSkipped={handleEventSkipped}
             onCancel={onCancel}

@@ -137,10 +137,9 @@ export interface WhatsAppMessageTemplate {
   message: string;
 }
 
-export interface WhatsAppLinkData {
+export interface WhatsAppMessageData {
   phone: string;
   message: string;
-  formattedPhone: string;
   whatsappUrl: string;
 }
 
