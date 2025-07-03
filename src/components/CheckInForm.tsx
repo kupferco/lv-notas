@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, SafeAreaView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import type { Patient, Session } from '../types';
+import type { Patient, Session } from '../types/index';
 import { apiService } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 

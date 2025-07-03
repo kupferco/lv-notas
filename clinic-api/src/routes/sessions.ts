@@ -442,7 +442,7 @@ router.get("/:patientId", asyncHandler(async (req, res) => {
     const result = await pool.query(
       `SELECT id, date, google_calendar_event_id, patient_id, therapist_id, status, created_at
        FROM sessions 
-       WHERE patient_id = $1 AND therapist_id = $2 AND status != 'cancelada'
+       WHERE patient_id = $1 AND therapist_id = $2 AND status = 'agendada'
        ORDER BY date ASC`,
       [patientId, therapistId]
     );

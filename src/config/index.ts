@@ -1,9 +1,7 @@
-import { SAFE_PROXY_API_KEY } from "@env";
-import { auth, initializeFirebase } from './firebase';
-
-// import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-// import { Platform } from "react-native";
-
+// src/config/index.ts
+import { SAFE_PROXY_API_KEY } from '@env';
+import firebaseService, { auth } from './firebase';
+const { initializeFirebase } = firebaseService;
 
 const PROXY_URL = window.location.hostname === 'localhost'
   ? process.env.EXPO_PUBLIC_LOCAL_URL

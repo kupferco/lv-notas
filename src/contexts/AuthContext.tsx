@@ -45,7 +45,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const updateAuthState = (user: User | null) => {
     const googleAccessToken = getGoogleAccessToken();
     const hasValidTokens = checkTokensValidity(user, googleAccessToken);
-    
+
     console.log('🔐 Auth state updated:', {
       userEmail: user?.email || 'none',
       hasGoogleToken: !!googleAccessToken,
@@ -65,7 +65,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const refreshAuth = async (): Promise<void> => {
     console.log('🔄 Refreshing auth state...');
     setAuthState(prev => ({ ...prev, isLoading: true }));
-    
+
     try {
       // Always check Firebase auth state (no development mode special handling)
       console.log("🔥 Checking Firebase auth state");
@@ -82,12 +82,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const forceRefresh = async (): Promise<void> => {
     console.log('⚡ Force refreshing auth state...');
     setAuthState(prev => ({ ...prev, isLoading: true }));
-    
+
     try {
       // Try multiple methods to get the current user
       console.log("🔥 Force checking Firebase auth state");
       const currentUser = await checkAuthState();
-      
+
       if (!currentUser) {
         // If checkAuthState fails, try getCurrentUser
         console.log("🔄 Trying getCurrentUser as fallback");
@@ -106,7 +106,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   useEffect(() => {
     console.log('🚀 AuthProvider initializing...');
-    
+
     // Always check auth state immediately on mount
     refreshAuth();
 
@@ -114,22 +114,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     console.log("🔔 Setting up Firebase auth state listener");
     const unsubscribe = onAuthStateChange((user) => {
       console.log('🔔 Firebase auth state changed:', user?.email || 'signed out');
-      
-      // If we get a user but our current state says no user, force update
-      if (user && !authState.user) {
-        console.log("🆕 New user detected, forcing update");
-        updateAuthState(user);
-      } else if (!user && authState.user) {
-        console.log("🚪 User signed out, updating state");
-        updateAuthState(null);
-      } else {
-        console.log("👥 User state consistent, updating normally");
-        updateAuthState(user);
-      }
+      updateAuthState(user);
     });
 
     return unsubscribe;
-  }, []);
+  }, []); // ← Keep empty dependency array and simplify the callback
 
   const handleSignOut = async (): Promise<void> => {
     console.log('🚪 AuthContext handling sign out...');
@@ -137,7 +126,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Import signOutUser dynamically to avoid circular dependencies
       const { signOutUser } = await import('../config/firebase');
       await signOutUser();
-      
+
       // Immediately update auth state to signed out
       updateAuthState(null);
       console.log('✅ AuthContext sign out completed');
@@ -183,9 +172,9 @@ interface WithAuthProps {
   fallback?: ReactNode;
 }
 
-export const WithAuth: React.FC<WithAuthProps> = ({ 
-  children, 
-  fallback = <div>Loading authentication...</div> 
+export const WithAuth: React.FC<WithAuthProps> = ({
+  children,
+  fallback = <div>Loading authentication...</div>
 }) => {
   const { hasValidTokens, isLoading } = useAuth();
 

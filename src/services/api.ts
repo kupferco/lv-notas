@@ -48,7 +48,7 @@ const getAuthHeaders = async () => {
 
   // Add Google access token for calendar operations
   if (googleAccessToken) {
-    headers["X-Google-Access-Token"] = googleAccessToken;
+    headers["x-calendar-token"] = googleAccessToken;
     console.log("Google access token included in headers");
   }
 
@@ -136,6 +136,8 @@ export const apiService = {
     }
 
     const headers = await getAuthHeaders();
+    console.log("Calendar reuqest Test Version 1.0.0");
+    console.log(headers);
     console.log("📞 getCalendars API call");
     const response = await fetch(`${API_URL}/api/calendars`, { headers });
     if (!response.ok) {
@@ -175,7 +177,9 @@ export const apiService = {
       }
 
       const headers = await getAuthHeaders();
-      console.log("📞 getTherapistByEmail API call for:", email);
+      console.log("Test Version 1.0.0 (src/services/api.ts)");
+      console.log("📞 getTherapistByEmail API call for ::: ", email);
+      console.log("Headers", headers);
       const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(email)}`, { headers });
       if (response.status === 404) {
         console.log("📭 Therapist not found (404)");
