@@ -22,6 +22,7 @@ interface PatientFormData {
   contatoEmergencia: string;
   telefoneEmergencia: string;
   sessionPrice: number; // in cents, matching EventCardStack
+  sessionPriceDisplay: string;
   therapyStartDate: string; // matching EventCardStack
   lvNotasBillingStartDate: string; // matching EventCardStack
   observacoes: string;
@@ -94,6 +95,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
   const [isLoadingPatients, setIsLoadingPatients] = useState(true);
   const [formMode, setFormMode] = useState<FormMode>(null);
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
+  const [priceDisplayValue, setPriceDisplayValue] = useState('');
   const [patientData, setPatientData] = useState<PatientFormData>({
     nome: '',
     email: '',
@@ -103,7 +105,8 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     genero: '',
     contatoEmergencia: '',
     telefoneEmergencia: '',
-    sessionPrice: 30000, // R$ 300,00 in cents
+    sessionPrice: 0,
+    sessionPriceDisplay: '',
     therapyStartDate: '',
     lvNotasBillingStartDate: '',
     observacoes: ''
@@ -115,6 +118,13 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
       loadPatients();
     }
   }, [authLoading, isAuthenticated, hasValidTokens, therapistEmail]);
+
+  useEffect(() => {
+    if (patientData.sessionPrice > 0) {
+      const displayValue = (patientData.sessionPrice / 100).toFixed(2).replace('.', ',');
+      setPriceDisplayValue(displayValue);
+    }
+  }, [patientData.sessionPrice]);
 
   const loadPatients = async () => {
     setIsLoadingPatients(true);
@@ -132,15 +142,24 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
   };
 
   const formatCurrency = (value: string): string => {
-    const numericValue = value.replace(/[^\d,]/g, '');
-    const parts = numericValue.split(',');
-    if (parts.length > 2) {
-      return parts[0] + ',' + parts.slice(1).join('').slice(0, 2);
+    // Remove everything except digits and comma
+    const cleaned = value.replace(/[^\d,]/g, '');
+
+    // Split by comma
+    const parts = cleaned.split(',');
+
+    // If no comma, just return the digits
+    if (parts.length === 1) {
+      return parts[0];
     }
-    if (parts[1] && parts[1].length > 2) {
+
+    // If there's a comma, ensure only 2 decimal places
+    if (parts.length === 2) {
       return parts[0] + ',' + parts[1].slice(0, 2);
     }
-    return numericValue;
+
+    // If multiple commas, keep only the first one
+    return parts[0] + ',' + parts.slice(1).join('').slice(0, 2);
   };
 
   const formatPhone = (value: string): string => {
@@ -276,6 +295,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
       contatoEmergencia: patient.contatoEmergencia || '',
       telefoneEmergencia: patient.telefoneEmergencia || '',
       sessionPrice: patient.sessionPrice || 30000, // Default R$ 300,00
+      sessionPriceDisplay: patient.sessionPrice ? (patient.sessionPrice / 100).toFixed(2).replace('.', ',') : '300,00',
       therapyStartDate: formatDateForForm(patient.therapyStartDate), // Convert YYYY-MM-DD to DD/MM/YYYY
       lvNotasBillingStartDate: formatDateForForm(patient.lvNotasBillingStartDate), // Convert YYYY-MM-DD to DD/MM/YYYY
       observacoes: patient.observacoes || ''
@@ -318,7 +338,8 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
       genero: '',
       contatoEmergencia: '',
       telefoneEmergencia: '',
-      sessionPrice: 30000, // R$ 300,00 in cents
+      sessionPrice: 30000,
+      sessionPriceDisplay: '300,00',
       therapyStartDate: '',
       lvNotasBillingStartDate: '',
       observacoes: ''
@@ -443,11 +464,35 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
             <TextInput
               style={styles.priceInput}
               placeholder="300,00"
-              value={(patientData.sessionPrice / 100).toFixed(2).replace('.', ',')}
+              value={patientData.sessionPriceDisplay}
               onChangeText={(value) => {
-                const formatted = formatCurrency(value);
-                const priceInCents = Math.round(parseFloat(formatted.replace(',', '.')) * 100) || 0;
-                handleFieldChange('sessionPrice', priceInCents);
+                // Remove everything except digits and comma
+                let cleaned = value.replace(/[^\d,]/g, '');
+
+                // Split by comma to handle integer and decimal parts
+                let parts = cleaned.split(',');
+
+                // Limit integer part to 3 digits
+                if (parts[0].length > 3) {
+                  parts[0] = parts[0].slice(0, 3);
+                }
+
+                // If there's a decimal part, limit to 2 digits
+                if (parts.length > 1) {
+                  parts[1] = parts[1].slice(0, 2);
+                  // Remove extra commas (keep only first one)
+                  parts = [parts[0], parts[1]];
+                }
+
+                // Reconstruct the formatted value
+                const formatted = parts.length > 1 ? parts[0] + ',' + parts[1] : parts[0];
+
+                // Update both display and actual values
+                setPatientData(prev => ({
+                  ...prev,
+                  sessionPriceDisplay: formatted,
+                  sessionPrice: formatted ? Math.round(parseFloat(formatted.replace(',', '.') || '0') * 100) : 0
+                }));
               }}
               keyboardType="numeric"
             />

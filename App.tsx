@@ -6,15 +6,24 @@ import { TherapistOnboarding } from "./src/components/TherapistOnboarding";
 import { AuthProvider, useAuth } from "./src/contexts/AuthContext";
 import { checkAuthState, onAuthStateChange, isDevelopment } from "./src/config/firebase";
 import { apiService } from "./src/services/api";
+import { ensureCalendarPermissions, checkCalendarPermissionStatus } from "./src/services/calendarPermissions";
 import type { User } from "firebase/auth";
 
-type AppState = "loading" | "onboarding" | "authenticated";
+type AppState = "loading" | "onboarding" | "authenticated" | "calendar_permissions";
 
 // Main App component that uses AuthContext
 const AppContent: React.FC = () => {
+  console.log('Test Version 1.0.4');
+  console.log('🔑 API Key Debug:', {
+    safeProxyKey: process.env.SAFE_PROXY_API_KEY ? 'Present' : 'Missing',
+    safeProxyKeyValue: process.env.SAFE_PROXY_API_KEY ? 'Hidden' : 'Not found',
+    allProcessEnv: typeof process !== 'undefined' ? Object.keys(process.env || {}) : 'process not defined'
+  });
+
   const [appState, setAppState] = useState<AppState>("loading");
   const [retryCount, setRetryCount] = useState(0);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [calendarPermissionMessage, setCalendarPermissionMessage] = useState("");
   const { user, isAuthenticated, isLoading: authLoading, hasValidTokens, signOut, forceRefresh } = useAuth();
 
   useEffect(() => {
@@ -40,16 +49,19 @@ const AppContent: React.FC = () => {
       console.log("- therapist_email:", localStorage.getItem("therapist_email"));
       console.log("- therapist_name:", localStorage.getItem("therapist_name"));
       console.log("- google_access_token:", !!localStorage.getItem("google_access_token"));
+      console.log("- calendar_permission_granted:", localStorage.getItem("calendar_permission_granted"));
 
       if (!isAuthenticated) {
         console.log("No authenticated user, showing onboarding");
         setAppState("onboarding");
+        setIsInitializing(false);
         return;
       }
 
       if (!hasValidTokens) {
         console.log("Invalid tokens, showing onboarding");
         setAppState("onboarding");
+        setIsInitializing(false);
         return;
       }
 
@@ -57,10 +69,41 @@ const AppContent: React.FC = () => {
       if (!isAuthenticated || !hasValidTokens || !email) {
         console.log("No email available, showing onboarding");
         setAppState("onboarding");
+        setIsInitializing(false);
         return;
       }
 
-      // Check if therapist exists and has calendar configured
+      // STEP 1: Check calendar permissions first
+      console.log("📅 Checking calendar permissions...");
+      const calendarStatus = await checkCalendarPermissionStatus();
+
+      if (!calendarStatus.hasPermissions) {
+        console.log("⚠️ Calendar permissions missing, requesting permissions...");
+        setCalendarPermissionMessage("Solicitando permissões do Google Calendar...");
+        setAppState("calendar_permissions");
+
+        try {
+          const permissionsGranted = await ensureCalendarPermissions();
+
+          if (!permissionsGranted) {
+            console.error("❌ Failed to get calendar permissions");
+            setCalendarPermissionMessage("Erro: Permissões do calendário são obrigatórias para continuar.");
+            setIsInitializing(false);
+            return;
+          }
+
+          console.log("✅ Calendar permissions granted successfully");
+        } catch (error) {
+          console.error("❌ Error getting calendar permissions:", error);
+          setCalendarPermissionMessage("Erro ao solicitar permissões do calendário. Tente novamente.");
+          setIsInitializing(false);
+          return;
+        }
+      } else {
+        console.log("✅ Calendar permissions already granted");
+      }
+
+      // STEP 2: Check if therapist exists and has calendar configured
       try {
         const therapist = await apiService.getTherapistByEmail(email);
         console.log("Therapist data:", therapist);
@@ -85,6 +128,8 @@ const AppContent: React.FC = () => {
     } catch (error) {
       console.error("❌ Error initializing app:", error);
       setAppState("onboarding");
+    } finally {
+      setIsInitializing(false);
     }
   };
 
@@ -173,6 +218,12 @@ const AppContent: React.FC = () => {
     }
   };
 
+  const handleCalendarPermissionRetry = async () => {
+    console.log("🔄 Retrying calendar permissions...");
+    setCalendarPermissionMessage("Tentando novamente...");
+    await initializeApp();
+  };
+
   const handleLogout = () => {
     console.log("🚪 User logged out");
 
@@ -184,6 +235,7 @@ const AppContent: React.FC = () => {
       localStorage.removeItem("therapist_email");
       localStorage.removeItem("therapist_calendar_id");
       localStorage.removeItem("google_access_token");
+      localStorage.removeItem("calendar_permission_granted");
     }
 
     // Force re-initialization after clearing state
@@ -218,6 +270,25 @@ const AppContent: React.FC = () => {
     </View>
   );
 
+  const renderCalendarPermissionScreen = () => (
+    <View style={styles.loadingContainer}>
+      <ActivityIndicator size="large" color="#6200ee" />
+      <Text style={styles.loadingText}>🗓️ Google Calendar</Text>
+      <Text style={styles.permissionText}>{calendarPermissionMessage}</Text>
+      <Text style={styles.infoText}>
+        Precisamos acessar seu Google Calendar para sincronizar suas sessões automaticamente.
+      </Text>
+      {calendarPermissionMessage.includes("Erro") && (
+        <Text style={styles.retryButton} onPress={handleCalendarPermissionRetry}>
+          🔄 Tentar Novamente
+        </Text>
+      )}
+      {isDevelopment && (
+        <Text style={styles.devText}>Modo Desenvolvimento - Calendar Permissions</Text>
+      )}
+    </View>
+  );
+
   const renderOnboardingScreen = () => (
     <View style={styles.centeredContainer}>
       <TherapistOnboarding
@@ -246,6 +317,9 @@ const AppContent: React.FC = () => {
       case "loading":
         console.log("📱 Rendering loading screen");
         return renderLoadingScreen();
+      case "calendar_permissions":
+        console.log("📅 Rendering calendar permissions screen");
+        return renderCalendarPermissionScreen();
       case "onboarding":
         console.log("🎯 Rendering onboarding screen");
         return renderOnboardingScreen();
@@ -304,6 +378,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#6c757d",
     textAlign: "center",
+  },
+  permissionText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: "#495057",
+    textAlign: "center",
+    fontWeight: "500",
+  },
+  infoText: {
+    marginTop: 16,
+    fontSize: 13,
+    color: "#6c757d",
+    textAlign: "center",
+    paddingHorizontal: 20,
+    lineHeight: 18,
+  },
+  retryButton: {
+    marginTop: 20,
+    fontSize: 16,
+    color: "#6200ee",
+    fontWeight: "bold",
+    textDecorationLine: "underline",
+    cursor: "pointer",
   },
   devText: {
     marginTop: 8,

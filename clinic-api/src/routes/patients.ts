@@ -45,18 +45,18 @@ router.get("/", asyncHandler(async (req, res) => {
   // Include all patient fields with proper camelCase aliases
   const result = await pool.query(
     `SELECT 
-       p.id, 
-       p.nome as name, 
-       p.email, 
-       p.telefone,
-       p.preco as "sessionPrice",
-       p.therapy_start_date as "therapyStartDate",
-       p.lv_notas_billing_start_date as "lvNotasBillingStartDate",
-       p.notes as observacoes
-     FROM patients p 
-     INNER JOIN therapists t ON p.therapist_id = t.id 
-     WHERE t.email = $1 
-     ORDER BY p.nome ASC`,
+     p.id, 
+     p.nome as name, 
+     p.email, 
+     p.telefone,
+     CAST(p.preco AS INTEGER) as "sessionPrice",
+     p.therapy_start_date as "therapyStartDate",
+     p.lv_notas_billing_start_date as "lvNotasBillingStartDate",
+     p.notes as observacoes
+   FROM patients p 
+   INNER JOIN therapists t ON p.therapist_id = t.id 
+   WHERE t.email = $1 
+   ORDER BY p.nome ASC`,
     [therapistEmail]
   );
 
@@ -166,14 +166,14 @@ router.put("/:id", asyncHandler(async (req, res) => {
          notes = $7
        WHERE id = $8 
        RETURNING 
-         id, 
-         nome as name, 
-         email, 
-         telefone,
-         preco as sessionPrice,
-         therapy_start_date as therapyStartDate,
-         lv_notas_billing_start_date as lvNotasBillingStartDate,
-         notes as observacoes`,
+  id, 
+  nome as name, 
+  email, 
+  telefone,
+  CAST(preco AS INTEGER) as sessionPrice,
+  therapy_start_date as therapyStartDate,
+  lv_notas_billing_start_date as lvNotasBillingStartDate,
+  notes as observacoes`,
       [
         nome,
         email || null,

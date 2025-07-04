@@ -158,7 +158,7 @@ router.post("/", asyncHandler(async (req, res) => {
       console.log('Patient has email:', patient.email);
       console.log('Using therapist calendar:', therapist.google_calendar_id);
 
-      const userAccessToken = req.headers['x-google-access-token'] as string;
+      const userAccessToken = req.headers['x-calendar-token'] as string;
 
       if (userAccessToken) {
         try {
@@ -348,7 +348,7 @@ router.put("/:id", asyncHandler(async (req, res) => {
     };
 
     // Update Google Calendar event if it exists and we have changes
-    const userAccessToken = req.headers['x-google-access-token'] as string;
+    const userAccessToken = req.headers['x-calendar-token'] as string;
 
     if (currentSession.google_calendar_event_id &&
       currentSession.google_calendar_id &&
@@ -442,7 +442,7 @@ router.get("/:patientId", asyncHandler(async (req, res) => {
     const result = await pool.query(
       `SELECT id, date, google_calendar_event_id, patient_id, therapist_id, status, created_at
        FROM sessions 
-       WHERE patient_id = $1 AND therapist_id = $2 AND status != 'cancelada'
+       WHERE patient_id = $1 AND therapist_id = $2 AND status = 'agendada'
        ORDER BY date ASC`,
       [patientId, therapistId]
     );
@@ -488,7 +488,7 @@ router.delete("/:id", asyncHandler(async (req, res) => {
     }
 
     const session = sessionResult.rows[0];
-    const userAccessToken = req.headers['x-google-access-token'] as string;
+    const userAccessToken = req.headers['x-calendar-token'] as string;
 
     // Delete from Google Calendar if event exists and we have access token
     if (session.google_calendar_event_id && session.google_calendar_id && userAccessToken) {

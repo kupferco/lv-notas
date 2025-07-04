@@ -66,11 +66,18 @@ const authenticateRequest = (
         // Check API key
         if (!clientApiKey || clientApiKey !== process.env.SAFE_PROXY_KEY) {
             console.log('API Key mismatch');
-            return res.status(401).json({ error: `Unauthorized - Invalid API Key` });
-        }
-        // Check API key
-        if (!clientApiKey || clientApiKey !== process.env.SAFE_PROXY_KEY) {
-            return res.status(401).json({ error: `Unauthorized - Invalid API Key` });
+
+            // Temporarily add debug info to the error response
+            return res.status(401).json({
+                error: `Unauthorized - Invalid API Key`,
+                debug: {
+                    receivedKeyPreview: clientApiKey ? clientApiKey.substring(0, 10) + '...' : 'Missing',
+                    expectedKeyPreview: process.env.SAFE_PROXY_KEY ? process.env.SAFE_PROXY_KEY.substring(0, 10) + '...' : 'Missing',
+                    receivedLength: clientApiKey ? clientApiKey.length : 0,
+                    expectedLength: process.env.SAFE_PROXY_KEY ? process.env.SAFE_PROXY_KEY.length : 0,
+                    timestamp: new Date().toISOString()
+                }
+            });
         }
 
         // Skip Firebase token verification for localhost
@@ -488,13 +495,26 @@ const initializeApp = async () => {
             'http://localhost:19006'
         ],
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization', 'X-Google-Access-Token'],
+        allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization', 'X-Calendar-Token'],
         credentials: true
     }));
 
+    // src/server.ts - Update the rate limiting configuration
+
     app.use(rateLimit({
-        windowMs: 15 * 60 * 1000,
-        max: 100
+        windowMs: 15 * 60 * 1000,     // 15 minutes  
+        max: process.env.NODE_ENV === 'production' ? 500 : 2000,  // 500 for production, 2000 for development
+        message: {
+            error: 'Too many requests from this IP, please try again later.',
+            retryAfter: '15 minutes'
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        // Skip rate limiting for specific paths if needed
+        skip: (req) => {
+            // Skip rate limiting for webhook endpoints
+            return req.path.includes('/api/calendar-webhook');
+        }
     }));
 
     app.use(express.json());
