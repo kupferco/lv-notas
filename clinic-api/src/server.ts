@@ -499,9 +499,22 @@ const initializeApp = async () => {
         credentials: true
     }));
 
+    // src/server.ts - Update the rate limiting configuration
+
     app.use(rateLimit({
-        windowMs: 15 * 60 * 1000,
-        max: 100
+        windowMs: 15 * 60 * 1000,     // 15 minutes  
+        max: process.env.NODE_ENV === 'production' ? 500 : 2000,  // 500 for production, 2000 for development
+        message: {
+            error: 'Too many requests from this IP, please try again later.',
+            retryAfter: '15 minutes'
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        // Skip rate limiting for specific paths if needed
+        skip: (req) => {
+            // Skip rate limiting for webhook endpoints
+            return req.path.includes('/api/calendar-webhook');
+        }
     }));
 
     app.use(express.json());

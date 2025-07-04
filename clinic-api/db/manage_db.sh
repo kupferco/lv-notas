@@ -87,75 +87,49 @@ cleanup_user() {
     
     # Create temporary SQL file for cleanup
     local temp_sql_file=$(mktemp)
-    cat > "$temp_sql_file" << 'CLEANUP_SQL'
+    cat > "$temp_sql_file" << EOF
 -- User cleanup script
 BEGIN;
-
--- Display what we're about to delete
-\echo 'Starting cleanup process...'
 
 -- Show current data counts before deletion
 SELECT 
   'Current data counts:' as summary,
-  (SELECT COUNT(*) FROM therapists WHERE email = :'target_email') as therapists,
-  (SELECT COUNT(*) FROM patients WHERE therapist_id = (SELECT id FROM therapists WHERE email = :'target_email')) as patients,
-  (SELECT COUNT(*) FROM sessions WHERE therapist_id = (SELECT id FROM therapists WHERE email = :'target_email')) as sessions,
+  (SELECT COUNT(*) FROM therapists WHERE email = '$target_email') as therapists,
+  (SELECT COUNT(*) FROM patients WHERE therapist_id = (SELECT id FROM therapists WHERE email = '$target_email')) as patients,
+  (SELECT COUNT(*) FROM sessions WHERE therapist_id = (SELECT id FROM therapists WHERE email = '$target_email')) as sessions,
   (SELECT COUNT(*) FROM check_ins WHERE session_id IN (
-    SELECT id FROM sessions WHERE therapist_id = (SELECT id FROM therapists WHERE email = :'target_email')
+    SELECT id FROM sessions WHERE therapist_id = (SELECT id FROM therapists WHERE email = '$target_email')
   )) as check_ins,
-  (SELECT COUNT(*) FROM calendar_events WHERE email = :'target_email') as calendar_events;
+  (SELECT COUNT(*) FROM calendar_events WHERE email = '$target_email') as calendar_events;
 
 -- Delete in correct order to respect foreign key constraints
 
--- 1. Delete payment-related data first (if tables exist)
-DO $
-BEGIN
-    -- Delete payment transactions for this therapist's sessions
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payment_transactions') THEN
-        EXECUTE format('DELETE FROM payment_transactions WHERE session_id IN (SELECT id FROM sessions WHERE therapist_id = (SELECT id FROM therapists WHERE email = %L))', :'target_email');
-    END IF;
-    
-    -- Delete payment requests for this therapist's patients  
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payment_requests') THEN
-        EXECUTE format('DELETE FROM payment_requests WHERE patient_id IN (SELECT id FROM patients WHERE therapist_id = (SELECT id FROM therapists WHERE email = %L))', :'target_email');
-    END IF;
-    
-    -- Delete payment status history for this therapist's sessions
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payment_status_history') THEN
-        EXECUTE format('DELETE FROM payment_status_history WHERE session_id IN (SELECT id FROM sessions WHERE therapist_id = (SELECT id FROM therapists WHERE email = %L))', :'target_email');
-    END IF;
-END
-$;
-
--- 2. Delete check-ins for this therapist's sessions
+-- 1. Delete check-ins for this therapist's sessions
 DELETE FROM check_ins 
 WHERE session_id IN (
   SELECT id FROM sessions 
-  WHERE therapist_id = (SELECT id FROM therapists WHERE email = :'target_email')
+  WHERE therapist_id = (SELECT id FROM therapists WHERE email = '$target_email')
 );
 
--- 3. Delete calendar events for this therapist
-DELETE FROM calendar_events WHERE email = :'target_email';
+-- 2. Delete calendar events for this therapist
+DELETE FROM calendar_events WHERE email = '$target_email';
+
+-- 3. Delete calendar webhooks for this therapist
+DELETE FROM calendar_webhooks 
+WHERE channel_id IN (
+  SELECT CONCAT('lv-calendar-webhook-', id) FROM therapists WHERE email = '$target_email'
+);
 
 -- 4. Delete sessions for this therapist
 DELETE FROM sessions 
-WHERE therapist_id = (SELECT id FROM therapists WHERE email = :'target_email');
+WHERE therapist_id = (SELECT id FROM therapists WHERE email = '$target_email');
 
 -- 5. Delete patients for this therapist
 DELETE FROM patients 
-WHERE therapist_id = (SELECT id FROM therapists WHERE email = :'target_email');
+WHERE therapist_id = (SELECT id FROM therapists WHERE email = '$target_email');
 
--- 6. Delete onboarding data for this therapist (if table exists)
-DO $
-BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'therapist_onboarding') THEN
-        EXECUTE format('DELETE FROM therapist_onboarding WHERE therapist_id = (SELECT id FROM therapists WHERE email = %L)', :'target_email');
-    END IF;
-END
-$;
-
--- 7. Delete the therapist record
-DELETE FROM therapists WHERE email = :'target_email';
+-- 6. Delete the therapist record
+DELETE FROM therapists WHERE email = '$target_email';
 
 -- Show final counts
 SELECT 
@@ -165,7 +139,7 @@ SELECT
   (SELECT COUNT(*) FROM sessions) as remaining_sessions;
 
 COMMIT;
-CLEANUP_SQL
+EOF
     
     # Execute the cleanup
     if psql -h $DB_HOST -U $DB_USER $DB_NAME -f "$temp_sql_file"; then

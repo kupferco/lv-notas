@@ -231,7 +231,7 @@ router.get("/calendar/events-for-import", asyncHandler(async (req, res) => {
 
         if (useUserAuthFlag) {
             // Extract user's Google access token from headers
-            const userAccessToken = req.headers['x-google-access-token'] as string;
+            const userAccessToken = req.headers['x-calendar-token'] as string;
 
             if (!userAccessToken) {
                 return res.status(401).json({
