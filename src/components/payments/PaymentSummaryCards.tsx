@@ -3,12 +3,14 @@
 import React from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
 import { PaymentSummaryCardsProps } from '../../types/payments';
-import { isSimpleMode, isAdvancedMode } from '../../config/paymentsMode';
+import { useSettings } from '../../contexts/SettingsContext';
 
 export const PaymentSummaryCards: React.FC<PaymentSummaryCardsProps> = ({
   summary,
   loading = false
 }) => {
+  const { isSimpleMode, isAdvancedMode } = useSettings();
+
   const formatCurrency = (amount: number): string => {
     return `R$ ${amount.toFixed(2).replace('.', ',')}`;
   };

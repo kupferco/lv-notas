@@ -3,8 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import { apiService } from '../../services/api';
-import { isSimpleMode, isAdvancedMode, isCardView, isListView } from '../../config/paymentsMode';
+
+// Import our new interactive components
+import { ModeHeader } from '../common/ModeHeader';
 
 // Import our new modular components
 import { PaymentFilters } from './PaymentFilters';
@@ -28,6 +31,15 @@ import { whatsappService } from '../../services/whatsapp';
 
 export const PaymentsOverview = () => {
     const { user } = useAuth();
+    const { 
+        isSimpleMode, 
+        isAdvancedMode, 
+        isCardView, 
+        isListView,
+        getCurrentModeLabel,
+        getCurrentViewLabel 
+    } = useSettings();
+    
     const [loading, setLoading] = useState(true);
 
     // Filter state
@@ -354,76 +366,12 @@ export const PaymentsOverview = () => {
 
     return (
         <ScrollView style={styles.container}>
-            {/* Header */}
-            <View style={styles.header}>
-                <View style={styles.titleRow}>
-                    <Text style={styles.title}>💰 Visão Geral de Pagamentos</Text>
-                    <View style={styles.modeToggles}>
-                        {/* Payment Mode Toggle */}
-                        <View style={styles.toggleGroup}>
-                            <Text style={styles.toggleLabel}>Modo:</Text>
-                            <View style={styles.toggleContainer}>
-                                <View style={[
-                                    styles.toggleButton,
-                                    isSimpleMode() && styles.toggleButtonActive
-                                ]}>
-                                    <Text style={[
-                                        styles.toggleText,
-                                        isSimpleMode() && styles.toggleTextActive
-                                    ]}>
-                                        Simples
-                                    </Text>
-                                </View>
-                                <View style={[
-                                    styles.toggleButton,
-                                    isAdvancedMode() && styles.toggleButtonActive
-                                ]}>
-                                    <Text style={[
-                                        styles.toggleText,
-                                        isAdvancedMode() && styles.toggleTextActive
-                                    ]}>
-                                        Avançado
-                                    </Text>
-                                </View>
-                            </View>
-                        </View>
-
-                        {/* View Mode Toggle */}
-                        <View style={styles.toggleGroup}>
-                            <Text style={styles.toggleLabel}>Visualização:</Text>
-                            <View style={styles.toggleContainer}>
-                                <View style={[
-                                    styles.toggleButton,
-                                    isCardView() && styles.toggleButtonActive
-                                ]}>
-                                    <Text style={[
-                                        styles.toggleText,
-                                        isCardView() && styles.toggleTextActive
-                                    ]}>
-                                        📋 Cartões
-                                    </Text>
-                                </View>
-                                <View style={[
-                                    styles.toggleButton,
-                                    isListView() && styles.toggleButtonActive
-                                ]}>
-                                    <Text style={[
-                                        styles.toggleText,
-                                        isListView() && styles.toggleTextActive
-                                    ]}>
-                                        📄 Lista
-                                    </Text>
-                                </View>
-                            </View>
-                        </View>
-                    </View>
-                </View>
-                <Text style={styles.modeDescription}>
-                    {isSimpleMode() ? 'Modo simples: apenas status "Pago" e "Pendente"' : 'Modo avançado: 4 status de pagamento granulares'}
-                    {' • '}
-                    {isCardView() ? 'Visualização em cartões' : 'Visualização em lista compacta'}
-                </Text>
-            </View>
+            {/* Interactive Header with Toggles */}
+            <ModeHeader 
+                title="💰 Visão Geral de Pagamentos"
+                showPaymentMode={true}
+                showViewMode={true}
+            />
 
             {/* Filters */}
             <PaymentFilters
@@ -451,9 +399,9 @@ export const PaymentsOverview = () => {
                             <Text style={styles.sectionTitle}>Resumo por Paciente</Text>
                             <Text style={styles.sectionSubtitle}>
                                 {isSimpleMode()
-                                    ? `${patientSummaries.length} pacientes (modo simples)`
-                                    : `${patientSummaries.length} pacientes (modo avançado)`
-                                } • {isCardView() ? 'Visualização em cartões' : 'Visualização em lista'}
+                                    ? `${patientSummaries.length} pacientes (modo ${getCurrentModeLabel().toLowerCase()})`
+                                    : `${patientSummaries.length} pacientes (modo ${getCurrentModeLabel().toLowerCase()})`
+                                } • Visualização em {getCurrentViewLabel().toLowerCase()}
                             </Text>
                         </View>
 
@@ -495,7 +443,7 @@ export const PaymentsOverview = () => {
                                 {isSimpleMode()
                                     ? `${sessionDetails.length} sessões (2 status disponíveis)`
                                     : `${sessionDetails.length} sessões (4 status disponíveis)`
-                                } • {isCardView() ? 'Visualização em cartões' : 'Visualização em lista'}
+                                } • Visualização em {getCurrentViewLabel().toLowerCase()}
                             </Text>
                         </View>
 
@@ -537,68 +485,6 @@ const styles = StyleSheet.create({
         marginTop: 10,
         fontSize: 16,
         color: '#6c757d',
-    },
-    header: {
-        backgroundColor: '#fff',
-        padding: 20,
-        borderBottomWidth: 1,
-        borderBottomColor: '#dee2e6',
-    },
-    titleRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 8,
-    },
-    title: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#212529',
-        flex: 1,
-    },
-    modeToggles: {
-        flexDirection: 'column',
-        gap: 8,
-        alignItems: 'flex-end',
-    },
-    toggleGroup: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    toggleLabel: {
-        fontSize: 11,
-        color: '#6c757d',
-        fontWeight: '500',
-    },
-    toggleContainer: {
-        flexDirection: 'row',
-        backgroundColor: '#f8f9fa',
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: '#dee2e6',
-        overflow: 'hidden',
-    },
-    toggleButton: {
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        backgroundColor: 'transparent',
-    },
-    toggleButtonActive: {
-        backgroundColor: '#6200ee',
-    },
-    toggleText: {
-        fontSize: 10,
-        color: '#6c757d',
-        fontWeight: '600',
-    },
-    toggleTextActive: {
-        color: '#fff',
-    },
-    modeDescription: {
-        fontSize: 14,
-        color: '#6c757d',
-        fontStyle: 'italic',
     },
     contentContainer: {
         paddingHorizontal: 15,

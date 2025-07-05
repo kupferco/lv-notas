@@ -4,13 +4,15 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { PaymentFiltersProps, QuickFilterType } from '../../types/payments';
-import { isSimpleMode, isAdvancedMode } from '../../config/paymentsMode';
+import { useSettings } from '../../contexts/SettingsContext';
 
 export const PaymentFilters: React.FC<PaymentFiltersProps> = ({
   filters,
   patients = [],
   onFiltersChange
 }) => {
+  const { isSimpleMode, isAdvancedMode } = useSettings();
+
   const quickFilterOptions = [
     { key: 'current_month' as QuickFilterType, label: 'Mês Atual' },
     { key: 'last_month' as QuickFilterType, label: 'Mês Passado' },

@@ -4,6 +4,7 @@ import { View, StyleSheet, ActivityIndicator, Text } from "react-native";
 import { Router } from "./src/components/Router";
 import { TherapistOnboarding } from "./src/components/TherapistOnboarding";
 import { AuthProvider, useAuth } from "./src/contexts/AuthContext";
+import { SettingsProvider } from './src/contexts/SettingsContext';
 import { checkAuthState, onAuthStateChange, isDevelopment } from "./src/config/firebase";
 import { apiService } from "./src/services/api";
 import { ensureCalendarPermissions, checkCalendarPermissionStatus } from "./src/services/calendarPermissions";
@@ -339,11 +340,13 @@ const AppContent: React.FC = () => {
   );
 };
 
-// Root App component with AuthProvider
+// Root App component with AuthProvider AND SettingsProvider
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <SettingsProvider>
+        <AppContent />
+      </SettingsProvider>
     </AuthProvider>
   );
 }
