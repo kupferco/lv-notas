@@ -1,4 +1,4 @@
-// clinic-api/src/routes/payments.ts
+// clinic-api/src/routes/payments.ts - Safe version that builds on your working code
 
 import express, { Router, Request, Response, NextFunction } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
@@ -20,39 +20,116 @@ const asyncHandler = (
   };
 };
 
-// GET /api/payments/summary - Payment analytics using payment_overview view
+// GET /api/payments/summary - Payment analytics with auto check-in support
 router.get("/summary", asyncHandler(async (req, res) => {
-  const { therapistEmail, startDate, endDate } = req.query;
+  const { therapistEmail, startDate, endDate, autoCheckIn, status, patientFilter } = req.query;
 
   if (!therapistEmail) {
     return res.status(400).json({ error: "therapistEmail is required" });
   }
 
-  const result = await pool.query(`
-    SELECT 
-  COUNT(*) as total_sessions,
-  COUNT(*) FILTER (WHERE payment_status = 'paid') as paid_sessions,
-  COUNT(*) FILTER (WHERE payment_status != 'paid') as pending_sessions,
-  COALESCE(SUM(session_price), 0) / 100.0 as total_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'paid'), 0) / 100.0 as paid_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status != 'paid'), 0) / 100.0 as pending_revenue,
-  -- Add the new breakdowns
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pending'), 0) / 100.0 as nao_cobrado_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'aguardando_pagamento'), 0) / 100.0 as aguardando_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pendente'), 0) / 100.0 as pendente_revenue
-FROM payment_overview
-WHERE therapist_email = $1
-  AND ($2::date IS NULL OR session_date::date >= $2::date)
-  AND ($3::date IS NULL OR session_date::date <= $3::date)
-  `, [therapistEmail, startDate || null, endDate || null]);
+  const isAutoCheckIn = autoCheckIn === 'true';
+  const statusFilter = status as string;
+  const patientFilterStr = patientFilter as string;
+  
+  console.log(`💰 Payment Summary Request - Auto Check-in: ${isAutoCheckIn}, Status: ${statusFilter}, Patient: ${patientFilterStr}`);
+
+  let result;
+
+  if (isAutoCheckIn) {
+    console.log('🔄 Using AUTO CHECK-IN mode for summary - including past scheduled sessions');
+    
+    // Build patient filter for auto check-in mode
+    let patientFilterClause = "";
+    if (patientFilterStr && patientFilterStr !== "todos") {
+      patientFilterClause = `AND abs.patient_id = ${parseInt(patientFilterStr)}`;
+    }
+
+    // Auto check-in mode: Add past scheduled sessions to the existing payment_overview data
+    result = await pool.query(`
+      WITH all_billable_sessions AS (
+        -- Get existing payment_overview sessions
+        SELECT 
+          session_price,
+          payment_status,
+          patient_id
+        FROM payment_overview
+        WHERE therapist_email = $1
+          AND ($2::date IS NULL OR session_date::date >= $2::date)
+          AND ($3::date IS NULL OR session_date::date <= $3::date)
+        
+        UNION ALL
+        
+        -- Get additional past scheduled sessions
+        SELECT 
+          COALESCE(s.session_price, 25000) as session_price,
+          COALESCE(s.payment_status, 'pending') as payment_status,
+          s.patient_id
+        FROM sessions s
+        JOIN therapists t ON s.therapist_id = t.id
+        WHERE t.email = $1
+          AND s.status = 'agendada'
+          AND s.date < NOW()
+          AND ($2::date IS NULL OR s.date::date >= $2::date)
+          AND ($3::date IS NULL OR s.date::date <= $3::date)
+          AND s.id NOT IN (
+            SELECT session_id FROM payment_overview 
+            WHERE therapist_email = $1
+          )
+      ),
+      filtered_sessions AS (
+        SELECT * FROM all_billable_sessions abs
+        WHERE 1=1 ${patientFilterClause}
+      )
+      SELECT 
+        COUNT(*) as total_sessions,
+        COUNT(*) FILTER (WHERE payment_status = 'paid') as paid_sessions,
+        COUNT(*) FILTER (WHERE payment_status != 'paid') as pending_sessions,
+        COALESCE(SUM(session_price), 0) / 100.0 as total_revenue,
+        COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'paid'), 0) / 100.0 as paid_revenue,
+        COALESCE(SUM(session_price) FILTER (WHERE payment_status != 'paid'), 0) / 100.0 as pending_revenue,
+        COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pending'), 0) / 100.0 as nao_cobrado_revenue,
+        COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'aguardando_pagamento'), 0) / 100.0 as aguardando_revenue,
+        COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pendente'), 0) / 100.0 as pendente_revenue
+      FROM filtered_sessions
+    `, [therapistEmail, startDate || null, endDate || null]);
+    
+  } else {
+    console.log('🔄 Using MANUAL mode for summary - only payment_overview sessions');
+    
+    // Build filters for manual mode
+    let manualFilters = "";
+    if (patientFilterStr && patientFilterStr !== "todos") {
+      manualFilters += ` AND patient_id = ${parseInt(patientFilterStr)}`;
+    }
+    
+    // Manual mode: Use your existing working query with filters
+    result = await pool.query(`
+      SELECT 
+        COUNT(*) as total_sessions,
+        COUNT(*) FILTER (WHERE payment_status = 'paid') as paid_sessions,
+        COUNT(*) FILTER (WHERE payment_status != 'paid') as pending_sessions,
+        COALESCE(SUM(session_price), 0) / 100.0 as total_revenue,
+        COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'paid'), 0) / 100.0 as paid_revenue,
+        COALESCE(SUM(session_price) FILTER (WHERE payment_status != 'paid'), 0) / 100.0 as pending_revenue,
+        COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pending'), 0) / 100.0 as nao_cobrado_revenue,
+        COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'aguardando_pagamento'), 0) / 100.0 as aguardando_revenue,
+        COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pendente'), 0) / 100.0 as pendente_revenue
+      FROM payment_overview
+      WHERE therapist_email = $1
+        AND ($2::date IS NULL OR session_date::date >= $2::date)
+        AND ($3::date IS NULL OR session_date::date <= $3::date)
+        ${manualFilters}
+    `, [therapistEmail, startDate || null, endDate || null]);
+  }
 
   const summary = result.rows[0];
+  console.log(`📊 Summary: ${summary.total_sessions} sessions, R$ ${summary.total_revenue} total - Mode: ${isAutoCheckIn ? 'AUTO' : 'MANUAL'}, Patient: ${patientFilterStr || 'all'}`);
 
   res.json({
     total_revenue: parseFloat(summary.total_revenue || 0),
     paid_revenue: parseFloat(summary.paid_revenue || 0),
     pending_revenue: parseFloat(summary.pending_revenue || 0),
-    // Add the new breakdowns
     nao_cobrado_revenue: parseFloat(summary.nao_cobrado_revenue || 0),
     aguardando_revenue: parseFloat(summary.aguardando_revenue || 0),
     pendente_revenue: parseFloat(summary.pendente_revenue || 0),
@@ -62,56 +139,154 @@ WHERE therapist_email = $1
   });
 }));
 
-// GET /api/payments/patients - Patient payment summaries with payment dates
+// GET /api/payments/patients - Patient payment summaries with auto check-in support
 router.get("/patients", asyncHandler(async (req, res) => {
-  const { therapistEmail, startDate, endDate, status } = req.query;
+  const { therapistEmail, startDate, endDate, status, autoCheckIn } = req.query;
 
   if (!therapistEmail) {
     return res.status(400).json({ error: "therapistEmail is required" });
   }
 
+  const isAutoCheckIn = autoCheckIn === 'true';
+  console.log(`👥 Patient Payments Request - Auto Check-in: ${isAutoCheckIn}`);
+
   // Build status filter
   let statusFilter = "";
   if (status && status !== "todos") {
-    statusFilter = `AND payment_state = '${status}'`;
+    // For auto check-in mode, we need to filter on the calculated payment status
+    if (status === "paid") {
+      statusFilter = `HAVING COALESCE(SUM(abs.session_price) FILTER (WHERE abs.payment_status != 'paid'), 0) = 0 AND COALESCE(SUM(abs.session_price) FILTER (WHERE abs.payment_status = 'paid'), 0) > 0`;
+    } else if (status === "pending" || status === "pendente") {
+      statusFilter = `HAVING COALESCE(SUM(abs.session_price) FILTER (WHERE abs.payment_status != 'paid'), 0) > 0`;
+    } else if (status === "nao_cobrado") {
+      statusFilter = `HAVING COUNT(*) FILTER (WHERE abs.payment_status = 'pending') > 0`;
+    } else if (status === "aguardando_pagamento") {
+      statusFilter = `HAVING COUNT(*) FILTER (WHERE abs.payment_status = 'aguardando_pagamento') > 0`;
+    }
   }
 
-  const result = await pool.query(`
-    SELECT 
-      po.patient_id,
-      po.patient_name,
-      p.telefone,  -- Add phone number from patients table
-      COUNT(*) as total_sessions,
-      COALESCE(SUM(po.session_price), 0) / 100.0 as total_amount,
-      COALESCE(SUM(po.session_price) FILTER (WHERE po.payment_status = 'paid'), 0) / 100.0 as paid_amount,
-      COALESCE(SUM(po.session_price) FILTER (WHERE po.payment_status != 'paid'), 0) / 100.0 as pending_amount,
-      'monthly' as billing_cycle,
-      MAX(po.session_date) as last_session_date,
-      BOOL_OR(po.payment_requested) as payment_requested,
-      MAX(po.payment_request_date) as payment_request_date,
-      -- Add session status counts
-      COUNT(*) FILTER (WHERE po.payment_status = 'pendente') as pendente_sessions,
-      COUNT(*) FILTER (WHERE po.payment_status = 'aguardando_pagamento') as aguardando_sessions,
-      COUNT(*) FILTER (WHERE po.payment_status = 'pending') as nao_cobrado_sessions,
-      COUNT(*) FILTER (WHERE po.payment_status = 'paid') as paid_sessions,
-      -- Add payment transaction information
-      MAX(po.payment_date) as last_payment_date,
-      STRING_AGG(DISTINCT po.payment_method, ', ') as payment_methods,
-      COUNT(DISTINCT po.payment_transaction_id) FILTER (WHERE po.payment_transaction_id IS NOT NULL) as payment_count
-    FROM payment_overview po
-    JOIN patients p ON po.patient_id = p.id  -- Add join to get phone number
-    WHERE po.therapist_email = $1
-      AND ($2::date IS NULL OR po.session_date::date >= $2::date)
-      AND ($3::date IS NULL OR po.session_date::date <= $3::date)
+  let result;
+
+  if (isAutoCheckIn) {
+    console.log('🔄 Using AUTO CHECK-IN mode for patients - including past scheduled sessions');
+    
+    // Auto check-in mode: Include additional past scheduled sessions in patient calculations
+    result = await pool.query(`
+      WITH all_billable_sessions AS (
+        -- Get existing payment_overview sessions
+        SELECT 
+          po.patient_id,
+          po.patient_name,
+          po.session_price,
+          po.payment_status,
+          po.session_date,
+          po.payment_requested,
+          po.payment_request_date,
+          po.payment_date,
+          po.payment_method,
+          po.payment_transaction_id
+        FROM payment_overview po
+        WHERE po.therapist_email = $1
+          AND ($2::date IS NULL OR po.session_date::date >= $2::date)
+          AND ($3::date IS NULL OR po.session_date::date <= $3::date)
+        
+        UNION ALL
+        
+        -- Get additional past scheduled sessions
+        SELECT 
+          s.patient_id,
+          p.nome as patient_name,
+          COALESCE(s.session_price, 25000) as session_price,
+          COALESCE(s.payment_status, 'pending') as payment_status,
+          s.date as session_date,
+          COALESCE(s.payment_requested, false) as payment_requested,
+          s.payment_request_date,
+          NULL as payment_date,
+          NULL as payment_method,
+          NULL as payment_transaction_id
+        FROM sessions s
+        JOIN patients p ON s.patient_id = p.id
+        JOIN therapists t ON s.therapist_id = t.id
+        WHERE t.email = $1
+          AND s.status = 'agendada'
+          AND s.date < NOW()
+          AND ($2::date IS NULL OR s.date::date >= $2::date)
+          AND ($3::date IS NULL OR s.date::date <= $3::date)
+          AND s.id NOT IN (
+            SELECT session_id FROM payment_overview 
+            WHERE therapist_email = $1
+          )
+      )
+      SELECT 
+        abs.patient_id,
+        abs.patient_name,
+        p.telefone,
+        COUNT(*) as total_sessions,
+        COALESCE(SUM(abs.session_price), 0) / 100.0 as total_amount,
+        COALESCE(SUM(abs.session_price) FILTER (WHERE abs.payment_status = 'paid'), 0) / 100.0 as paid_amount,
+        COALESCE(SUM(abs.session_price) FILTER (WHERE abs.payment_status != 'paid'), 0) / 100.0 as pending_amount,
+        'monthly' as billing_cycle,
+        MAX(abs.session_date) as last_session_date,
+        BOOL_OR(abs.payment_requested) as payment_requested,
+        MAX(abs.payment_request_date) as payment_request_date,
+        COUNT(*) FILTER (WHERE abs.payment_status = 'pendente') as pendente_sessions,
+        COUNT(*) FILTER (WHERE abs.payment_status = 'aguardando_pagamento') as aguardando_sessions,
+        COUNT(*) FILTER (WHERE abs.payment_status = 'pending') as nao_cobrado_sessions,
+        COUNT(*) FILTER (WHERE abs.payment_status = 'paid') as paid_sessions,
+        MAX(abs.payment_date) as last_payment_date,
+        STRING_AGG(DISTINCT abs.payment_method, ', ') as payment_methods,
+        COUNT(DISTINCT abs.payment_transaction_id) FILTER (WHERE abs.payment_transaction_id IS NOT NULL) as payment_count
+      FROM all_billable_sessions abs
+      JOIN patients p ON abs.patient_id = p.id
+      GROUP BY abs.patient_id, abs.patient_name, p.telefone
       ${statusFilter}
-    GROUP BY po.patient_id, po.patient_name, p.telefone  -- Add telefone to GROUP BY
-    ORDER BY po.patient_name
-`, [therapistEmail, startDate || null, endDate || null]);
+      ORDER BY abs.patient_name
+    `, [therapistEmail, startDate || null, endDate || null]);
+    
+      } else {
+    console.log('🔄 Using MANUAL mode for patients - only payment_overview sessions');
+    
+    // Manual mode: Use your existing working query with proper status filter
+    let manualStatusFilter = "";
+    if (status && status !== "todos") {
+      manualStatusFilter = `AND payment_state = '${status}'`;
+    }
+    
+    result = await pool.query(`
+      SELECT 
+        po.patient_id,
+        po.patient_name,
+        p.telefone,
+        COUNT(*) as total_sessions,
+        COALESCE(SUM(po.session_price), 0) / 100.0 as total_amount,
+        COALESCE(SUM(po.session_price) FILTER (WHERE po.payment_status = 'paid'), 0) / 100.0 as paid_amount,
+        COALESCE(SUM(po.session_price) FILTER (WHERE po.payment_status != 'paid'), 0) / 100.0 as pending_amount,
+        'monthly' as billing_cycle,
+        MAX(po.session_date) as last_session_date,
+        BOOL_OR(po.payment_requested) as payment_requested,
+        MAX(po.payment_request_date) as payment_request_date,
+        COUNT(*) FILTER (WHERE po.payment_status = 'pendente') as pendente_sessions,
+        COUNT(*) FILTER (WHERE po.payment_status = 'aguardando_pagamento') as aguardando_sessions,
+        COUNT(*) FILTER (WHERE po.payment_status = 'pending') as nao_cobrado_sessions,
+        COUNT(*) FILTER (WHERE po.payment_status = 'paid') as paid_sessions,
+        MAX(po.payment_date) as last_payment_date,
+        STRING_AGG(DISTINCT po.payment_method, ', ') as payment_methods,
+        COUNT(DISTINCT po.payment_transaction_id) FILTER (WHERE po.payment_transaction_id IS NOT NULL) as payment_count
+      FROM payment_overview po
+      JOIN patients p ON po.patient_id = p.id
+      WHERE po.therapist_email = $1
+        AND ($2::date IS NULL OR po.session_date::date >= $2::date)
+        AND ($3::date IS NULL OR po.session_date::date <= $3::date)
+        ${manualStatusFilter}
+      GROUP BY po.patient_id, po.patient_name, p.telefone
+      ORDER BY po.patient_name
+    `, [therapistEmail, startDate || null, endDate || null]);
+  }
 
   const patients = result.rows.map(row => ({
     patient_id: row.patient_id,
     patient_name: row.patient_name,
-    telefone: row.telefone,  // Add this line
+    telefone: row.telefone,
     total_sessions: parseInt(row.total_sessions),
     total_amount: parseFloat(row.total_amount),
     paid_amount: parseFloat(row.paid_amount),
@@ -120,27 +295,29 @@ router.get("/patients", asyncHandler(async (req, res) => {
     last_session_date: row.last_session_date,
     payment_requested: row.payment_requested,
     payment_request_date: row.payment_request_date,
-    // Add the session status counts
     pendente_sessions: parseInt(row.pendente_sessions || 0),
     aguardando_sessions: parseInt(row.aguardando_sessions || 0),
     nao_cobrado_sessions: parseInt(row.nao_cobrado_sessions || 0),
     paid_sessions: parseInt(row.paid_sessions || 0),
-    // Payment transaction data
     last_payment_date: row.last_payment_date,
     payment_methods: row.payment_methods,
     payment_count: parseInt(row.payment_count || 0)
   }));
 
+  console.log(`👥 Patients: ${patients.length} patients with sessions - Mode: ${isAutoCheckIn ? 'AUTO' : 'MANUAL'}`);
   res.json(patients);
 }));
 
-// GET /api/payments/sessions - Session payment details using payment_overview
+// GET /api/payments/sessions - Session payment details with auto check-in support
 router.get("/sessions", asyncHandler(async (req, res) => {
-  const { therapistEmail, startDate, endDate, status } = req.query;
+  const { therapistEmail, startDate, endDate, status, autoCheckIn } = req.query;
 
   if (!therapistEmail) {
     return res.status(400).json({ error: "therapistEmail is required" });
   }
+
+  const isAutoCheckIn = autoCheckIn === 'true';
+  console.log(`📅 Session Payments Request - Auto Check-in: ${isAutoCheckIn}`);
 
   // Build status filter for sessions
   let statusFilter = "";
@@ -154,22 +331,77 @@ router.get("/sessions", asyncHandler(async (req, res) => {
     }
   }
 
-  const result = await pool.query(`
-    SELECT 
-      session_id,
-      session_date,
-      patient_name,
-      patient_id,
-      session_price / 100.0 as session_price,
-      payment_status,
-      days_since_session
-    FROM payment_overview
-    WHERE therapist_email = $1
-      AND ($2::date IS NULL OR session_date::date >= $2::date)
-      AND ($3::date IS NULL OR session_date::date <= $3::date)
-      ${statusFilter}
-    ORDER BY session_date DESC
-  `, [therapistEmail, startDate || null, endDate || null]);
+  let result;
+
+  if (isAutoCheckIn) {
+    console.log('🔄 Using AUTO CHECK-IN mode - including past scheduled sessions');
+    
+    // Auto check-in mode: Add past scheduled sessions to the existing payment_overview data
+    result = await pool.query(`
+      SELECT 
+        session_id,
+        session_date,
+        patient_name,
+        patient_id,
+        session_price / 100.0 as session_price,
+        payment_status,
+        days_since_session,
+        'payment_overview' as source_type
+      FROM payment_overview
+      WHERE therapist_email = $1
+        AND ($2::date IS NULL OR session_date::date >= $2::date)
+        AND ($3::date IS NULL OR session_date::date <= $3::date)
+        ${statusFilter}
+      
+      UNION ALL
+      
+      SELECT 
+        s.id as session_id,
+        s.date as session_date,
+        p.nome as patient_name,
+        s.patient_id,
+        COALESCE(s.session_price / 100.0, 250.0) as session_price,
+        COALESCE(s.payment_status, 'pending') as payment_status,
+        EXTRACT(DAY FROM (NOW() - s.date))::integer as days_since_session,
+        'auto_checkin' as source_type
+      FROM sessions s
+      JOIN patients p ON s.patient_id = p.id
+      JOIN therapists t ON s.therapist_id = t.id
+      WHERE t.email = $1
+        AND s.status = 'agendada'
+        AND s.date < NOW()
+        AND ($2::date IS NULL OR s.date::date >= $2::date)
+        AND ($3::date IS NULL OR s.date::date <= $3::date)
+        AND s.id NOT IN (
+          SELECT session_id FROM payment_overview 
+          WHERE therapist_email = $1
+        )
+      
+      ORDER BY session_date DESC
+    `, [therapistEmail, startDate || null, endDate || null]);
+    
+  } else {
+    console.log('🔄 Using MANUAL mode - only payment_overview sessions');
+    
+    // Manual mode: Use your existing working query
+    result = await pool.query(`
+      SELECT 
+        session_id,
+        session_date,
+        patient_name,
+        patient_id,
+        session_price / 100.0 as session_price,
+        payment_status,
+        days_since_session,
+        'payment_overview' as source_type
+      FROM payment_overview
+      WHERE therapist_email = $1
+        AND ($2::date IS NULL OR session_date::date >= $2::date)
+        AND ($3::date IS NULL OR session_date::date <= $3::date)
+        ${statusFilter}
+      ORDER BY session_date DESC
+    `, [therapistEmail, startDate || null, endDate || null]);
+  }
 
   const sessions = result.rows.map(row => ({
     session_id: row.session_id,
@@ -178,19 +410,27 @@ router.get("/sessions", asyncHandler(async (req, res) => {
     patient_id: row.patient_id,
     session_price: parseFloat(row.session_price),
     payment_status: row.payment_status,
-    days_since_session: row.days_since_session
+    days_since_session: parseInt(row.days_since_session || 0),
+    auto_checkin: row.source_type === 'auto_checkin' // Flag to identify auto-included sessions
   }));
+
+  // Log the results
+  const autoSessions = sessions.filter(s => s.auto_checkin);
+  console.log(`📅 Sessions: ${sessions.length} total sessions (${autoSessions.length} auto check-in) - Mode: ${isAutoCheckIn ? 'AUTO' : 'MANUAL'}`);
 
   res.json(sessions);
 }));
 
 // POST /api/payments/request - Send payment request
 router.post("/request", asyncHandler(async (req, res) => {
-  const { patientId, sessionIds, amount } = req.body;
+  const { patientId, sessionIds, amount, autoCheckIn } = req.body;
 
   if (!patientId) {
     return res.status(400).json({ error: "patientId is required" });
   }
+
+  const isAutoCheckIn = autoCheckIn === true;
+  console.log(`📞 sendPaymentRequest - Auto Check-in: ${isAutoCheckIn}`);
 
   // Get patient and therapist info
   const patientResult = await pool.query(`
@@ -280,17 +520,14 @@ router.put("/status", asyncHandler(async (req, res) => {
   let updateResult;
 
   if (newStatus === 'paid') {
-    // Mark this specific session as paid (simple MVP version)
     updateResult = await pool.query(`
             UPDATE sessions 
             SET payment_status = 'paid'
             WHERE id = $1
         `, [sessionId]);
-
     console.log(`✅ Successfully marked session ${sessionId} as paid (manual reconciliation)`);
 
   } else if (newStatus === 'aguardando_pagamento') {
-    // Mark this session as payment requested (invoice sent, waiting for payment)
     updateResult = await pool.query(`
             UPDATE sessions 
             SET payment_requested = true, 
@@ -298,11 +535,9 @@ router.put("/status", asyncHandler(async (req, res) => {
                 payment_status = 'aguardando_pagamento'
             WHERE id = $1
         `, [sessionId]);
-
     console.log(`✅ Successfully marked session ${sessionId} as awaiting payment (invoice sent)`);
 
-  } else if (newStatus === 'não_cobrado') {
-    // Reset payment request for this session (not yet invoiced)
+  } else if (newStatus === 'pending') {
     updateResult = await pool.query(`
             UPDATE sessions 
             SET payment_requested = false, 
@@ -310,27 +545,22 @@ router.put("/status", asyncHandler(async (req, res) => {
                 payment_status = 'pending'
             WHERE id = $1
         `, [sessionId]);
-
     console.log(`✅ Successfully reset session ${sessionId} to not invoiced`);
 
   } else if (newStatus === 'pendente') {
-    // Mark as overdue (invoice sent but due date expired)
     updateResult = await pool.query(`
             UPDATE sessions 
             SET payment_status = 'pendente'
             WHERE id = $1
         `, [sessionId]);
-
     console.log(`✅ Successfully marked session ${sessionId} as overdue`);
 
   } else {
-    // For any other status, just update payment_status directly
     updateResult = await pool.query(`
             UPDATE sessions 
             SET payment_status = $2
             WHERE id = $1
         `, [sessionId, newStatus]);
-
     console.log(`✅ Successfully updated session ${sessionId} to status ${newStatus}`);
   }
 

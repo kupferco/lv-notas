@@ -16,6 +16,11 @@ interface SettingsContextType {
   isCardView: () => boolean;
   isListView: () => boolean;
   
+  // Auto Check-in Mode
+  autoCheckInMode: boolean;
+  setAutoCheckInMode: (enabled: boolean) => void;
+  isAutoCheckInEnabled: () => boolean;
+  
   // Combined mode info
   getCurrentModeLabel: () => string;
   getCurrentViewLabel: () => string;
@@ -31,6 +36,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   // Initialize with default values from config
   const [paymentMode, setPaymentModeState] = useState<PaymentMode>('simple');
   const [viewMode, setViewModeState] = useState<ViewMode>('list');
+  const [autoCheckInMode, setAutoCheckInModeState] = useState<boolean>(false);
 
   // Payment mode helpers
   const isSimpleMode = () => paymentMode === 'simple';
@@ -39,6 +45,9 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   // View mode helpers
   const isCardView = () => viewMode === 'card';
   const isListView = () => viewMode === 'list';
+
+  // Auto check-in helpers
+  const isAutoCheckInEnabled = () => autoCheckInMode;
 
   // Mode setters with logging for debugging
   const setPaymentMode = (mode: PaymentMode) => {
@@ -49,6 +58,11 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   const setViewMode = (mode: ViewMode) => {
     console.log(`Switching view mode from ${viewMode} to ${mode}`);
     setViewModeState(mode);
+  };
+
+  const setAutoCheckInMode = (enabled: boolean) => {
+    console.log(`Switching auto check-in mode from ${autoCheckInMode} to ${enabled}`);
+    setAutoCheckInModeState(enabled);
   };
 
   // Display labels
@@ -69,6 +83,9 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     setViewMode,
     isCardView,
     isListView,
+    autoCheckInMode,
+    setAutoCheckInMode,
+    isAutoCheckInEnabled,
     getCurrentModeLabel,
     getCurrentViewLabel,
   };
