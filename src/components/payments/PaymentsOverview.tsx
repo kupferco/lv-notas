@@ -36,6 +36,7 @@ export const PaymentsOverview = () => {
         isAdvancedMode, 
         isCardView, 
         isListView,
+        isAutoCheckInEnabled,
         getCurrentModeLabel,
         getCurrentViewLabel 
     } = useSettings();
@@ -72,12 +73,12 @@ export const PaymentsOverview = () => {
         }));
     }, []);
 
-    // Load data when filters change
+    // Load data when filters change OR when auto check-in mode changes
     useEffect(() => {
         if (filters.dateRange.startDate && filters.dateRange.endDate && user?.email) {
             loadPaymentsData();
         }
-    }, [filters.dateRange, filters.statusFilter, filters.patientFilter, user?.email]);
+    }, [filters.dateRange, filters.statusFilter, filters.patientFilter, user?.email, isAutoCheckInEnabled()]);
 
     const formatDate = (date: Date): string => {
         const year = date.getFullYear();
@@ -126,7 +127,8 @@ export const PaymentsOverview = () => {
 
         setLoading(true);
         try {
-            console.log('🔄 Loading real payment data from API...');
+            const autoCheckInMode = isAutoCheckInEnabled();
+            console.log('🔄 Loading payment data with Auto Check-in:', autoCheckInMode);
             console.log('Patient filter:', filters.patientFilter);
             console.log('Status filter:', filters.statusFilter);
 
@@ -134,11 +136,11 @@ export const PaymentsOverview = () => {
             const patientsData = await apiService.getPatients(user.email);
             setAllPatients(patientsData.map(p => ({ id: p.id, name: p.name })));
 
-            // Call API endpoints - we'll handle status filtering on frontend for mode compatibility
+            // Call API endpoints with auto check-in parameter and filters
             const [summaryData, patientData, sessionData] = await Promise.all([
-                apiService.getPaymentSummary(user.email, filters.dateRange.startDate, filters.dateRange.endDate),
-                apiService.getPatientPayments(user.email, filters.dateRange.startDate, filters.dateRange.endDate, 'todos'), // Get all patient data
-                apiService.getSessionPayments(user.email, filters.dateRange.startDate, filters.dateRange.endDate, 'todos') // Get all session data
+                apiService.getPaymentSummary(user.email, filters.dateRange.startDate, filters.dateRange.endDate, autoCheckInMode, filters.statusFilter, filters.patientFilter),
+                apiService.getPatientPayments(user.email, filters.dateRange.startDate, filters.dateRange.endDate, 'todos', autoCheckInMode),
+                apiService.getSessionPayments(user.email, filters.dateRange.startDate, filters.dateRange.endDate, 'todos', autoCheckInMode)
             ]);
 
             console.log('📊 Raw patient data:', patientData.length, 'patients');
@@ -199,30 +201,8 @@ export const PaymentsOverview = () => {
                 console.log('📅 Status filtered session data:', filteredSessionData.length, 'sessions');
             }
 
-            // Calculate summary from filtered data instead of using API summary
-            const calculatedSummary = {
-                total_revenue: filteredPatientData.reduce((sum, p) => sum + p.total_amount, 0),
-                paid_revenue: filteredPatientData.reduce((sum, p) => sum + p.paid_amount, 0),
-                pending_revenue: filteredPatientData.reduce((sum, p) => sum + p.pending_amount, 0),
-                // Add the new revenue breakdowns
-                nao_cobrado_revenue: filteredSessionData
-                    .filter(s => s.payment_status === 'pending')
-                    .reduce((sum, s) => sum + s.session_price, 0),
-                aguardando_revenue: filteredSessionData
-                    .filter(s => s.payment_status === 'aguardando_pagamento')
-                    .reduce((sum, s) => sum + s.session_price, 0),
-                pendente_revenue: filteredSessionData
-                    .filter(s => s.payment_status === 'pendente')
-                    .reduce((sum, s) => sum + s.session_price, 0),
-                total_sessions: filteredPatientData.reduce((sum, p) => sum + p.total_sessions, 0),
-                paid_sessions: filteredSessionData.filter(s => s.payment_status === 'paid').length,
-                pending_sessions: filteredSessionData.filter(s => s.payment_status !== 'paid').length
-            };
-
-            console.log('💰 Calculated summary for filtered data:', calculatedSummary);
-
-            // Set the filtered data and calculated summary
-            setPaymentsSummary(calculatedSummary);
+            // Use the summary from API (it's already calculated with auto check-in consideration)
+            setPaymentsSummary(summaryData);
             setPatientSummaries(filteredPatientData);
             setSessionDetails(filteredSessionData);
 
@@ -251,7 +231,7 @@ export const PaymentsOverview = () => {
         setFilters(prev => ({ ...prev, patientFilter: patientId }));
     };
 
-    // Payment action handlers - now with config-based WhatsApp functionality
+    // Payment action handlers - now with auto check-in support
     const handleSendPaymentRequest = async (patient: PatientPaymentSummary) => {
         console.log(`💰 Sending payment request to ${patient.patient_name}`);
 
@@ -270,9 +250,9 @@ export const PaymentsOverview = () => {
                 // Send WhatsApp message (now uses config templates)
                 whatsappService.sendPaymentRequest(patient);
 
-                // Optional: Call API to mark as payment requested
+                // Call API to mark as payment requested with auto check-in mode
                 try {
-                    await apiService.sendPaymentRequest(patient.patient_id.toString());
+                    await apiService.sendPaymentRequest(patient.patient_id.toString(), isAutoCheckInEnabled());
                 } catch (apiError) {
                     console.log('Note: Could not update payment request status in database:', apiError);
                 }
@@ -402,6 +382,7 @@ export const PaymentsOverview = () => {
                                     ? `${patientSummaries.length} pacientes (modo ${getCurrentModeLabel().toLowerCase()})`
                                     : `${patientSummaries.length} pacientes (modo ${getCurrentModeLabel().toLowerCase()})`
                                 } • Visualização em {getCurrentViewLabel().toLowerCase()}
+                                {isAutoCheckInEnabled() && ' • ⚡ Check-in Automático Ativo'}
                             </Text>
                         </View>
 
@@ -444,6 +425,7 @@ export const PaymentsOverview = () => {
                                     ? `${sessionDetails.length} sessões (2 status disponíveis)`
                                     : `${sessionDetails.length} sessões (4 status disponíveis)`
                                 } • Visualização em {getCurrentViewLabel().toLowerCase()}
+                                {isAutoCheckInEnabled() && ' • ⚡ Check-in Automático Ativo'}
                             </Text>
                         </View>
 

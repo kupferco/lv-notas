@@ -7,6 +7,8 @@ import { CalendarSelection } from "./CalendarSelection";
 import type { Therapist } from "../types/index";
 import type { User } from "firebase/auth";
 import { useAuth } from "../contexts/AuthContext";
+import { useSettings } from "../contexts/SettingsContext";
+import { ToggleSwitch } from "./common/ToggleSwitch";
 import { CalendarImportWizard } from "./onboarding/CalendarImportWizard";
 
 interface SettingsProps {
@@ -25,6 +27,18 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
   const [currentCalendarName, setCurrentCalendarName] = useState<string>("");
   const { signOut } = useAuth();
   const [showImportWizard, setShowImportWizard] = useState(false);
+
+  // Get settings from context
+  const { 
+    paymentMode, 
+    setPaymentMode, 
+    viewMode, 
+    setViewMode,
+    autoCheckInMode,
+    setAutoCheckInMode,
+    getCurrentModeLabel,
+    getCurrentViewLabel 
+  } = useSettings();
 
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
@@ -244,6 +258,22 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
     setShowImportWizard(false);
   };
 
+  // Toggle options for the new settings
+  const paymentModeOptions = [
+    { label: 'Simples', value: 'simple' },
+    { label: 'Avançado', value: 'advanced' }
+  ];
+
+  const viewModeOptions = [
+    { label: 'Cartões', value: 'card', icon: '🃏' },
+    { label: 'Lista', value: 'list', icon: '📋' }
+  ];
+
+  const checkInModeOptions = [
+    { label: 'Manual', value: 'manual' },
+    { label: 'Automático', value: 'automatic' }
+  ];
+
   if (isLoading) {
     return (
       <View style={styles.container}>
@@ -279,11 +309,11 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>Configurações</Text>
+      <Text style={styles.title}>⚙️ Configurações</Text>
 
       {/* Account Information Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Informações da Conta</Text>
+        <Text style={styles.sectionTitle}>👤 Informações da Conta</Text>
 
         <View style={styles.infoRow}>
           <Text style={styles.label}>Nome:</Text>
@@ -302,9 +332,85 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
         )}
       </View>
 
+      {/* NEW: App Preferences Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>🎨 Preferências de Interface</Text>
+        
+        {/* Payment Mode Setting */}
+        <View style={styles.settingItem}>
+          <View style={styles.settingHeader}>
+            <Text style={styles.settingLabel}>Modo de Pagamento</Text>
+            <Text style={styles.settingDescription}>
+              Como você quer gerenciar os status de pagamento
+            </Text>
+          </View>
+          <ToggleSwitch
+            options={paymentModeOptions}
+            selectedValue={paymentMode}
+            onValueChange={(value) => setPaymentMode(value as any)}
+            style={styles.toggleSwitch}
+          />
+          <Text style={styles.settingExplanation}>
+            {paymentMode === 'simple' 
+              ? '• Simples: Apenas "Pago" e "Pendente" (ideal para iniciantes)'
+              : '• Avançado: 4 status granulares - "Não Cobrado", "Aguardando", "Pendente", "Pago"'
+            }
+          </Text>
+        </View>
+
+        {/* View Mode Setting */}
+        <View style={styles.settingItem}>
+          <View style={styles.settingHeader}>
+            <Text style={styles.settingLabel}>Tipo de Visualização</Text>
+            <Text style={styles.settingDescription}>
+              Como você prefere ver os dados
+            </Text>
+          </View>
+          <ToggleSwitch
+            options={viewModeOptions}
+            selectedValue={viewMode}
+            onValueChange={(value) => setViewMode(value as any)}
+            style={styles.toggleSwitch}
+          />
+          <Text style={styles.settingExplanation}>
+            {viewMode === 'card' 
+              ? '• Cartões: Visualização detalhada com botões de ação'
+              : '• Lista: Visualização compacta para análise rápida'
+            }
+          </Text>
+        </View>
+      </View>
+
+      {/* NEW: Workflow Automation Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>⚡ Automação de Workflow</Text>
+        
+        {/* Auto Check-in Setting */}
+        <View style={styles.settingItem}>
+          <View style={styles.settingHeader}>
+            <Text style={styles.settingLabel}>Check-in de Sessões</Text>
+            <Text style={styles.settingDescription}>
+              Como confirmar a presença dos pacientes
+            </Text>
+          </View>
+          <ToggleSwitch
+            options={checkInModeOptions}
+            selectedValue={autoCheckInMode ? 'automatic' : 'manual'}
+            onValueChange={(value) => setAutoCheckInMode(value === 'automatic')}
+            style={styles.toggleSwitch}
+          />
+          <Text style={styles.settingExplanation}>
+            {autoCheckInMode 
+              ? '• Automático: Sessões passadas são automaticamente consideradas como "compareceu" para cobrança. Exclua a sessão se o paciente faltou.'
+              : '• Manual: Você precisa marcar manualmente quando o paciente comparecer à sessão.'
+            }
+          </Text>
+        </View>
+      </View>
+
       {/* Calendar Integration Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Integração do Calendário</Text>
+        <Text style={styles.sectionTitle}>📅 Integração do Calendário</Text>
 
         <View style={styles.infoRow}>
           <Text style={styles.label}>Status:</Text>
@@ -343,7 +449,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
 
       {/* Data Management Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Gerenciamento de Dados</Text>
+        <Text style={styles.sectionTitle}>📊 Gerenciamento de Dados</Text>
 
         {/* Import Patients Button */}
         <Pressable
@@ -381,9 +487,25 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
         </Text>
       </View>
 
+      {/* NEW: Current Settings Summary */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>📋 Configuração Atual</Text>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryText}>
+            Modo de Pagamento: <Text style={styles.summaryValue}>{getCurrentModeLabel()}</Text>
+          </Text>
+          <Text style={styles.summaryText}>
+            Visualização: <Text style={styles.summaryValue}>{getCurrentViewLabel()}</Text>
+          </Text>
+          <Text style={styles.summaryText}>
+            Check-in: <Text style={styles.summaryValue}>{autoCheckInMode ? 'Automático' : 'Manual'}</Text>
+          </Text>
+        </View>
+      </View>
+
       {/* Account Actions Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Ações da Conta</Text>
+        <Text style={styles.sectionTitle}>🔐 Ações da Conta</Text>
 
         <Pressable
           style={[styles.dangerButton, isSigningOut && styles.buttonDisabled]}
@@ -402,7 +524,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
 
       {/* App Information */}
       <View style={styles.footer}>
-        <Text style={styles.footerText}>LV Notas v1.0.0</Text>
+        <Text style={styles.footerText}>LV Notas v1.0.4</Text>
         <Text style={styles.footerText}>Sistema de Gestão para Terapeutas</Text>
       </View>
 
@@ -450,7 +572,6 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
 
 const styles = StyleSheet.create({
   container: {
-    // flex: 1,
     backgroundColor: "#f8f9fa",
     padding: 20,
     maxWidth: 800,
@@ -535,6 +656,53 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: "center",
     fontWeight: "600",
+  },
+  // NEW STYLES for settings items
+  settingItem: {
+    marginBottom: 20,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  settingHeader: {
+    marginBottom: 12,
+  },
+  settingLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#212529',
+    marginBottom: 4,
+  },
+  settingDescription: {
+    fontSize: 13,
+    color: '#6c757d',
+    marginBottom: 8,
+  },
+  toggleSwitch: {
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+  },
+  settingExplanation: {
+    fontSize: 12,
+    color: '#6c757d',
+    fontStyle: 'italic',
+    lineHeight: 16,
+  },
+  summaryCard: {
+    backgroundColor: '#f8f9fa',
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  summaryText: {
+    fontSize: 14,
+    color: '#495057',
+    marginBottom: 6,
+  },
+  summaryValue: {
+    fontWeight: '600',
+    color: '#212529',
   },
   secondaryButton: {
     backgroundColor: "transparent",

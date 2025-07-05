@@ -24,6 +24,7 @@ export const ModeHeader: React.FC<ModeHeaderProps> = ({
     setPaymentMode,
     viewMode,
     setViewMode,
+    autoCheckInMode,
     getCurrentModeLabel,
     getCurrentViewLabel
   } = useSettings();
@@ -74,6 +75,7 @@ export const ModeHeader: React.FC<ModeHeaderProps> = ({
       <View style={styles.currentModeContainer}>
         <Text style={styles.currentModeText}>
           {getCurrentModeLabel()} • {getCurrentViewLabel()}
+          {showPaymentMode && autoCheckInMode && ' • ⚡ Check-in Automático'}
         </Text>
       </View>
     </View>

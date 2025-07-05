@@ -418,42 +418,91 @@ export const apiService = {
     return result;
   },
 
-  // Add these methods to your existing apiService object
-
-  async getPaymentSummary(therapistEmail: string, startDate?: string, endDate?: string): Promise<any> {
+  async getPaymentSummary(
+    therapistEmail: string,
+    startDate?: string,
+    endDate?: string,
+    autoCheckIn: boolean = false,
+    status?: string,
+    patientFilter?: string
+  ): Promise<any> {
     const headers = await getAuthHeaders();
-    const params = new URLSearchParams({ therapistEmail });
+    const params = new URLSearchParams({
+      therapistEmail,
+      autoCheckIn: autoCheckIn.toString()
+    });
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
+    if (status) params.append('status', status);
+    if (patientFilter) params.append('patientFilter', patientFilter);
 
+    console.log(`📞 getPaymentSummary API call - Auto Check-in: ${autoCheckIn}, Filters: ${status}, ${patientFilter}`);
     const response = await fetch(`${API_URL}/api/payments/summary?${params}`, { headers });
     if (!response.ok) throw new Error("Failed to fetch payment summary");
     return response.json();
   },
 
-  async getPatientPayments(therapistEmail: string, startDate?: string, endDate?: string, status?: string): Promise<any[]> {
+  async getPatientPayments(
+    therapistEmail: string,
+    startDate?: string,
+    endDate?: string,
+    status?: string,
+    autoCheckIn: boolean = false
+  ): Promise<any[]> {
     const headers = await getAuthHeaders();
-    const params = new URLSearchParams({ therapistEmail });
+    const params = new URLSearchParams({
+      therapistEmail,
+      autoCheckIn: autoCheckIn.toString()
+    });
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
     if (status) params.append('status', status);
 
+    console.log(`📞 getPatientPayments API call - Auto Check-in: ${autoCheckIn}`);
     const response = await fetch(`${API_URL}/api/payments/patients?${params}`, { headers });
     if (!response.ok) throw new Error("Failed to fetch patient payments");
     return response.json();
   },
 
-  async getSessionPayments(therapistEmail: string, startDate?: string, endDate?: string, status?: string): Promise<any[]> {
+  async getSessionPayments(
+    therapistEmail: string,
+    startDate?: string,
+    endDate?: string,
+    status?: string,
+    autoCheckIn: boolean = false
+  ): Promise<any[]> {
     const headers = await getAuthHeaders();
-    const params = new URLSearchParams({ therapistEmail });
+    const params = new URLSearchParams({
+      therapistEmail,
+      autoCheckIn: autoCheckIn.toString()
+    });
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
     if (status) params.append('status', status);
 
+    console.log(`📞 getSessionPayments API call - Auto Check-in: ${autoCheckIn}`);
     const response = await fetch(`${API_URL}/api/payments/sessions?${params}`, { headers });
     if (!response.ok) throw new Error("Failed to fetch session payments");
     return response.json();
   },
+
+  async sendPaymentRequest(patientId: string, autoCheckIn: boolean = false): Promise<void> {
+    const headers = await getAuthHeaders();
+    console.log(`📞 sendPaymentRequest API call - Auto Check-in: ${autoCheckIn}`);
+    const response = await fetch(`${API_URL}/api/payments/request`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        patientId,
+        autoCheckIn
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to send payment request: ${error}`);
+    }
+  },
+
 
   async updatePaymentStatus(sessionId: number, newStatus: string, therapistEmail: string): Promise<void> {
     if (!canMakeAuthenticatedCall()) {
@@ -482,19 +531,6 @@ export const apiService = {
     }
 
     console.log("✅ updatePaymentStatus success");
-  },
-
-  async sendPaymentRequest(patientId: string): Promise<void> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/payments/request`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ patientId }),
-    });
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to send payment request: ${error}`);
-    }
   },
 
 
