@@ -1,4 +1,4 @@
-// clinic-api/src/routes/payments.ts - Safe version that builds on your working code
+// clinic-api/src/routes/payments.ts - Fixed version with proper billing start date logic
 
 import express, { Router, Request, Response, NextFunction } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
@@ -37,7 +37,7 @@ router.get("/summary", asyncHandler(async (req, res) => {
   let result;
 
   if (isAutoCheckIn) {
-    console.log('🔄 Using AUTO CHECK-IN mode for summary - including past scheduled sessions');
+    console.log('🔄 Using AUTO CHECK-IN mode for summary - including past scheduled sessions AFTER billing start date');
     
     // Build patient filter for auto check-in mode
     let patientFilterClause = "";
@@ -45,7 +45,7 @@ router.get("/summary", asyncHandler(async (req, res) => {
       patientFilterClause = `AND abs.patient_id = ${parseInt(patientFilterStr)}`;
     }
 
-    // Auto check-in mode: Add past scheduled sessions to the existing payment_overview data
+    // FIXED: Auto check-in mode now respects patient billing start dates
     result = await pool.query(`
       WITH all_billable_sessions AS (
         -- Get existing payment_overview sessions
@@ -60,18 +60,20 @@ router.get("/summary", asyncHandler(async (req, res) => {
         
         UNION ALL
         
-        -- Get additional past scheduled sessions
+        -- Get additional past scheduled sessions (FIXED: respect billing start date)
         SELECT 
           COALESCE(s.session_price, 25000) as session_price,
           COALESCE(s.payment_status, 'pending') as payment_status,
           s.patient_id
         FROM sessions s
         JOIN therapists t ON s.therapist_id = t.id
+        JOIN patients p ON s.patient_id = p.id  -- ADDED: Join patients table
         WHERE t.email = $1
           AND s.status = 'agendada'
           AND s.date < NOW()
           AND ($2::date IS NULL OR s.date::date >= $2::date)
           AND ($3::date IS NULL OR s.date::date <= $3::date)
+          AND s.date::date >= p.lv_notas_billing_start_date  -- FIXED: Respect billing start date!
           AND s.id NOT IN (
             SELECT session_id FROM payment_overview 
             WHERE therapist_email = $1
@@ -168,9 +170,9 @@ router.get("/patients", asyncHandler(async (req, res) => {
   let result;
 
   if (isAutoCheckIn) {
-    console.log('🔄 Using AUTO CHECK-IN mode for patients - including past scheduled sessions');
+    console.log('🔄 Using AUTO CHECK-IN mode for patients - including past scheduled sessions AFTER billing start date');
     
-    // Auto check-in mode: Include additional past scheduled sessions in patient calculations
+    // FIXED: Auto check-in mode now respects patient billing start dates
     result = await pool.query(`
       WITH all_billable_sessions AS (
         -- Get existing payment_overview sessions
@@ -192,7 +194,7 @@ router.get("/patients", asyncHandler(async (req, res) => {
         
         UNION ALL
         
-        -- Get additional past scheduled sessions
+        -- Get additional past scheduled sessions (FIXED: respect billing start date)
         SELECT 
           s.patient_id,
           p.nome as patient_name,
@@ -212,6 +214,7 @@ router.get("/patients", asyncHandler(async (req, res) => {
           AND s.date < NOW()
           AND ($2::date IS NULL OR s.date::date >= $2::date)
           AND ($3::date IS NULL OR s.date::date <= $3::date)
+          AND s.date::date >= p.lv_notas_billing_start_date  -- FIXED: Respect billing start date!
           AND s.id NOT IN (
             SELECT session_id FROM payment_overview 
             WHERE therapist_email = $1
@@ -243,7 +246,7 @@ router.get("/patients", asyncHandler(async (req, res) => {
       ORDER BY abs.patient_name
     `, [therapistEmail, startDate || null, endDate || null]);
     
-      } else {
+  } else {
     console.log('🔄 Using MANUAL mode for patients - only payment_overview sessions');
     
     // Manual mode: Use your existing working query with proper status filter
@@ -334,9 +337,9 @@ router.get("/sessions", asyncHandler(async (req, res) => {
   let result;
 
   if (isAutoCheckIn) {
-    console.log('🔄 Using AUTO CHECK-IN mode - including past scheduled sessions');
+    console.log('🔄 Using AUTO CHECK-IN mode - including past scheduled sessions AFTER billing start date');
     
-    // Auto check-in mode: Add past scheduled sessions to the existing payment_overview data
+    // FIXED: Auto check-in mode now respects patient billing start dates
     result = await pool.query(`
       SELECT 
         session_id,
@@ -372,6 +375,7 @@ router.get("/sessions", asyncHandler(async (req, res) => {
         AND s.date < NOW()
         AND ($2::date IS NULL OR s.date::date >= $2::date)
         AND ($3::date IS NULL OR s.date::date <= $3::date)
+        AND s.date::date >= p.lv_notas_billing_start_date  -- FIXED: Respect billing start date!
         AND s.id NOT IN (
           SELECT session_id FROM payment_overview 
           WHERE therapist_email = $1
