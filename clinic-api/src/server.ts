@@ -40,6 +40,8 @@ import calendarsRoute from './routes/calendars.js';
 import onboardingRoute from './routes/onboarding.js';
 import paymentsRoute from './routes/payments.js';
 import therapistSettingsRoute from './routes/therapist-settings.js';
+import calendarOnlySessionsRoute from './routes/calendar-only-sessions.js';
+import monthlyBillingRoute from './routes/monthly-billing.js';
 import importRoute from './routes/import.js';
 import pool from './config/database.js';
 
@@ -130,7 +132,10 @@ const setupRoutes = () => {
     app.use('/api/onboarding', authenticateRequest, onboardingRoute);
     app.use('/api/payments', authenticateRequest, paymentsRoute);
     app.use('/api/therapists', authenticateRequest, therapistSettingsRoute);
+    app.use('/api/calendar-only', authenticateRequest, calendarOnlySessionsRoute);
+    app.use('/api/monthly-billing', authenticateRequest, monthlyBillingRoute);
     app.use('/api/import', authenticateRequest, importRoute);
+    
 
     // app.post('/api/setup-webhook', authenticateRequest, async (req: Request, res: Response) => {
     // Replace your existing setup-webhook endpoint (around line 120) with this:

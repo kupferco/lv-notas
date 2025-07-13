@@ -7,6 +7,9 @@ import { GoogleCalendarEvent } from '../types/index.js';
 // Use process.cwd() or a fixed path if import.meta is problematic
 const serviceAccountPath = path.join(process.cwd(), 'service-account-key.json');
 
+// Global flag to control write operations
+const CALENDAR_WRITES_ENABLED = process.env.CALENDAR_WRITES_ENABLED !== 'false';
+
 export class GoogleCalendarService {
     private calendar: any;
     private serviceAuth: any; // Keep service account for webhooks
@@ -19,9 +22,12 @@ export class GoogleCalendarService {
     private _initializeServiceAuth(): void {
         const auth = new google.auth.GoogleAuth({
             keyFile: serviceAccountPath,
-            scopes: [
+            scopes: CALENDAR_WRITES_ENABLED ? [
                 "https://www.googleapis.com/auth/calendar",
                 "https://www.googleapis.com/auth/calendar.events",
+                "https://www.googleapis.com/auth/calendar.readonly"
+            ] : [
+                // Read-only when writes are disabled
                 "https://www.googleapis.com/auth/calendar.readonly"
             ],
         });
@@ -95,6 +101,11 @@ export class GoogleCalendarService {
 
     // Create event using user's OAuth token
     async createUserEvent(userAccessToken: string, calendarId: string, eventData: any): Promise<any> {
+        if (!CALENDAR_WRITES_ENABLED) {
+            console.log('Calendar writes disabled - skipping createUserEvent');
+            return { id: 'disabled', status: 'write_disabled' };
+        }
+
         try {
             const userAuth = this._createUserAuth(userAccessToken);
             const userCalendar = google.calendar({ version: "v3", auth: userAuth });
@@ -114,6 +125,11 @@ export class GoogleCalendarService {
 
     // Keep existing service account methods for webhooks
     async createEvent(patientName: string, sessionDateTime: string): Promise<any> {
+        if (!CALENDAR_WRITES_ENABLED) {
+            console.log('Calendar writes disabled - skipping createEvent');
+            return { id: 'disabled', status: 'write_disabled' };
+        }
+
         try {
             const event = {
                 summary: `Sessão - ${patientName}`,
@@ -141,6 +157,11 @@ export class GoogleCalendarService {
     }
 
     async createEventWithAttendee(patientName: string, sessionDateTime: string, patientEmail: string, calendarId: string): Promise<any> {
+        if (!CALENDAR_WRITES_ENABLED) {
+            console.log('Calendar writes disabled - skipping createEventWithAttendee');
+            return { id: 'disabled', status: 'write_disabled' };
+        }
+
         try {
             const event = {
                 summary: `Sessão - ${patientName}`,
@@ -170,6 +191,11 @@ export class GoogleCalendarService {
 
     // Delete calendar event using user's OAuth token
     async deleteUserEvent(userAccessToken: string, calendarId: string, eventId: string): Promise<void> {
+        if (!CALENDAR_WRITES_ENABLED) {
+            console.log('Calendar writes disabled - skipping deleteUserEvent');
+            return;
+        }
+
         try {
             const userAuth = this._createUserAuth(userAccessToken);
             const userCalendar = google.calendar({ version: "v3", auth: userAuth });
@@ -188,6 +214,11 @@ export class GoogleCalendarService {
 
     // Update calendar event using user's OAuth token
     async updateUserEvent(userAccessToken: string, calendarId: string, eventId: string, eventData: any): Promise<any> {
+        if (!CALENDAR_WRITES_ENABLED) {
+            console.log('Calendar writes disabled - skipping updateUserEvent');
+            return { id: 'disabled', status: 'write_disabled' };
+        }
+
         try {
             const userAuth = this._createUserAuth(userAccessToken);
             const userCalendar = google.calendar({ version: "v3", auth: userAuth });
@@ -225,6 +256,11 @@ export class GoogleCalendarService {
     }
 
     async stopAllWebhooks(): Promise<void> {
+        if (!CALENDAR_WRITES_ENABLED) {
+            console.log('Calendar writes disabled - skipping stopAllWebhooks');
+            return;
+        }
+
         try {
             const result = await pool.query(
                 'SELECT channel_id, resource_id FROM calendar_webhooks'
@@ -250,6 +286,11 @@ export class GoogleCalendarService {
     }
 
     async createWebhook(webhookUrl: string): Promise<any> {
+        if (!CALENDAR_WRITES_ENABLED) {
+            console.log('Calendar writes disabled - skipping createWebhook');
+            return { id: 'disabled', status: 'write_disabled' };
+        }
+
         try {
             await this.stopAllWebhooks();
 
@@ -283,6 +324,11 @@ export class GoogleCalendarService {
     }
 
     async stopWebhook(channelId: string, resourceId: string): Promise<void> {
+        if (!CALENDAR_WRITES_ENABLED) {
+            console.log('Calendar writes disabled - skipping stopWebhook');
+            return;
+        }
+
         try {
             await this.calendar.channels.stop({
                 requestBody: {
@@ -298,6 +344,11 @@ export class GoogleCalendarService {
     }
 
     async debugWebhookWatch(webhookUrl: string): Promise<void> {
+        if (!CALENDAR_WRITES_ENABLED) {
+            console.log('Calendar writes disabled - skipping debugWebhookWatch');
+            return;
+        }
+
         try {
             console.log('Debugging Webhook Watch');
             console.log('Webhook URL:', webhookUrl);
@@ -504,6 +555,106 @@ export class GoogleCalendarService {
         } catch (error) {
             console.error('❌ Error fetching events with user auth:', error);
             throw new Error(`Failed to fetch calendar events: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    // NEW METHODS FOR ENHANCED CALENDAR READING
+
+    /**
+     * Get events from Google Calendar within a date range with advanced filtering
+     * @param startDate - Start date for filtering events
+     * @param endDate - End date for filtering events (optional)
+     * @param calendarId - Calendar ID (optional, uses env default)
+     * @param maxResults - Maximum number of results to return (default: 100)
+     * @param userAccessToken - User's OAuth token for accessing their calendar
+     */
+    async getEventsWithDateFilter(
+        startDate: Date, 
+        endDate?: Date, 
+        calendarId?: string,
+        maxResults: number = 100,
+        userAccessToken?: string
+    ): Promise<GoogleCalendarEvent[]> {
+        try {
+            const targetCalendarId = calendarId || process.env.GOOGLE_CALENDAR_ID;
+            
+            // Use user auth if token provided, otherwise use service account
+            let calendarClient = this.calendar;
+            if (userAccessToken) {
+                const userAuth = this._createUserAuth(userAccessToken);
+                calendarClient = google.calendar({ version: "v3", auth: userAuth });
+            }
+
+            const params: any = {
+                calendarId: targetCalendarId,
+                orderBy: 'startTime',
+                singleEvents: true,
+                maxResults: maxResults,
+                timeMin: startDate.toISOString(),
+                fields: `items(id,status,summary,description,start,end,attendees,organizer,creator,updated)`
+            };
+
+            // Add end date if provided
+            if (endDate) {
+                params.timeMax = endDate.toISOString();
+            }
+
+            const response = await calendarClient.events.list(params);
+            return response.data.items || [];
+        } catch (error) {
+            console.error('Error fetching calendar events with date filter:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get therapy events for a specific therapist with patient start date filtering
+     * @param therapistEmail - Therapist's email
+     * @param patientStartDate - Only include events after this date
+     * @param appStartDate - Global app start date filter
+     * @param userAccessToken - User's OAuth token
+     */
+    async getTherapyEventsWithPatientFilter(
+        therapistEmail: string,
+        patientStartDate: Date,
+        appStartDate?: Date,
+        userAccessToken?: string
+    ): Promise<GoogleCalendarEvent[]> {
+        try {
+            // Use the more restrictive of the two dates
+            const effectiveStartDate = appStartDate && appStartDate > patientStartDate 
+                ? appStartDate 
+                : patientStartDate;
+
+            const events = await this.getEventsWithDateFilter(
+                effectiveStartDate,
+                undefined, // No end date - get all events from start date forward
+                undefined, // Use default calendar
+                1000, // Higher limit for comprehensive data
+                userAccessToken
+            );
+            
+            // Filter events that look like therapy appointments
+            const therapyEvents = events.filter(event => {
+                // Skip cancelled events
+                if (event.status === 'cancelled') return false;
+                
+                // Filter by creator/organizer email if needed
+                const creatorEmail = event.creator?.email || event.organizer?.email;
+                if (therapistEmail && creatorEmail !== therapistEmail) return false;
+                
+                // Only include events with actual appointment times (not all-day events)
+                if (!event.start?.dateTime) return false;
+                
+                // Add any other filtering logic here
+                return true;
+            });
+
+            console.log(`Found ${therapyEvents.length} therapy events for ${therapistEmail} starting from ${effectiveStartDate.toISOString()}`);
+            return therapyEvents;
+        } catch (error) {
+            console.error('Error fetching therapy events with patient filter:', error);
+            throw error;
         }
     }
 }

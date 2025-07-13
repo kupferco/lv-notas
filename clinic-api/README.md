@@ -1,42 +1,72 @@
 # LV Notas Clinic API
 
-A comprehensive Node.js/TypeScript REST API for managing therapy clinics with **complete session-level payment management**, **WhatsApp payment automation**, **dual-mode system support**, **Brazilian phone number integration**, and **complete Google Calendar integration**.
+A comprehensive Node.js/TypeScript REST API for managing therapy clinics with **calendar-only session management**, **monthly billing periods**, **WhatsApp payment automation**, **dual-mode system support**, and **complete Google Calendar read integration**.
 
-## 🚀 Latest Features (June 2025)
+## 🚀 Latest Features (July 2025)
 
-### 📱 **WhatsApp Payment Integration (NEW!)**
+### 📅 **Calendar-Only Session Management (NEW!)**
+- **📖 Read-Only Calendar Integration** - All appointments managed in Google Calendar, API reads-only
+- **🗓️ Dynamic Patient Filtering** - Uses existing `lv_notas_billing_start_date` for patient-specific session filtering
+- **⚡ No Database Session Sync** - Eliminates complex bidirectional sync, calendar is single source of truth
+- **🔍 Real-Time Calendar Reading** - Sessions loaded fresh from Google Calendar on each request
+- **🎯 Patient Start Date Logic** - Only counts sessions after patient's billing start date
+- **📊 Calendar-Based Analytics** - All session counting and analytics read directly from calendar
+
+### 💰 **Monthly Billing Periods (NEW!)**
+- **📅 Calendar Month Billing** - Realistic therapy billing (1st-31st of each month)
+- **🔘 Manual "Process Charges" Per Patient** - Therapist controls when to process monthly charges
+- **📸 Immutable Session Snapshots** - Calendar sessions captured and preserved at billing time
+- **🛡️ Payment Protection Logic** - Can't void billing periods once payment received
+- **♻️ Void/Delete Workflow** - Delete payment → re-enable voiding → reprocess with latest calendar data
+- **📋 Audit Trail Preservation** - Google Calendar event IDs stored for audit, not business logic
+
+### 🎯 **Simplified Architecture Benefits**
+- **🔄 No Sync Complexity** - Calendar changes don't break existing billing periods
+- **📊 One Source of Truth** - Google Calendar holds all appointment data
+- **💼 Professional Billing** - Monthly invoices instead of per-session micro-transactions
+- **🔒 Immutable Audit** - Session details preserved even if calendar events deleted
+- **⚡ MVP-Focused** - Simple, realistic workflow for therapy practices
+
+### 📱 **WhatsApp Payment Integration (Enhanced)**
 - **🇧🇷 Brazilian Phone Number Support** - Proper formatting with +55 country code
+- **💬 Monthly Billing Messages** - WhatsApp integration adapted for monthly billing periods
 - **📞 Patient Phone Storage** - Enhanced patient records with telefone field
-- **💬 WhatsApp-Ready API** - Patient endpoints include phone numbers for frontend automation
-- **🔗 Message Template Support** - Backend provides structured data for professional WhatsApp messages
-- **📊 Payment Request Tracking** - Enhanced payment_requests table with WhatsApp delivery status
+- **📊 Billing Period Tracking** - Payment requests linked to monthly billing periods
+- **🔗 Professional Invoices** - Monthly session summaries via WhatsApp
 
-### 🎯 **Dual-Mode System Backend Support (NEW!)**
+### 🎯 **Dual-Mode System Backend Support**
 - **🔄 Mode-Agnostic API** - Same endpoints work for both Simple and Advanced frontend modes
 - **📊 Flexible Status Filtering** - API handles both simplified and granular status filtering
 - **💰 Smart Status Mapping** - Backend maintains granular data while supporting simplified frontend views
 - **🎨 Frontend-Adaptive Responses** - API structure supports both Card and List view requirements
 
-### 💰 **Enhanced Session-Level Payment Management**
-- **📊 Individual Session Status Updates** - PUT /api/payments/status for granular control
-- **🔍 Advanced Payment Filtering** - Filter by patient, status, date range with real-time calculations
-- **📈 5-Card Revenue Analytics** - Complete breakdown: Total, Pago, Não Cobrado, Aguardando, Pendente
-- **🎯 Smart Patient Status Priority** - Automatic patient status calculation based on session priorities
-- **💳 Payment Transaction History** - Track actual payments with dates, methods, and reference numbers
-- **📝 Payment Request Tracking** - Log when payment requests are sent to patients with WhatsApp support
+## Architecture Overview
 
-### ✨ **Enhanced Therapist & Patient Management**
-- **📅 Calendar Import Wizard** - Import existing appointments from therapist's calendar
-- **👥 Bulk Patient Creation** - Smart patient matching from calendar events with phone numbers
-- **🔗 Appointment Linking** - Connect imported events to patient records
-- **💰 Advanced Billing Management** - Complete billing cycle history with patient-level overrides
-- **📞 Phone Number Integration** - Full Brazilian phone number support throughout API
+### **Calendar-Only Session Flow**
+```
+Google Calendar (Source of Truth)
+    ↓ (Read Only)
+Calendar-Only API (/api/calendar-only/*)
+    ↓ (Process Monthly)
+Monthly Billing API (/api/monthly-billing/*)
+    ↓ (Immutable Snapshots)
+Billing Periods Database
+```
+
+### **Monthly Billing Workflow**
+1. **Therapist manages appointments** in Google Calendar (create, edit, delete)
+2. **End of month** → Therapist clicks "Process Charges" per patient
+3. **System reads calendar** for that month and creates immutable billing period
+4. **Session snapshot preserved** → Calendar changes no longer affect this billing
+5. **Payment request sent** → WhatsApp/PIX with monthly session summary
+6. **Payment received** → Billing period locked, cannot be voided
+7. **If correction needed** → Delete payment → void period → reprocess
 
 ## Prerequisites
 
 - Node.js v18.x+
 - PostgreSQL 14.x+
-- Google Calendar API credentials (service-account-key.json)
+- Google Calendar API credentials (service-account-key.json) - **READ ONLY**
 - Firebase Admin credentials (service-account-key.json)
 - Google Cloud CLI (for production deployments)
 
@@ -55,9 +85,10 @@ POSTGRES_PORT=5432
 # API Security
 SAFE_PROXY_KEY=your_secure_api_key
 
-# Google Calendar Integration
+# Google Calendar Integration (READ ONLY)
 GOOGLE_CALENDAR_ID=your_calendar_id
-WEBHOOK_URL=your_webhook_url  # Set automatically by dev script
+CALENDAR_WRITES_ENABLED=false  # NEW: Disables calendar write operations
+WEBHOOK_URL=your_webhook_url   # Optional: for calendar change notifications
 
 # Firebase Authentication
 FIREBASE_PROJECT_ID=your_project_id
@@ -71,202 +102,44 @@ PORT=3000
 
 ### **Local Development Database**
 
-#### **Quick Start**
+#### **Quick Start with Monthly Billing**
 ```bash
 cd clinic-api/db
 
-# Complete fresh start with comprehensive payment data including phone numbers
+# Complete fresh start with monthly billing system
 ./manage_db.sh fresh-comprehensive
 
-# Add realistic payment test data with WhatsApp-ready phone numbers
-./manage_db.sh comprehensive
-
-# Verify everything is working
+# Verify monthly billing tables installed
 ./manage_db.sh check
 ```
 
-#### **User-Specific Cleanup (NEW!)**
+The database now includes:
+- ✅ **Monthly billing periods** table with session snapshots
+- ✅ **Monthly billing payments** table with payment tracking
+- ✅ **Calendar-only session views** for real-time calendar reading
+- ✅ **Enhanced patient management** with billing start dates
+- ✅ **WhatsApp-ready phone numbers** for payment automation
+
+### **User-Specific Development Workflow**
 ```bash
-# Clean up specific user data (keeps database structure)
+# Clean up specific user data for fresh onboarding testing
 ./manage_db.sh cleanup-user your-email@example.com
 
-# Clean up user data (interactive - will prompt for email)
-./manage_db.sh cleanup-user
-
-# Perfect for development workflows - test onboarding repeatedly
+# Test monthly billing workflow
+./manage_db.sh comprehensive
 ```
 
-#### **Complete Database Operations**
-```bash
-# Fresh database operations
-./manage_db.sh fresh                    # Basic fresh start
-./manage_db.sh fresh-comprehensive      # Fresh start + comprehensive test data
-
-# Reset operations (same as fresh but more explicit)
-./manage_db.sh reset                    # Reset + basic test data
-./manage_db.sh reset-comprehensive      # Reset + comprehensive test data
-
-# Schema and data operations
-./manage_db.sh schema                   # Install/update schema only
-./manage_db.sh seed                     # Add basic test data
-./manage_db.sh comprehensive            # Add comprehensive test data
-
-# Utility operations
-./manage_db.sh check                    # Verify schema and show data summary
-./manage_db.sh backup                   # Create database backup
-```
-
-### **🚀 Production Database Deployment**
-
-#### **Prerequisites for Production**
-```bash
-# Install Google Cloud SQL Proxy (macOS)
-curl -o cloud_sql_proxy https://dl.google.com/cloudsql/cloud_sql_proxy.darwin.amd64
-chmod +x cloud_sql_proxy
-
-# For Linux
-curl -o cloud_sql_proxy https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64
-chmod +x cloud_sql_proxy
-
-# Ensure you're authenticated with Google Cloud
-gcloud auth login
-gcloud config set project lv-notas
-```
-
-#### **Step-by-Step Production Deployment**
-
-**1. Start Cloud SQL Proxy**
-```bash
-# From the db/ directory
-./cloud_sql_proxy -instances=lv-notas:us-central1:clinic-db=tcp:5433
-# Keep this running in a separate terminal
-```
-
-**2. Deploy Schema Changes to Production**
-```bash
-# In a new terminal, from the db/ directory
-POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRES_DB=clinic_db ./run_schemas.sh
-# Enter your production postgres password when prompted
-```
-
-**3. Verify Production Database**
-```bash
-# Connect to production database
-psql -h localhost -p 5433 -U postgres -d clinic_db
-
-# Check tables
-\dt
-
-# Exit when done
-\q
-```
-
-#### **Production Database Utilities**
-
-**Get Production Database Password**
-```bash
-# Retrieve password from Google Secret Manager
-gcloud secrets versions access latest --secret="postgres-password"
-```
-
-**Production Database Backup**
-```bash
-# Create backup of production database
-pg_dump -h localhost -p 5433 -U postgres -d clinic_db > production_backup_$(date +%Y%m%d_%H%M%S).sql
-```
-
-**Connect to Production Database**
-```bash
-# Manual connection for debugging
-psql -h localhost -p 5433 -U postgres -d clinic_db
-```
-
-#### **⚠️ Production Safety Notes**
-
-- **Schema Deployment**: The `run_schemas.sh` script recreates all tables and will **lose existing data**
-- **Backup First**: Always create a backup before schema changes: `pg_dump -h localhost -p 5433 -U postgres -d clinic_db > backup.sql`
-- **Test Locally**: Always test schema changes locally before deploying to production
-- **Proxy Required**: You must have the Cloud SQL Proxy running to connect to production
-- **Authentication**: Ensure you're authenticated with Google Cloud CLI
-
-#### **Complete Production Deployment Workflow**
-```bash
-# 1. Test schema changes locally
-cd clinic-api/db
-./manage_db.sh fresh-comprehensive
-./manage_db.sh check
-
-# 2. Backup production database
-./cloud_sql_proxy -instances=lv-notas:us-central1:clinic-db=tcp:5433 &
-pg_dump -h localhost -p 5433 -U postgres -d clinic_db > production_backup_$(date +%Y%m%d_%H%M%S).sql
-
-# 3. Deploy schema to production
-POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRES_DB=clinic_db ./run_schemas.sh
-
-# 4. Deploy backend API
-cd ..
-./deploy.sh
-
-# 5. Verify everything works
-curl https://clinic-api-141687742631.us-central1.run.app/api/test
-```
-
-### **What You Get with Comprehensive Data**
-- **20 diverse patients** with varying pricing (R$ 120-250) **and Brazilian phone numbers**
-- **200+ sessions** spanning 6 months with realistic payment patterns
-- **Multiple payment scenarios** - paid, pending, overdue, partial payments
-- **WhatsApp-ready data** - All patients have properly formatted Brazilian phone numbers
-- **Payment request tracking** with different dates and statuses
-- **Complete payment transaction history** with various payment methods
-- **Perfect for testing** dual-mode system and WhatsApp integration
-
-### **Development Workflows**
-
-#### **🔄 Quick User Reset (Development)**
-```bash
-# Clean your test user and start fresh onboarding
-./manage_db.sh cleanup-user dnkupfer@gmail.com
-# Then test the onboarding process again
-```
-
-#### **🚀 Complete Fresh Start**
-```bash
-# Nuclear option - completely fresh database with realistic data
-./manage_db.sh fresh-comprehensive
-```
-
-#### **📊 Data Verification**
-```bash
-# Check database health and data integrity
-./manage_db.sh check
-```
-
-### **Available Commands Reference**
-
-| Command | Description | Use Case |
-|---------|-------------|----------|
-| `fresh` | 🗑️ Create completely fresh database | Complete clean slate |
-| `fresh-comprehensive` | 🚀 Fresh database + comprehensive data | Full realistic testing setup |
-| `schema` | 📋 Install/update schema only | Schema updates |
-| `seed` | 🌱 Add basic test data | Quick development data |
-| `comprehensive` | 🚀 Add comprehensive payment test data | Realistic testing scenarios |
-| `check` | 🔍 Verify schema and show data summary | Health check |
-| `reset` | 🔄 Fresh database + basic test data | Development reset |
-| `reset-comprehensive` | 🔄 Fresh database + comprehensive data | Full development reset |
-| `cleanup-user [email]` | 🧹 Remove all data for specific user | **User-specific cleanup** |
-| `backup` | 💾 Create database backup | Data backup |
-
-### **Database Safety Features**
-- ✅ **Interactive confirmations** for destructive operations
-- ✅ **Email validation** for user cleanup operations  
-- ✅ **Data preview** before deletion
-- ✅ **Graceful error handling** with clear messages
-- ✅ **Backup creation** for data protection
+### **Monthly Billing Test Data**
+The comprehensive seed data now includes:
+- **20 patients** with `lv_notas_billing_start_date` set
+- **Brazilian phone numbers** for WhatsApp integration
+- **Sample billing periods** for testing monthly workflow
+- **Payment tracking examples** showing void/payment protection logic
 
 ## Development
 
 ```bash
-# Start development server with automatic webhook setup
+# Start development server (calendar read-only mode)
 npm run dev
 
 # Simple development server (no webhook management)
@@ -281,269 +154,410 @@ npm start
 
 ## 🎯 Enhanced Database Schema
 
-### **Core Tables (Enhanced with Phone Support)**
+### **Monthly Billing Tables (NEW!)**
+- **monthly_billing_periods** - Immutable monthly billing with session snapshots
+- **monthly_billing_payments** - Payment tracking with void protection logic
+- **App configuration** - Global settings including calendar mode
+
+### **Enhanced Core Tables**
 - **therapists** - Enhanced with billing cycles, onboarding tracking
-- **patients** - **telefone field added**, session status counts, recurring patterns, pricing overrides
-- **sessions** - **payment_status**, **payment_requested** columns for session-level tracking
-- **calendar_events**, **check_ins**, **calendar_webhooks** - Existing functionality
+- **patients** - **lv_notas_billing_start_date** field, telefone field, pricing overrides
+- **sessions** - Legacy table (now optional, calendar-only mode available)
 
-### **Payment Tracking Tables (WhatsApp Enhanced)**
-- **payment_transactions** - Records of actual payments with dates, methods, amounts, reference numbers
-- **payment_requests** - **WhatsApp delivery tracking**, payment communications log with phone numbers
-- **payment_status_history** - Complete audit trail of all payment status changes with reasons
+### **Calendar Integration Tables**
+- **calendar_events**, **calendar_webhooks** - Optional change notification system
+- **App configuration** - Calendar mode settings (read-only vs read-write)
 
-### **Smart Views (Phone Number Enhanced)**
-- **payment_overview** - **Includes patient phone numbers** for WhatsApp integration
-- **billable_sessions** - Automatically calculates which sessions count for billing
-- **current_billing_settings** - Current billing configuration for all patients
-- **therapist_onboarding_progress** - Real-time onboarding status
-
-### **WhatsApp Integration Schema**
+### **Monthly Billing Schema Example**
 ```sql
--- Enhanced patients table with phone support
-ALTER TABLE patients ADD COLUMN telefone VARCHAR(20);
-
--- Enhanced payment_requests with WhatsApp tracking  
-ALTER TABLE payment_requests ADD COLUMN whatsapp_sent BOOLEAN DEFAULT false;
-ALTER TABLE payment_requests ADD COLUMN whatsapp_message TEXT;
-ALTER TABLE payment_requests ADD COLUMN whatsapp_delivery_date TIMESTAMP;
+-- Monthly billing periods (immutable once created)
+CREATE TABLE monthly_billing_periods (
+    id SERIAL PRIMARY KEY,
+    therapist_id INTEGER REFERENCES therapists(id),
+    patient_id INTEGER REFERENCES patients(id),
+    billing_year INTEGER NOT NULL,     -- 2025
+    billing_month INTEGER NOT NULL,    -- 1-12 (January = 1)
+    session_count INTEGER DEFAULT 0,
+    total_amount DECIMAL(10,2) DEFAULT 0.00,
+    session_snapshots JSONB DEFAULT '[]', -- [{date, time, google_event_id, patient_name}]
+    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(20) DEFAULT 'processed', -- 'processed', 'paid', 'void'
+    can_be_voided BOOLEAN DEFAULT true    -- false once payment exists
+);
 ```
 
-## 💰 Payment System API Examples
+## 🚀 API Endpoints
 
-### **Session-Level Payment Status Updates (Enhanced)**
-```bash
-# Update individual session payment status
-curl -X PUT /api/payments/status \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: your_api_key" \
-  -d '{
-    "sessionId": 123,
-    "newStatus": "paid",
-    "therapistEmail": "therapist@example.com"
-  }'
-```
+### **Calendar-Only Session Management (NEW!)**
+- `GET /api/calendar-only/patients?therapistEmail=&startDate=&endDate=` - **All patients with calendar sessions**
+- `GET /api/calendar-only/patients/:id?therapistEmail=` - **Specific patient's calendar sessions**
+- `GET /api/calendar-only/sessions?therapistEmail=&autoCheckIn=` - **All calendar sessions with payment info**
+- `GET /api/calendar-only/debug?therapistEmail=` - **Calendar connectivity and data verification**
 
-### **Patient Payment Data with Phone Numbers (NEW!)**
+### **Monthly Billing Management (NEW!)**
+- `GET /api/monthly-billing/summary?therapistEmail=&year=&month=` - **Monthly billing overview per patient**
+- `POST /api/monthly-billing/process` - **Process monthly charges for specific patient**
+- `PUT /api/monthly-billing/:id/void` - **Void billing period (if no payments)**
+- `POST /api/monthly-billing/:id/payments` - **Record payment (prevents voiding)**
+- `DELETE /api/monthly-billing/payments/:id` - **Delete payment (re-enables voiding)**
+- `GET /api/monthly-billing/:id` - **Complete billing period details with session snapshots**
+- `DELETE /api/monthly-billing/:id` - **Delete entire billing period (if no payments)**
+
+### **Enhanced Patient Management**
+- `GET /api/patients?therapistEmail=` - **Includes lv_notas_billing_start_date and telefone**
+- `POST /api/patients` - Create patient **with billing start date**
+- `PUT /api/patients/:id` - Update patient **including billing start date**
+
+### **Legacy Session Management (Optional)**
+- `GET /api/sessions?therapistEmail=` - Traditional database sessions (still available)
+- `POST /api/checkin` - Patient check-in (compatible with both modes)
+- `POST /api/calendar-webhook` - Calendar change notifications (optional)
+
+## 💰 Monthly Billing API Examples
+
+### **Monthly Billing Overview**
 ```bash
-# Get patient payment summaries including phone numbers
-curl -X GET "/api/payments/patients?therapistEmail=therapist@example.com" \
+# Get billing summary for January 2025
+curl -X GET "/api/monthly-billing/summary?therapistEmail=therapist@example.com&year=2025&month=1" \
   -H "X-API-Key: your_api_key"
 
-# Response includes telefone field:
+# Response shows per-patient billing status
 {
-  "patient_id": 1,
-  "patient_name": "Ana Carolina Ferreira", 
-  "telefone": "5511999887766",  # NEW: WhatsApp-ready phone number
-  "total_amount": 600.00,
-  "pending_amount": 200.00,
-  ...
+  "year": 2025,
+  "month": 1,
+  "summary": [
+    {
+      "patientName": "Ana Silva",
+      "patientId": 1,
+      "sessionCount": 0,
+      "totalAmount": 0,
+      "hasPayment": false,
+      "canProcess": true  // Can process charges for this month
+    }
+  ]
 }
 ```
 
-### **5-Card Revenue Analytics (Dual-Mode Support)**
-```sql
--- Get complete revenue breakdown supporting both Simple and Advanced modes
-SELECT 
-  COALESCE(SUM(session_price), 0) as total_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'paid'), 0) as paid_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pending'), 0) as nao_cobrado_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'aguardando_pagamento'), 0) as aguardando_revenue,
-  COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pendente'), 0) as pendente_revenue
-FROM payment_overview
-WHERE therapist_email = 'therapist@example.com';
+### **Process Monthly Charges**
+```bash
+# Process charges for specific patient/month
+curl -X POST /api/monthly-billing/process \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -H "X-Google-Access-Token: user_calendar_token" \
+  -d '{
+    "therapistEmail": "therapist@example.com",
+    "patientId": 1,
+    "year": 2025,
+    "month": 1
+  }'
+
+# Response includes session snapshots from Google Calendar
+{
+  "message": "Monthly charges processed successfully",
+  "billingPeriod": {
+    "id": 123,
+    "sessionCount": 4,
+    "totalAmount": 48000,  // R$ 480.00 in cents
+    "sessionSnapshots": [
+      {
+        "date": "2025-01-07",
+        "time": "14:00", 
+        "googleEventId": "abc123",
+        "patientName": "Ana Silva"
+      }
+      // ... more sessions
+    ],
+    "status": "processed",
+    "canBeVoided": true
+  }
+}
 ```
 
-### **WhatsApp Integration Examples (NEW!)**
+### **Record Payment (Locks Billing Period)**
 ```bash
-# Send payment request (creates payment_requests record with WhatsApp data)
-curl -X POST /api/payments/request \
+# Record payment - prevents voiding
+curl -X POST /api/monthly-billing/123/payments \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your_api_key" \
   -d '{
-    "patientId": 1,
-    "sessionIds": [123, 124, 125],
-    "amount": 540.00,
-    "whatsappMessage": "Olá Ana! Sua cobrança está disponível..."
+    "amount": 48000,
+    "paymentMethod": "pix", 
+    "paymentDate": "2025-01-31",
+    "therapistEmail": "therapist@example.com",
+    "referenceNumber": "PIX123456"
   }'
+```
 
-# Response includes WhatsApp-ready data:
+### **Void/Delete Workflow**
+```bash
+# 1. Try to void (fails if payment exists)
+curl -X PUT /api/monthly-billing/123/void \
+  -d '{"therapistEmail": "therapist@example.com", "reason": "Patient missed sessions"}'
+# Response: {"error": "Cannot void billing period", "details": "Period may have payments"}
+
+# 2. Delete payment first  
+curl -X DELETE /api/monthly-billing/payments/456
+
+# 3. Now voiding works
+curl -X PUT /api/monthly-billing/123/void \
+  -d '{"therapistEmail": "therapist@example.com", "reason": "Correction needed"}'
+# Response: {"message": "Billing period voided successfully"}
+
+# 4. Reprocess with latest calendar data
+curl -X POST /api/monthly-billing/process \
+  -d '{"therapistEmail": "therapist@example.com", "patientId": 1, "year": 2025, "month": 1}'
+```
+
+## Calendar-Only Session Examples
+
+### **Get Patient Sessions from Google Calendar**
+```bash
+# Real-time calendar reading
+curl -X GET "/api/calendar-only/patients/1?therapistEmail=therapist@example.com" \
+  -H "X-Google-Access-Token: user_calendar_token"
+
+# Response: Live sessions from Google Calendar
+[
+  {
+    "id": "google_event_id_123",
+    "patientId": 1,
+    "patientName": "Ana Silva", 
+    "date": "2025-01-07T14:00:00.000Z",
+    "status": "compareceu",  // Auto-determined based on date
+    "isFromCalendar": true
+  }
+]
+```
+
+### **Calendar Debug Information**
+```bash
+# Verify calendar connectivity and patient data
+curl -X GET "/api/calendar-only/debug?therapistEmail=therapist@example.com"
+
+# Response includes calendar statistics
 {
-  "success": true,
-  "patient_id": 1,
-  "total_amount": 540.00,
-  "whatsapp_phone": "5511999887766",
-  "whatsapp_message": "Olá Ana! Sua cobrança está disponível...",
-  "request_date": "2025-06-29T10:53:00Z"
+  "therapistEmail": "therapist@example.com",
+  "totalPatients": 3,
+  "patientsWithBillingDates": 3,
+  "patientsWithSessions": 2,
+  "totalSessions": 12,
+  "earliestBillingDate": "2024-12-14T00:00:00.000Z",
+  "calendarWritesEnabled": false
 }
 ```
-
-## API Endpoints
-
-### **Payment Management (WhatsApp Enhanced)**
-- `GET /api/payments/summary?therapistEmail=&startDate=&endDate=` - **5-card revenue breakdown** with dual-mode support
-- `GET /api/payments/patients?therapistEmail=&startDate=&endDate=&status=` - Patient summaries **with phone numbers** for WhatsApp
-- `GET /api/payments/sessions?therapistEmail=&startDate=&endDate=&status=` - Session details for **individual status management**
-- `PUT /api/payments/status` - **Update individual session payment status** (supports dual-mode frontend)
-- `POST /api/payments/request` - Send payment request (**creates WhatsApp-ready data**)
-
-### **Enhanced Patient Management (NEW!)**
-- `GET /api/patients?therapistEmail=` - **Includes telefone field** for WhatsApp integration
-- `POST /api/patients` - Create patient **with phone number support**
-- `PUT /api/patients/:id` - Update patient **including phone number**
-- `GET /api/patients/full?therapistEmail=` - Complete patient data with phone numbers
-
-### **Session & Calendar Management (Enhanced)**
-- `POST /api/checkin` - Patient check-in with enhanced session tracking
-- `POST /api/calendar-webhook` - Bidirectional calendar sync
-- `GET /api/sessions?therapistEmail=` - Enhanced with billing integration and payment tracking
-- `GET /api/therapists` - Enhanced with onboarding status
-
-### **WhatsApp Integration Endpoints (NEW!)**
-```bash
-# Get WhatsApp-ready patient data
-GET /api/patients/:id/whatsapp-data
-# Response: { phone: "5511999887766", formatted_phone: "+55 11 99988-7766" }
-
-# Log WhatsApp message delivery
-POST /api/payments/whatsapp-delivery
-# Body: { patient_id, message_type, delivery_status, delivery_date }
-```
-
-## Development Workflow
-
-### **WhatsApp Integration Testing**
-```bash
-# Set up comprehensive data with phone numbers
-./db/manage_db.sh reset-comprehensive
-
-# Test API endpoints with phone number support
-curl -X GET "/api/payments/patients?therapistEmail=test@example.com" | jq '.[] | {name: .patient_name, phone: .telefone}'
-
-# Verify phone number formatting
-./db/manage_db.sh check  # Shows phone number statistics
-```
-
-### **Dual-Mode System Testing**
-```bash
-# The same API works for both Simple and Advanced frontend modes
-
-# Advanced mode frontend call (4 statuses)
-GET /api/payments/sessions?status=aguardando_pagamento
-
-# Simple mode frontend call (consolidated to "pending")  
-GET /api/payments/sessions?status=todos
-# Frontend maps: ["pending", "aguardando_pagamento", "pendente"] -> "pending"
-```
-
-### **Database Verification**
-The `check` command provides comprehensive verification including:
-- ✅ **Phone number validation** - Brazilian format verification
-- ✅ **WhatsApp readiness** - Patient phone number coverage
-- 📊 **Payment data integrity** with session-level status validation
-- 🎯 **Dual-mode compatibility** - Data structure supports both frontend modes
-- 💰 **Revenue calculation accuracy** - 5-card breakdown verification
-
-## 🔄 Google Calendar Integration
-
-### **Complete Bidirectional Sync**
-- **LV Notas → Calendar** - Sessions automatically create calendar events
-- **Calendar → LV Notas** - Manual calendar changes update sessions  
-- **Real-time webhooks** - Changes sync instantly in both directions
-- **Dynamic webhook management** - Automatic ngrok URL handling for development
-
-### **Advanced Features**
-- **Smart patient matching** - Finds patients by email or name from calendar events
-- **Multi-calendar support** - Each therapist uses their own Google Calendar
-- **Timezone handling** - Proper São Paulo timezone management
-- **Event classification** - Identifies "Sessão - Patient Name" patterns
 
 ## 🔐 Security Features
 
-### **Enhanced Security for WhatsApp Integration**
-- **Phone Number Encryption** - Patient phone numbers securely stored
-- **WhatsApp Privacy** - No message content logged, only delivery confirmation  
-- **Brazilian Data Protection** - LGPD-compliant phone number handling
-- **Multi-tenant Phone Isolation** - Each therapist sees only their patients' phones
-- **API Rate Limiting** - Prevents WhatsApp spam and abuse
+### **Enhanced Security for Calendar-Only Mode**
+- **Read-Only Calendar Access** - No write permissions to Google Calendar
+- **Firebase Authentication** - All endpoints protected with Firebase tokens
+- **Multi-tenant isolation** - Each therapist sees only their calendar data
+- **Billing Period Immutability** - Session snapshots cannot be modified after creation
+- **Payment Protection** - Cannot void billing periods with payments
 
-### **Existing Security**
-- **Firebase Authentication** with Google Sign-In verification
-- **Multi-tenant data isolation** - Each therapist sees only their data
-- **API key validation** for all requests
-- **Payment data encryption** for sensitive financial information
-- **Complete audit trails** for all payment transactions and status changes
-- **CORS protection** with proper method support
+### **Monthly Billing Security**
+- **Immutable Audit Trail** - Session snapshots preserved forever
+- **Payment Workflow Protection** - Clear rules prevent accidental data loss
+- **Therapist Isolation** - Each therapist can only process their own patients
+- **Date Validation** - Strict validation on billing periods and dates
 
-## 🌍 Brazilian Localization & Compliance
+## 🌍 Brazilian Localization
 
-### **Enhanced Brazilian Support**
-- **📱 Phone Number Standards** - Proper +55 country code and area code formatting
-- **🇧🇷 WhatsApp Business Culture** - Message templates adapted for Brazilian business communication
-- **💰 Brazilian Payment Methods** - PIX, bank transfer, cash, credit card support
-- **🏦 Currency Formatting** - R$ with comma decimals throughout API responses
-- **⏰ São Paulo Timezone** - Proper timezone handling for sessions and payments
-- **📋 LGPD Compliance** - Brazilian data protection law compliance for patient phone numbers
+### **Monthly Billing Localization**
+- **Brazilian Currency** - All amounts in centavos with R$ formatting
+- **Brazilian Business Practices** - Monthly billing matches local therapy practice standards
+- **WhatsApp Integration** - Monthly invoices via WhatsApp with proper Brazilian formatting
+- **São Paulo Timezone** - All session times and billing dates in America/Sao_Paulo
+- **Portuguese Interface** - All error messages and responses in Portuguese
 
 ## 🧪 Testing & Development
 
-### **Comprehensive Test Data (WhatsApp Enhanced)**
-- **20 diverse patients** with Brazilian phone numbers (11 99999-XXXX format)
-- **200+ sessions** spanning 6 months with realistic payment patterns
-- **WhatsApp-ready scenarios** - All patients have valid phone numbers for testing
-- **Multiple payment test cases** - Perfect for testing both Simple and Advanced frontend modes
-- **Phone number validation** - Covers different Brazilian phone formats
+### **Monthly Billing Testing Workflow**
+```bash
+# 1. Set up test data
+./db/manage_db.sh fresh-comprehensive
 
-### **Development Features**
-- **WhatsApp integration testing** - Real phone numbers for message testing
-- **Dual-mode API compatibility** - Same endpoints work for both frontend modes
-- **Hot reload** - Changes reflect immediately
-- **Real authentication** - No mock data or bypasses
-- **Enhanced logging** - Detailed console output including phone number operations
+# 2. Verify calendar connectivity
+curl -X GET "http://localhost:3000/api/calendar-only/debug?therapistEmail=terapeuta@example.com"
 
-### Currency Handling
-- **Database storage**: Values stored in cents (30000 = R$ 300,00) for precision
-- **API responses**: Automatically converted to currency format (300.00) 
-- **Frontend display**: Direct formatting from API responses with Brazilian standards (R$ 300,00)
+# 3. Test monthly processing (requires Google Calendar events)
+curl -X POST "http://localhost:3000/api/monthly-billing/process" \
+  -d '{"therapistEmail": "terapeuta@example.com", "patientId": 1, "year": 2025, "month": 1}'
+
+# 4. Test payment workflow
+# ... record payment, try voiding, delete payment, reprocess
+```
+
+## 🚀 Production Deployment
+
+### **Prerequisites for Production**
+```bash
+# Ensure you're authenticated with Google Cloud
+gcloud auth login
+gcloud config set project lv-notas
+
+# Configure Docker for Google Container Registry
+gcloud auth configure-docker
+```
+
+### **Complete Production Deployment**
+
+#### **1. Deploy Database Schema**
+```bash
+# Start Cloud SQL Proxy (in separate terminal)
+cd clinic-api/db
+./cloud_sql_proxy -instances=lv-notas:us-central1:clinic-db=tcp:5433
+
+# Deploy schema to production (in new terminal)
+cd clinic-api/db
+POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRES_DB=clinic_db ./manage_db.sh schema
+```
+
+#### **2. Deploy API to Google Cloud Run**
+```bash
+# From clinic-api directory
+npm run deploy
+```
+
+This will:
+- ✅ Build Docker image with latest calendar-only and monthly billing features
+- ✅ Push to Google Container Registry
+- ✅ Deploy to Google Cloud Run with proper environment variables
+- ✅ Connect to Cloud SQL database
+- ✅ Set up service account permissions
+
+#### **3. Verify Production Deployment**
+```bash
+# Test basic API connectivity
+curl https://clinic-api-141687742631.us-central1.run.app/api/test
+
+# Expected response:
+{
+  "message": "API is working",
+  "calendarWritesEnabled": false,
+  "timestamp": "2025-07-13T..."
+}
+
+# Test calendar-only endpoints (requires authentication)
+curl -X GET "https://clinic-api-141687742631.us-central1.run.app/api/calendar-only/debug?therapistEmail=test@example.com" \
+  -H "X-API-Key: your_production_api_key" \
+  -H "Authorization: Bearer firebase_token"
+
+# Test monthly billing endpoints
+curl -X GET "https://clinic-api-141687742631.us-central1.run.app/api/monthly-billing/summary?therapistEmail=test@example.com&year=2025&month=1" \
+  -H "X-API-Key: your_production_api_key" \
+  -H "Authorization: Bearer firebase_token"
+```
+
+### **Production Environment Variables**
+
+Your `env.yaml` should include the new calendar-only settings:
+
+```yaml
+# env.yaml (for Cloud Run)
+NODE_ENV: production
+PORT: 8080
+POSTGRES_HOST: /cloudsql/lv-notas:us-central1:clinic-db
+POSTGRES_USER: postgres
+POSTGRES_DB: clinic_db
+POSTGRES_PORT: 5432
+GOOGLE_CALENDAR_ID: your_production_calendar_id
+CALENDAR_WRITES_ENABLED: false  # NEW: Read-only calendar mode
+FIREBASE_PROJECT_ID: lv-notas
+```
+
+### **Deployment Safety Checklist**
+
+**Before Deployment:**
+- ✅ Test locally with `npm run dev`
+- ✅ Verify all new endpoints work: `/api/calendar-only/*` and `/api/monthly-billing/*`
+- ✅ Confirm `CALENDAR_WRITES_ENABLED=false` in production
+- ✅ Database schema deployed to production
+- ✅ Google Calendar read permissions configured
+
+**After Deployment:**
+- ✅ Verify `/api/test` endpoint responds
+- ✅ Check calendar-only debug endpoint
+- ✅ Test monthly billing summary endpoint
+- ✅ Confirm write operations are disabled (calendar read-only)
+- ✅ Test authentication with real Firebase tokens
+
+### **Production Monitoring**
+
+```bash
+# View Cloud Run logs
+gcloud logs read --service clinic-api --region us-central1 --limit 100
+
+# Monitor specific calendar-only operations
+gcloud logs read --service clinic-api --region us-central1 --filter="resource.labels.service_name=clinic-api AND textPayload:'calendar-only'"
+
+# Monitor monthly billing operations
+gcloud logs read --service clinic-api --region us-central1 --filter="resource.labels.service_name=clinic-api AND textPayload:'monthly-billing'"
+```
+
+### **Rollback Strategy**
+
+If issues occur with the new calendar-only system:
+
+```bash
+# 1. Quick rollback to previous version
+gcloud run services replace-traffic clinic-api --to-revisions=PREVIOUS_REVISION=100 --region us-central1
+
+# 2. Or deploy previous Docker image
+docker tag clinic-api:previous gcr.io/lv-notas/clinic-api:rollback
+docker push gcr.io/lv-notas/clinic-api:rollback
+gcloud run deploy clinic-api --image gcr.io/lv-notas/clinic-api:rollback --region us-central1
+```
+
+### **Production Database Backup**
+
+Always backup before major schema deployments:
+
+```bash
+# Create production backup
+./cloud_sql_proxy -instances=lv-notas:us-central1:clinic-db=tcp:5433 &
+pg_dump -h localhost -p 5433 -U postgres -d clinic_db > production_backup_$(date +%Y%m%d_%H%M%S).sql
+```
+
+The new monthly billing and calendar-only features are now production-ready! 🚀
+
+
+### **Calendar-Only Development**
+- **No database sync complexity** - Calendar changes don't break existing billing
+- **Real-time testing** - Changes in Google Calendar immediately visible
+- **Immutable billing** - Test corrections with void/delete/reprocess workflow
+- **Professional workflow** - Monthly billing matches real therapy practices
 
 ## 🗺️ Development Roadmap
 
-### ✅ **Completed Features (June 2025)**
-- **Complete WhatsApp integration** with Brazilian phone number support
-- **Dual-mode system backend** supporting both Simple and Advanced frontend modes
-- **Enhanced patient management** with phone number storage and validation
-- **Session-level payment status** with WhatsApp-ready data structures
-- **5-card revenue analytics** with real-time calculations
-- **Complete bidirectional Google Calendar sync**
-- **Brazilian localization** including phone number standards
+### ✅ **Completed Features (July 2025)**
+- **Complete calendar-only session management** with read-only Google Calendar integration
+- **Monthly billing period system** with immutable session snapshots
+- **Payment protection workflow** (void only if no payments)
+- **Brazilian phone number integration** for WhatsApp automation
+- **Dual-mode system support** for Simple/Advanced frontend modes
+- **Professional monthly billing** replacing per-session micro-transactions
 
-### 🚀 **Phase 2: Advanced WhatsApp Features**
-**Goal**: Professional WhatsApp Business integration
+### 🚀 **Phase 2: Frontend Integration**
+**Goal**: Complete calendar-only frontend
 
 **Planned Features:**
-- **WhatsApp Business API** - Official WhatsApp Business account integration
-- **Automated Message Delivery** - Scheduled payment reminders and confirmations
-- **Message Template Management** - Custom message templates per therapist
-- **Delivery Status Tracking** - Read receipts and response tracking
-- **Bulk WhatsApp Operations** - Send payment requests to multiple patients
-- **WhatsApp Analytics** - Message delivery rates and response analytics
+- **Frontend calendar-only mode** - Replace session database calls with calendar API
+- **Monthly billing UI** - Patient overview with "Process Charges" buttons
+- **Payment management interface** - Record payments, void billing periods
+- **Calendar event visualization** - Show Google Calendar events in app
+- **WhatsApp automation** - Send monthly payment requests
 
-### 🎯 **Phase 3: Brazilian Payment Integration**
-**Goal**: Complete Brazilian business automation
+### 🎯 **Phase 3: Advanced Monthly Billing**
+**Goal**: Professional practice automation
 
 **Future Features:**
-- **PIX Integration** - Real-time PIX payment monitoring and QR code generation
-- **Nota Fiscal Automation** - Automatic tax invoice generation for Brazilian compliance
-- **Banking Integration** - Direct integration with Brazilian banks for payment confirmation
-- **Payment Link Generation** - Secure payment links via WhatsApp
-- **LGPD Advanced Compliance** - Enhanced data protection and privacy controls
-
-### 🔧 **Technical Improvements**
-- **Performance Optimization** - Database indexing for phone number queries
-- **Enhanced Security** - Phone number encryption and secure WhatsApp integration
-- **API Rate Limiting** - Advanced rate limiting for WhatsApp operations
-- **Testing Coverage** - Comprehensive unit and integration testing for WhatsApp features
-- **Monitoring & Analytics** - Advanced logging and monitoring for WhatsApp operations
+- **Automated monthly processing** - End-of-month batch processing option
+- **Custom billing periods** - Support for non-calendar-month periods
+- **Advanced payment tracking** - Payment plans, partial payments, discounts
+- **Billing analytics** - Monthly revenue trends, patient payment patterns
+- **Export functionality** - PDF invoices, Excel reports, tax summaries
 
 ## 📄 License
 
@@ -553,4 +567,4 @@ This project is proprietary software for LV Notas therapy practice management.
 
 **Built with ❤️ for modern Brazilian therapy practice management**
 
-*Now featuring complete WhatsApp integration with Brazilian phone number support and dual-mode system compatibility for the ultimate therapy practice API!* 🚀📱💰
+*Now featuring calendar-only session management and professional monthly billing periods - the most realistic therapy practice workflow available!* 🚀📅💰
