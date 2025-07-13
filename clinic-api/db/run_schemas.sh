@@ -13,6 +13,7 @@ NC='\033[0m' # No Color
 DB_HOST=${POSTGRES_HOST:-localhost}
 DB_USER=${POSTGRES_USER:-dankupfer}
 DB_NAME=${POSTGRES_DB:-clinic_db}
+DB_PORT=${POSTGRES_PORT:-5432}
 
 echo -e "${BLUE}🚀 LV Notas Database Schema Setup${NC}"
 echo -e "${BLUE}=================================${NC}"
@@ -54,7 +55,7 @@ run_schema_file() {
     
     echo -e "${YELLOW}📄 Running $file...${NC}"
     
-    if psql -h "$DB_HOST" -U "$DB_USER" "$DB_NAME" -f "$file_path" -q; then
+    if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$DB_NAME" -f "$file_path" -q; then
         echo -e "${GREEN}✅ $file completed successfully${NC}"
         return 0
     else
