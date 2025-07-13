@@ -29,40 +29,45 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
   const [showImportWizard, setShowImportWizard] = useState(false);
 
   // Get settings from context
-  const { 
-    paymentMode, 
-    setPaymentMode, 
-    viewMode, 
+  const {
+    paymentMode,
+    setPaymentMode,
+    viewMode,
     setViewMode,
     autoCheckInMode,
     setAutoCheckInMode,
     getCurrentModeLabel,
-    getCurrentViewLabel 
+    getCurrentViewLabel,
+    loadSettingsFromAPI,
+    saveSettingsToAPI
   } = useSettings();
 
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
 
-    const initializeSettings = () => {
+    const initialiseSettings = async () => {
       if (isDevelopment) {
         // Development mode - load immediately
-        loadCurrentUser();
-        loadTherapistData();
+        await loadCurrentUser();
+        await loadTherapistData();
+        await loadSettingsFromDatabase();
       } else {
         // Production mode - wait for authentication
         const currentUser = getCurrentUser();
         if (currentUser) {
           console.log("User already authenticated, loading data");
-          loadCurrentUser();
-          loadTherapistData();
+          await loadCurrentUser();
+          await loadTherapistData();
+          await loadSettingsFromDatabase();
         } else {
           console.log("Waiting for authentication...");
           // Listen for auth state changes
-          unsubscribe = onAuthStateChange((user) => {
+          unsubscribe = onAuthStateChange(async (user) => {
             if (user) {
               console.log("User authenticated, loading data");
-              loadCurrentUser();
-              loadTherapistData();
+              await loadCurrentUser();
+              await loadTherapistData();
+              await loadSettingsFromDatabase();
             } else {
               console.log("No authenticated user");
               setIsLoading(false);
@@ -72,7 +77,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
       }
     };
 
-    initializeSettings();
+    initialiseSettings();
 
     // Cleanup function
     return () => {
@@ -258,6 +263,59 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
     setShowImportWizard(false);
   };
 
+  // Add these new functions to your Settings.tsx component
+
+  const loadSettingsFromDatabase = async () => {
+    try {
+      console.log("🔄 Loading settings from database...");
+      await loadSettingsFromAPI(therapistEmail);
+      console.log("✅ Settings loaded from database successfully");
+    } catch (error: any) {
+      console.error("❌ Error loading settings from database:", error);
+      // Don't show error to user for settings - just use defaults
+    }
+  };
+
+
+  const handlePaymentModeChange = async (newMode: 'simple' | 'advanced') => {
+    console.log(`🔄 Changing payment mode: ${paymentMode} → ${newMode}`);
+    setPaymentMode(newMode);
+
+    try {
+      await saveSettingsToAPI(therapistEmail, { payment_mode: newMode });
+      // window.alert("Configurações salvas com sucesso!");
+    } catch (error) {
+      console.error("Error saving payment mode:", error);
+      window.alert("Erro ao salvar configurações.");
+    }
+  };
+
+  const handleViewModeChange = async (newMode: 'card' | 'list') => {
+    console.log(`🔄 Changing view mode: ${viewMode} → ${newMode}`);
+    setViewMode(newMode);
+
+    try {
+      await saveSettingsToAPI(therapistEmail, { view_mode: newMode });
+      // window.alert("Configurações salvas com sucesso!");
+    } catch (error) {
+      console.error("Error saving view mode:", error);
+      window.alert("Erro ao salvar configurações.");
+    }
+  };
+
+  const handleAutoCheckInModeChange = async (newMode: boolean) => {
+    console.log(`🔄 Changing auto check-in mode: ${autoCheckInMode} → ${newMode}`);
+    setAutoCheckInMode(newMode);
+
+    try {
+      await saveSettingsToAPI(therapistEmail, { auto_check_in_mode: newMode.toString() });
+      // window.alert("Configurações salvas com sucesso!");
+    } catch (error) {
+      console.error("Error saving auto check-in mode:", error);
+      window.alert("Erro ao salvar configurações.");
+    }
+  };
+
   // Toggle options for the new settings
   const paymentModeOptions = [
     { label: 'Simples', value: 'simple' },
@@ -335,7 +393,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
       {/* NEW: App Preferences Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>🎨 Preferências de Interface</Text>
-        
+
         {/* Payment Mode Setting */}
         <View style={styles.settingItem}>
           <View style={styles.settingHeader}>
@@ -347,11 +405,11 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
           <ToggleSwitch
             options={paymentModeOptions}
             selectedValue={paymentMode}
-            onValueChange={(value) => setPaymentMode(value as any)}
+            onValueChange={(value: string) => handlePaymentModeChange(value as 'simple' | 'advanced')}
             style={styles.toggleSwitch}
           />
           <Text style={styles.settingExplanation}>
-            {paymentMode === 'simple' 
+            {paymentMode === 'simple'
               ? '• Simples: Apenas "Pago" e "Pendente" (ideal para iniciantes)'
               : '• Avançado: 4 status granulares - "Não Cobrado", "Aguardando", "Pendente", "Pago"'
             }
@@ -369,11 +427,11 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
           <ToggleSwitch
             options={viewModeOptions}
             selectedValue={viewMode}
-            onValueChange={(value) => setViewMode(value as any)}
+            onValueChange={(value: string) => handleViewModeChange(value as 'card' | 'list')}
             style={styles.toggleSwitch}
           />
           <Text style={styles.settingExplanation}>
-            {viewMode === 'card' 
+            {viewMode === 'card'
               ? '• Cartões: Visualização detalhada com botões de ação'
               : '• Lista: Visualização compacta para análise rápida'
             }
@@ -384,7 +442,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
       {/* NEW: Workflow Automation Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>⚡ Automação de Workflow</Text>
-        
+
         {/* Auto Check-in Setting */}
         <View style={styles.settingItem}>
           <View style={styles.settingHeader}>
@@ -396,11 +454,11 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
           <ToggleSwitch
             options={checkInModeOptions}
             selectedValue={autoCheckInMode ? 'automatic' : 'manual'}
-            onValueChange={(value) => setAutoCheckInMode(value === 'automatic')}
+            onValueChange={(value: string) => handleAutoCheckInModeChange(value === 'automatic')}
             style={styles.toggleSwitch}
           />
           <Text style={styles.settingExplanation}>
-            {autoCheckInMode 
+            {autoCheckInMode
               ? '• Automático: Sessões passadas são automaticamente consideradas como "compareceu" para cobrança. Exclua a sessão se o paciente faltou.'
               : '• Manual: Você precisa marcar manualmente quando o paciente comparecer à sessão.'
             }

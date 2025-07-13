@@ -31,16 +31,16 @@ import { whatsappService } from '../../services/whatsapp';
 
 export const PaymentsOverview = () => {
     const { user } = useAuth();
-    const { 
-        isSimpleMode, 
-        isAdvancedMode, 
-        isCardView, 
+    const {
+        isSimpleMode,
+        isAdvancedMode,
+        isCardView,
         isListView,
         isAutoCheckInEnabled,
         getCurrentModeLabel,
-        getCurrentViewLabel 
+        getCurrentViewLabel
     } = useSettings();
-    
+
     const [loading, setLoading] = useState(true);
 
     // Filter state
@@ -347,11 +347,17 @@ export const PaymentsOverview = () => {
     return (
         <ScrollView style={styles.container}>
             {/* Interactive Header with Toggles */}
-            <ModeHeader 
-                title="💰 Visão Geral de Pagamentos"
-                showPaymentMode={true}
-                showViewMode={true}
-            />
+            {false ?
+                (
+                    <ModeHeader
+                        title="💰 Visão Geral de Pagamentos"
+                        showPaymentMode={true}
+                        showViewMode={true}
+                    />
+                ) : (
+                    <></>
+                )
+            }
 
             {/* Filters */}
             <PaymentFilters

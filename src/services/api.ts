@@ -581,6 +581,106 @@ export const apiService = {
     return response.json();
   },
 
+  async getTherapistSettings(therapistEmail: string): Promise<{
+    therapistId: number;
+    therapistEmail: string;
+    settings: Record<string, string>;
+    metadata: Record<string, { updated_at: string }>;
+    count: number;
+  }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(therapistEmail)}/settings`, {
+      headers
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch therapist settings: ${response.status} ${errorText}`);
+    }
+
+    return response.json();
+  },
+
+  async updateTherapistSettings(therapistEmail: string, settings: Record<string, string>): Promise<{
+    therapistId: number;
+    therapistEmail: string;
+    updated: Record<string, string>;
+    metadata: Record<string, { updated_at: string }>;
+    summary: {
+      total: number;
+      successful: number;
+      failed: number;
+    };
+  }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(therapistEmail)}/settings`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ settings }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to update therapist settings: ${response.status} ${errorText}`);
+    }
+
+    return response.json();
+  },
+
+  async getTherapistSetting(therapistEmail: string, settingKey: string): Promise<{
+    therapistId: number;
+    therapistEmail: string;
+    settingKey: string;
+    value: string;
+    updated_at: string;
+  }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(therapistEmail)}/settings/${encodeURIComponent(settingKey)}`, {
+      headers
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch therapist setting: ${response.status} ${errorText}`);
+    }
+
+    return response.json();
+  },
+
+  async deleteTherapistSetting(therapistEmail: string, settingKey: string): Promise<void> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(therapistEmail)}/settings/${encodeURIComponent(settingKey)}`, {
+      method: "DELETE",
+      headers
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to delete therapist setting: ${response.status} ${errorText}`);
+    }
+  },
+
+  async resetTherapistSettings(therapistEmail: string): Promise<{
+    message: string;
+    therapistId: number;
+    therapistEmail: string;
+    resetSettings: Record<string, string>;
+    count: number;
+  }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(therapistEmail)}/settings/reset`, {
+      method: "POST",
+      headers
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to reset therapist settings: ${response.status} ${errorText}`);
+    }
+
+    return response.json();
+  },
+
   // Helper methods
   getCurrentTherapistEmail,
   canMakeAuthenticatedCall,

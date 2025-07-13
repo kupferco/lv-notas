@@ -46,10 +46,10 @@ export const NavigationBar: React.FC = () => {
     <View style={styles.container}>
       <Text style={styles.title}>LV Notas</Text>
       <View style={styles.nav}>
-        <NavButton path="/" label="Dashboard" />
+        {/* <NavButton path="/" label="Dashboard" /> */}
         <NavButton path="/payments" label="Payments" />
-        <NavButton path="/check-in" label="Check-in" />
-        <NavButton path="/sessoes" label="Sessões" />
+        {/* <NavButton path="/check-in" label="Check-in" /> */}
+        {/* <NavButton path="/sessoes" label="Sessões" /> */}
         <NavButton path="/pacientes" label="Pacientes" />
         <NavButton path="/configuracoes" label="Configurações" />
       </View>

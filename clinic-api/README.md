@@ -38,6 +38,7 @@ A comprehensive Node.js/TypeScript REST API for managing therapy clinics with **
 - PostgreSQL 14.x+
 - Google Calendar API credentials (service-account-key.json)
 - Firebase Admin credentials (service-account-key.json)
+- Google Cloud CLI (for production deployments)
 
 ## Environment Setup
 
@@ -66,9 +67,11 @@ NODE_ENV=development
 PORT=3000
 ```
 
-## 🗄️ ## 🗄️ Database Management
+## 🗄️ Database Management
 
-### **Quick Start**
+### **Local Development Database**
+
+#### **Quick Start**
 ```bash
 cd clinic-api/db
 
@@ -82,7 +85,7 @@ cd clinic-api/db
 ./manage_db.sh check
 ```
 
-### **User-Specific Cleanup (NEW!)**
+#### **User-Specific Cleanup (NEW!)**
 ```bash
 # Clean up specific user data (keeps database structure)
 ./manage_db.sh cleanup-user your-email@example.com
@@ -93,7 +96,7 @@ cd clinic-api/db
 # Perfect for development workflows - test onboarding repeatedly
 ```
 
-### **Complete Database Operations**
+#### **Complete Database Operations**
 ```bash
 # Fresh database operations
 ./manage_db.sh fresh                    # Basic fresh start
@@ -111,6 +114,101 @@ cd clinic-api/db
 # Utility operations
 ./manage_db.sh check                    # Verify schema and show data summary
 ./manage_db.sh backup                   # Create database backup
+```
+
+### **🚀 Production Database Deployment**
+
+#### **Prerequisites for Production**
+```bash
+# Install Google Cloud SQL Proxy (macOS)
+curl -o cloud_sql_proxy https://dl.google.com/cloudsql/cloud_sql_proxy.darwin.amd64
+chmod +x cloud_sql_proxy
+
+# For Linux
+curl -o cloud_sql_proxy https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64
+chmod +x cloud_sql_proxy
+
+# Ensure you're authenticated with Google Cloud
+gcloud auth login
+gcloud config set project lv-notas
+```
+
+#### **Step-by-Step Production Deployment**
+
+**1. Start Cloud SQL Proxy**
+```bash
+# From the db/ directory
+./cloud_sql_proxy -instances=lv-notas:us-central1:clinic-db=tcp:5433
+# Keep this running in a separate terminal
+```
+
+**2. Deploy Schema Changes to Production**
+```bash
+# In a new terminal, from the db/ directory
+POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRES_DB=clinic_db ./run_schemas.sh
+# Enter your production postgres password when prompted
+```
+
+**3. Verify Production Database**
+```bash
+# Connect to production database
+psql -h localhost -p 5433 -U postgres -d clinic_db
+
+# Check tables
+\dt
+
+# Exit when done
+\q
+```
+
+#### **Production Database Utilities**
+
+**Get Production Database Password**
+```bash
+# Retrieve password from Google Secret Manager
+gcloud secrets versions access latest --secret="postgres-password"
+```
+
+**Production Database Backup**
+```bash
+# Create backup of production database
+pg_dump -h localhost -p 5433 -U postgres -d clinic_db > production_backup_$(date +%Y%m%d_%H%M%S).sql
+```
+
+**Connect to Production Database**
+```bash
+# Manual connection for debugging
+psql -h localhost -p 5433 -U postgres -d clinic_db
+```
+
+#### **⚠️ Production Safety Notes**
+
+- **Schema Deployment**: The `run_schemas.sh` script recreates all tables and will **lose existing data**
+- **Backup First**: Always create a backup before schema changes: `pg_dump -h localhost -p 5433 -U postgres -d clinic_db > backup.sql`
+- **Test Locally**: Always test schema changes locally before deploying to production
+- **Proxy Required**: You must have the Cloud SQL Proxy running to connect to production
+- **Authentication**: Ensure you're authenticated with Google Cloud CLI
+
+#### **Complete Production Deployment Workflow**
+```bash
+# 1. Test schema changes locally
+cd clinic-api/db
+./manage_db.sh fresh-comprehensive
+./manage_db.sh check
+
+# 2. Backup production database
+./cloud_sql_proxy -instances=lv-notas:us-central1:clinic-db=tcp:5433 &
+pg_dump -h localhost -p 5433 -U postgres -d clinic_db > production_backup_$(date +%Y%m%d_%H%M%S).sql
+
+# 3. Deploy schema to production
+POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRES_DB=clinic_db ./run_schemas.sh
+
+# 4. Deploy backend API
+cd ..
+./deploy.sh
+
+# 5. Verify everything works
+curl https://clinic-api-141687742631.us-central1.run.app/api/test
 ```
 
 ### **What You Get with Comprehensive Data**
@@ -164,7 +262,6 @@ cd clinic-api/db
 - ✅ **Data preview** before deletion
 - ✅ **Graceful error handling** with clear messages
 - ✅ **Backup creation** for data protection
-```
 
 ## Development
 
