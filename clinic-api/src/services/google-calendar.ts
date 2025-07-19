@@ -569,20 +569,47 @@ export class GoogleCalendarService {
      * @param userAccessToken - User's OAuth token for accessing their calendar
      */
     async getEventsWithDateFilter(
-        startDate: Date, 
-        endDate?: Date, 
+        startDate: Date,
+        endDate?: Date,
         calendarId?: string,
         maxResults: number = 100,
         userAccessToken?: string
     ): Promise<GoogleCalendarEvent[]> {
         try {
             const targetCalendarId = calendarId || process.env.GOOGLE_CALENDAR_ID;
-            
+
             // Use user auth if token provided, otherwise use service account
             let calendarClient = this.calendar;
             if (userAccessToken) {
                 const userAuth = this._createUserAuth(userAccessToken);
                 calendarClient = google.calendar({ version: "v3", auth: userAuth });
+
+                // 🔍 DEBUG: Test the OAuth token
+                console.log('🔍 Testing OAuth token access...');
+                try {
+                    // Test: Can we access the calendar list?
+                    const calendarListResponse = await calendarClient.calendarList.list();
+                    console.log('✅ OAuth token can access calendar list');
+
+                    // Check if target calendar is in the list
+                    const targetInList = calendarListResponse.data.items?.find((cal: { id: string | undefined; }) => cal.id === targetCalendarId);
+                    if (targetInList) {
+                        console.log('✅ Target calendar found in accessible list:', targetInList.summary);
+                        console.log('📋 Calendar access role:', targetInList.accessRole);
+                    } else {
+                        console.log('❌ Target calendar NOT in accessible list');
+                        console.log('📋 Available calendars:',
+                            calendarListResponse.data.items?.map((cal: { summary: any; id: any; accessRole: any; }) => ({
+                                name: cal.summary,
+                                id: cal.id,
+                                accessRole: cal.accessRole
+                            }))
+                        );
+                    }
+                } catch (authError) {
+                    console.error('❌ OAuth token test failed:', authError instanceof Error ? authError.message : 'Unknown auth error');
+                    console.error('Full auth error:', authError);
+                }
             }
 
             const params: any = {
@@ -622,8 +649,8 @@ export class GoogleCalendarService {
     ): Promise<GoogleCalendarEvent[]> {
         try {
             // Use the more restrictive of the two dates
-            const effectiveStartDate = appStartDate && appStartDate > patientStartDate 
-                ? appStartDate 
+            const effectiveStartDate = appStartDate && appStartDate > patientStartDate
+                ? appStartDate
                 : patientStartDate;
 
             const events = await this.getEventsWithDateFilter(
@@ -633,19 +660,19 @@ export class GoogleCalendarService {
                 1000, // Higher limit for comprehensive data
                 userAccessToken
             );
-            
+
             // Filter events that look like therapy appointments
             const therapyEvents = events.filter(event => {
                 // Skip cancelled events
                 if (event.status === 'cancelled') return false;
-                
+
                 // Filter by creator/organizer email if needed
                 const creatorEmail = event.creator?.email || event.organizer?.email;
                 if (therapistEmail && creatorEmail !== therapistEmail) return false;
-                
+
                 // Only include events with actual appointment times (not all-day events)
                 if (!event.start?.dateTime) return false;
-                
+
                 // Add any other filtering logic here
                 return true;
             });

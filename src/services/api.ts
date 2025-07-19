@@ -1,5 +1,17 @@
-// src/services/api.ts
+// src/services/api.ts - Enhanced with Calendar-Only Methods
 import type { Patient, Session, Therapist } from "../types/index";
+import type { 
+  CalendarSession, 
+  BillingPeriod, 
+  BillingSummary,
+  ProcessChargesRequest,
+  ProcessChargesResponse,
+  MonthlyBillingOverviewResponse,
+  RecordPaymentRequest,
+  CalendarOnlyPatient,
+  BillingPeriodPayment,
+  CalendarOnlyApiResponse
+} from "../types/calendar-only";
 import { getCurrentUser, isDevelopment, getGoogleAccessToken } from "../config/firebase";
 import type { CalendarEvent, PatientData } from "../types/onboarding";
 
@@ -48,7 +60,7 @@ const getAuthHeaders = async () => {
 
   // Add Google access token for calendar operations
   if (googleAccessToken) {
-    headers["x-calendar-token"] = googleAccessToken;
+    headers["X-Calendar-Token"] = googleAccessToken;
     console.log("Google access token included in headers");
   }
 
@@ -86,6 +98,10 @@ const getCurrentTherapistEmail = () => {
 };
 
 export const apiService = {
+  // ==========================================
+  // EXISTING METHODS (keeping all your current API methods)
+  // ==========================================
+
   async getPatients(therapistEmail?: string): Promise<Patient[]> {
     if (!canMakeAuthenticatedCall()) {
       throw new Error("Authentication required for API calls");
@@ -129,6 +145,312 @@ export const apiService = {
     }
     return response.json();
   },
+
+  // ... (keeping all your existing methods) ...
+
+  // ==========================================
+  // NEW CALENDAR-ONLY METHODS
+  // ==========================================
+
+  // Get all patients with their calendar sessions
+  async getCalendarOnlyPatients(
+    therapistEmail?: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<CalendarOnlyPatient[]> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for calendar operations");
+    }
+
+    const headers = await getAuthHeaders();
+    const email = therapistEmail || getCurrentTherapistEmail();
+
+    if (!email) {
+      throw new Error("No therapist email provided");
+    }
+
+    const params = new URLSearchParams({
+      therapistEmail: email
+    });
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+
+    console.log("📅 getCalendarOnlyPatients API call");
+    const response = await fetch(`${API_URL}/api/calendar-only/patients?${params}`, { headers });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ getCalendarOnlyPatients error response:", errorText);
+      throw new Error(`Failed to fetch calendar patients. Status: ${response.status}, Error: ${errorText}`);
+    }
+    return response.json();
+  },
+
+  // Get specific patient's calendar sessions
+  async getPatientCalendarSessions(
+    patientId: number,
+    therapistEmail?: string
+  ): Promise<CalendarSession[]> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for calendar operations");
+    }
+
+    const headers = await getAuthHeaders();
+    const email = therapistEmail || getCurrentTherapistEmail();
+
+    if (!email) {
+      throw new Error("No therapist email provided");
+    }
+
+    const params = new URLSearchParams({
+      therapistEmail: email
+    });
+
+    console.log("📅 getPatientCalendarSessions API call");
+    const response = await fetch(`${API_URL}/api/calendar-only/patients/${patientId}?${params}`, { headers });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ getPatientCalendarSessions error response:", errorText);
+      throw new Error(`Failed to fetch patient calendar sessions. Status: ${response.status}, Error: ${errorText}`);
+    }
+    return response.json();
+  },
+
+  // Get all calendar sessions with optional auto check-in
+  async getCalendarOnlySessions(
+    therapistEmail?: string,
+    autoCheckIn: boolean = false,
+    startDate?: string,
+    endDate?: string
+  ): Promise<CalendarSession[]> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for calendar operations");
+    }
+
+    const headers = await getAuthHeaders();
+    const email = therapistEmail || getCurrentTherapistEmail();
+
+    if (!email) {
+      throw new Error("No therapist email provided");
+    }
+
+    const params = new URLSearchParams({
+      therapistEmail: email,
+      autoCheckIn: autoCheckIn.toString()
+    });
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+
+    console.log(`📅 getCalendarOnlySessions API call - Auto Check-in: ${autoCheckIn}`);
+    const response = await fetch(`${API_URL}/api/calendar-only/sessions?${params}`, { headers });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ getCalendarOnlySessions error response:", errorText);
+      throw new Error(`Failed to fetch calendar sessions. Status: ${response.status}, Error: ${errorText}`);
+    }
+    return response.json();
+  },
+
+  // Calendar debug and connectivity check
+  async debugCalendarConnectivity(therapistEmail?: string): Promise<any> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for calendar operations");
+    }
+
+    const headers = await getAuthHeaders();
+    const email = therapistEmail || getCurrentTherapistEmail();
+
+    if (!email) {
+      throw new Error("No therapist email provided");
+    }
+
+    const params = new URLSearchParams({
+      therapistEmail: email
+    });
+
+    console.log("🔍 debugCalendarConnectivity API call");
+    const response = await fetch(`${API_URL}/api/calendar-only/debug?${params}`, { headers });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ debugCalendarConnectivity error response:", errorText);
+      throw new Error(`Failed to debug calendar connectivity. Status: ${response.status}, Error: ${errorText}`);
+    }
+    return response.json();
+  },
+
+  // ==========================================
+  // MONTHLY BILLING METHODS
+  // ==========================================
+
+  // Get monthly billing summary
+  async getMonthlyBillingSummary(
+    therapistEmail: string,
+    year: number,
+    month: number
+  ): Promise<MonthlyBillingOverviewResponse> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    const headers = await getAuthHeaders();
+    const params = new URLSearchParams({
+      therapistEmail,
+      year: year.toString(),
+      month: month.toString()
+    });
+
+    console.log(`💰 getMonthlyBillingSummary API call - ${year}-${month}`);
+    const response = await fetch(`${API_URL}/api/monthly-billing/summary?${params}`, { headers });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ getMonthlyBillingSummary error response:", errorText);
+      throw new Error(`Failed to fetch monthly billing summary. Status: ${response.status}, Error: ${errorText}`);
+    }
+    return response.json();
+  },
+
+  // Process monthly charges for a specific patient
+  async processMonthlyCharges(
+    request: ProcessChargesRequest
+  ): Promise<ProcessChargesResponse> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    const headers = await getAuthHeaders();
+
+    console.log(`💰 processMonthlyCharges API call - Patient ${request.patientId}, ${request.year}-${request.month}`);
+    const response = await fetch(`${API_URL}/api/monthly-billing/process`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ processMonthlyCharges error response:", errorText);
+      throw new Error(`Failed to process monthly charges. Status: ${response.status}, Error: ${errorText}`);
+    }
+    return response.json();
+  },
+
+  // Get billing period details
+  async getBillingPeriodDetails(billingPeriodId: number): Promise<BillingPeriod> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    const headers = await getAuthHeaders();
+
+    console.log(`💰 getBillingPeriodDetails API call - ID ${billingPeriodId}`);
+    const response = await fetch(`${API_URL}/api/monthly-billing/${billingPeriodId}`, { headers });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ getBillingPeriodDetails error response:", errorText);
+      throw new Error(`Failed to fetch billing period details. Status: ${response.status}, Error: ${errorText}`);
+    }
+    return response.json();
+  },
+
+  // Void billing period (only if no payments)
+  async voidBillingPeriod(
+    billingPeriodId: number,
+    therapistEmail: string,
+    reason: string
+  ): Promise<void> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    const headers = await getAuthHeaders();
+
+    console.log(`💰 voidBillingPeriod API call - ID ${billingPeriodId}`);
+    const response = await fetch(`${API_URL}/api/monthly-billing/${billingPeriodId}/void`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        therapistEmail,
+        reason
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ voidBillingPeriod error response:", errorText);
+      throw new Error(`Failed to void billing period. Status: ${response.status}, Error: ${errorText}`);
+    }
+  },
+
+  // Record payment for billing period
+  async recordBillingPeriodPayment(
+    billingPeriodId: number,
+    paymentRequest: RecordPaymentRequest
+  ): Promise<BillingPeriodPayment> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    const headers = await getAuthHeaders();
+
+    console.log(`💰 recordBillingPeriodPayment API call - ID ${billingPeriodId}`);
+    const response = await fetch(`${API_URL}/api/monthly-billing/${billingPeriodId}/payments`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(paymentRequest),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ recordBillingPeriodPayment error response:", errorText);
+      throw new Error(`Failed to record billing period payment. Status: ${response.status}, Error: ${errorText}`);
+    }
+    return response.json();
+  },
+
+  // Delete payment (re-enables voiding)
+  async deleteBillingPeriodPayment(paymentId: number): Promise<void> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    const headers = await getAuthHeaders();
+
+    console.log(`💰 deleteBillingPeriodPayment API call - Payment ID ${paymentId}`);
+    const response = await fetch(`${API_URL}/api/monthly-billing/payments/${paymentId}`, {
+      method: "DELETE",
+      headers,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ deleteBillingPeriodPayment error response:", errorText);
+      throw new Error(`Failed to delete billing period payment. Status: ${response.status}, Error: ${errorText}`);
+    }
+  },
+
+  // Delete entire billing period (only if no payments)
+  async deleteBillingPeriod(billingPeriodId: number): Promise<void> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    const headers = await getAuthHeaders();
+
+    console.log(`💰 deleteBillingPeriod API call - ID ${billingPeriodId}`);
+    const response = await fetch(`${API_URL}/api/monthly-billing/${billingPeriodId}`, {
+      method: "DELETE",
+      headers,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ deleteBillingPeriod error response:", errorText);
+      throw new Error(`Failed to delete billing period. Status: ${response.status}, Error: ${errorText}`);
+    }
+  },
+
+  // ==========================================
+  // ALL YOUR EXISTING METHODS CONTINUE HERE
+  // ==========================================
 
   async getCalendars(): Promise<any[]> {
     if (!canMakeAuthenticatedCall()) {

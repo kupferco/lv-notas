@@ -599,6 +599,11 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
                   <Text style={styles.patientName}>{patient.name}</Text>
                   <Text style={styles.patientDetail}>📧 {patient.email || 'Email não informado'}</Text>
                   <Text style={styles.patientDetail}>📱 {patient.telefone || 'Telefone não informado'}</Text>
+                  <Text style={styles.patientDetail}>
+                    📆 {patient.lvNotasBillingStartDate
+                      ? new Date(patient.lvNotasBillingStartDate).toLocaleDateString('pt-BR')
+                      : 'Data de início de cobrança não informada'}
+                  </Text>
                   {patient.sessionPrice && (
                     <Text style={styles.patientDetail}>💰 R$ {patient.sessionPrice}</Text>
                   )}

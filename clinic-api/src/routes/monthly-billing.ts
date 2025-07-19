@@ -3,6 +3,7 @@ import express, { Router, Request, Response, NextFunction } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
 import { monthlyBillingService } from "../services/monthly-billing.js";
 import pool from "../config/database.js";
+import { googleCalendarService } from "../services/google-calendar.js";
 
 const router: Router = Router();
 
@@ -42,11 +43,21 @@ router.get("/summary", asyncHandler(async (req, res) => {
     }
 
     try {
+        const userAccessToken = req.headers['x-calendar-token'] as string;
         const summary = await monthlyBillingService.getBillingSummary(
             therapistEmail,
             year,
-            month
+            month,
+            userAccessToken
         );
+
+        console.log('=== MONTHLY BILLING SUMMARY DEBUG ===');
+        console.log('therapistEmail:', therapistEmail);
+        console.log('year:', year, 'month:', month);
+        console.log('summary:', summary);
+        console.log('userAccessToken:', userAccessToken ? 'Present' : 'Missing');
+        console.log('Headers x-calendar-token:', req.headers['x-calendar-token'] ? 'Present' : 'Missing');
+        console.log('Headers x-google-access-token:', req.headers['x-google-access-token'] ? 'Present' : 'Missing');
 
         return res.json({
             year,
@@ -130,6 +141,138 @@ router.put("/:billingPeriodId/void", asyncHandler(async (req, res) => {
         }
     } catch (error) {
 
+    }
+}));
+
+// GET /api/monthly-billing/:billingPeriodId
+// Get billing period details by ID
+router.get("/:billingPeriodId", asyncHandler(async (req, res) => {
+    const { billingPeriodId } = req.params;
+    const therapistEmail = req.query.therapistEmail as string;
+
+    if (!billingPeriodId || isNaN(parseInt(billingPeriodId))) {
+        return res.status(400).json({ error: "Valid billingPeriodId is required" });
+    }
+
+    try {
+        const billingPeriod = await monthlyBillingService.getBillingPeriodDetails(
+            parseInt(billingPeriodId)
+        );
+
+        return res.json(billingPeriod);
+    } catch (error) {
+        console.error('Error getting billing period details:', error);
+        return res.status(500).json({
+            error: "Failed to get billing period details",
+            details: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+}));
+
+// Add this new debug route
+router.get("/debug-calendars", asyncHandler(async (req, res) => {
+    const therapistEmail = req.query.therapistEmail as string;
+    const userAccessToken = req.headers['x-calendar-token'] as string;
+
+    if (!therapistEmail || !userAccessToken) {
+        return res.status(400).json({ error: "therapistEmail and userAccessToken required" });
+    }
+
+    try {
+        // List calendars the user has access to
+        const calendars = await googleCalendarService.listUserCalendars(userAccessToken);
+
+        // Get therapist's stored calendar ID
+        const therapistResult = await pool.query(
+            'SELECT google_calendar_id FROM therapists WHERE email = $1',
+            [therapistEmail]
+        );
+
+        const storedCalendarId = therapistResult.rows[0]?.google_calendar_id;
+
+        return res.json({
+            message: "Calendar debug info",
+            userAccessibleCalendars: calendars,
+            storedCalendarId: storedCalendarId,
+            canAccessStoredCalendar: calendars.some(cal => cal.id === storedCalendarId)
+        });
+    } catch (error) {
+        console.error('Calendar debug error:', error);
+        return res.status(500).json({
+            error: error instanceof Error ? error.message : 'Unknown error',
+            details: error
+        });
+    }
+}));
+
+// POST /api/monthly-billing/:billingPeriodId/payments
+// Record a payment for a billing period
+router.post("/:billingPeriodId/payments", asyncHandler(async (req, res) => {
+    const { billingPeriodId } = req.params;
+    const { amount, paymentMethod, paymentDate, therapistEmail, referenceNumber, notes } = req.body;
+
+    if (!billingPeriodId || isNaN(parseInt(billingPeriodId))) {
+        return res.status(400).json({ error: "Valid billingPeriodId is required" });
+    }
+
+    if (!amount || !paymentMethod || !paymentDate || !therapistEmail) {
+        return res.status(400).json({
+            error: "amount, paymentMethod, paymentDate, and therapistEmail are required"
+        });
+    }
+
+    try {
+        const payment = await monthlyBillingService.recordPayment(
+            parseInt(billingPeriodId),
+            parseInt(amount), // Amount should be in cents
+            paymentMethod,
+            new Date(paymentDate),
+            therapistEmail,
+            referenceNumber,
+            notes
+        );
+
+        return res.json({
+            message: "Payment recorded successfully",
+            payment
+        });
+    } catch (error) {
+        console.error('Error recording payment:', error);
+        return res.status(500).json({
+            error: "Failed to record payment",
+            details: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+}));
+
+// DELETE /api/monthly-billing/payments/:paymentId
+// Delete a payment (optional - for completeness)
+router.delete("/payments/:paymentId", asyncHandler(async (req, res) => {
+    const { paymentId } = req.params;
+
+    if (!paymentId || isNaN(parseInt(paymentId))) {
+        return res.status(400).json({ error: "Valid paymentId is required" });
+    }
+
+    try {
+        const success = await monthlyBillingService.deletePayment(parseInt(paymentId));
+
+        if (success) {
+            return res.json({
+                message: "Payment deleted successfully",
+                paymentId: parseInt(paymentId)
+            });
+        } else {
+            return res.status(404).json({
+                error: "Payment not found or could not be deleted"
+            });
+        }
+    } catch (error) {
+        console.error('Error deleting payment:', error);
+        return res.status(500).json({
+            error: "Failed to delete payment",
+            details: error instanceof Error ? error.message : 'Unknown error'
+        });
     }
 }));
 

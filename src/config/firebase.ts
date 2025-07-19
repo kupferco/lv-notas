@@ -1,5 +1,6 @@
 // src/config/firebase.ts
 import { initializeApp } from "firebase/app";
+import type { FirebaseApp } from "firebase/app";
 import { 
   getAuth, 
   signInWithPopup, 
@@ -10,6 +11,7 @@ import {
   signOut,
   User 
 } from "firebase/auth";
+import type { Auth } from "firebase/auth";
 import { config } from "./config";
 
 // Environment detection
@@ -21,8 +23,8 @@ const isFirebaseHosting = () => {
          window.location.hostname.includes("firebaseapp.com");
 };
 
-let auth: any = null;
-let app: any = null;
+let auth: Auth | null = null;
+let app: FirebaseApp | null = null;
 let isInitialized = false;
 let tokenRefreshInterval: NodeJS.Timeout | null = null;
 
@@ -108,11 +110,27 @@ const hasCalendarPermissions = (): boolean => {
   return !!(googleToken && calendarPermissionGranted === "true");
 };
 
+// Get current user
+export const getCurrentUser = (): User | null => {
+  if (!auth) return null;
+  return auth.currentUser || null;
+};
+
 // Initialize Firebase once
 const initializeFirebase = async (): Promise<User | null> => {
   if (isInitialized && auth) {
     console.log("Firebase already initialized");
-    return getCurrentUser();
+    const currentUser = getCurrentUser();
+    
+    // Even if Firebase is initialized, check if we need calendar permissions
+    if (currentUser && !hasCalendarPermissions()) {
+      console.log("🔄 User exists but missing calendar permissions - forcing re-authentication");
+      // Force re-authentication with calendar permissions
+      await signOutUser();
+      return await signInWithGoogle();
+    }
+    
+    return currentUser;
   }
 
   try {
@@ -142,7 +160,12 @@ const initializeFirebase = async (): Promise<User | null> => {
 
     // Return current user if already signed in
     return new Promise((resolve) => {
-      const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!auth) {
+        resolve(null);
+        return;
+      }
+
+      const unsubscribe = onAuthStateChanged(auth, async (user) => {
         unsubscribe(); // Remove listener after first check
         console.log("Firebase auth state:", user ? `signed in as ${user.email}` : "signed out");
         
@@ -151,15 +174,24 @@ const initializeFirebase = async (): Promise<User | null> => {
           
           // Check if user has calendar permissions
           if (!hasCalendarPermissions()) {
-            console.log("⚠️ User authenticated but missing calendar permissions");
+            console.log("⚠️ User authenticated but missing calendar permissions - forcing re-authentication");
+            // Force re-authentication with calendar permissions
+            try {
+              await signOutUser();
+              const newUser = await signInWithGoogle();
+              resolve(newUser);
+            } catch (error) {
+              console.error("❌ Error during forced re-authentication:", error);
+              resolve(null);
+            }
           } else {
             console.log("✅ User has calendar permissions");
+            resolve(user);
           }
         } else {
           cleanupTokenRefresh();
+          resolve(user);
         }
-        
-        resolve(user);
       });
     });
 
@@ -168,11 +200,6 @@ const initializeFirebase = async (): Promise<User | null> => {
     isInitialized = true; // Set to true to avoid repeated attempts
     return null;
   }
-};
-
-// Get current user
-export const getCurrentUser = (): User | null => {
-  return auth?.currentUser || null;
 };
 
 // Sign in with Google and request calendar permissions
@@ -188,20 +215,24 @@ export const signInWithGoogle = async (): Promise<User | null> => {
 
     const provider = new GoogleAuthProvider();
     
-    // CRITICAL: Add calendar scopes BEFORE setting custom parameters
+    // CRITICAL: Add calendar scopes BEFORE setting custom parameters (READ ONLY)
     provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
-    provider.addScope('https://www.googleapis.com/auth/calendar.events');
+    // provider.addScope('https://www.googleapis.com/auth/calendar.events');
+    provider.addScope('email');
+    provider.addScope('profile');
     
-    // Force consent screen for fresh deployments and ensure we get calendar permissions
+    // Force consent screen to ensure we get all permissions including calendar
     provider.setCustomParameters({
-      'prompt': 'consent', // Changed from 'select_account' to 'consent' to force permission screen
+      'prompt': 'consent', // Force consent to get fresh permissions
       'access_type': 'offline', // Request offline access for refresh tokens
       'include_granted_scopes': 'true' // Include previously granted scopes
     });
 
     console.log("🔐 Requesting Google sign-in with scopes:", [
       'https://www.googleapis.com/auth/calendar.readonly',
-      'https://www.googleapis.com/auth/calendar.events'
+      // 'https://www.googleapis.com/auth/calendar.events',
+      'email',
+      'profile'
     ]);
 
     const result = await signInWithPopup(auth, provider);
@@ -214,14 +245,28 @@ export const signInWithGoogle = async (): Promise<User | null> => {
       localStorage.setItem("calendar_permission_granted", "true");
       console.log("✅ Google access token stored with calendar permissions");
       
-      // Log the scopes that were granted
-      console.log("🔐 Credential details:", {
-        accessToken: credential.accessToken ? "Present" : "Missing",
-        idToken: credential.idToken ? "Present" : "Missing"
-      });
+      // Test calendar access immediately
+      try {
+        const testResponse = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+          headers: {
+            'Authorization': `Bearer ${credential.accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (testResponse.ok) {
+          console.log("✅ Calendar access confirmed immediately after authentication");
+        } else {
+          console.warn("⚠️ Calendar access test failed despite getting token:", testResponse.status);
+        }
+      } catch (testError) {
+        console.warn("⚠️ Calendar access test error:", testError);
+      }
+      
     } else {
       console.warn("⚠️ No Google access token received - calendar permissions may not be granted");
       localStorage.setItem("calendar_permission_granted", "false");
+      throw new Error("Failed to obtain Google access token for calendar access");
     }
 
     // Setup token refresh for new user
@@ -303,6 +348,11 @@ export const onAuthStateChange = (callback: (user: User | null) => void): (() =>
   }
 
   // Auth is ready, set up listener
+  if (!auth) {
+    console.warn("❌ Auth is still null, cannot set up listener");
+    return () => {};
+  }
+
   return onAuthStateChanged(auth, (user) => {
     if (user) {
       setupTokenRefresh(user);

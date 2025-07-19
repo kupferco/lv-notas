@@ -1,4 +1,4 @@
-// src/components/Router.tsx
+// src/components/Router.tsx - Updated with PaymentSystemNavigator
 
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
@@ -7,7 +7,8 @@ import { NavigationBar } from './NavigationBar';
 import { CheckInForm } from './CheckInForm';
 import { Sessions } from './Sessions';
 import { PatientManagement } from './PatientManagement';
-import { PaymentsOverview } from './payments/PaymentsOverview';
+// UPDATED: Import PaymentSystemNavigator instead of PaymentsOverview
+import { PaymentSystemNavigator } from './payments/PaymentSystemNavigator';
 import { Settings } from './Settings';
 import { Dashboard } from './dashboard/Dashboard';
 
@@ -54,9 +55,8 @@ export const Router: React.FC = () => {
       case '/dashboard':
         return <Dashboard />;
       case '/payments':
-        return <PaymentsOverview />;
-      case '/payments':
-        return <PaymentsOverview />;
+        // UPDATED: Use PaymentSystemNavigator instead of PaymentsOverview
+        return <PaymentSystemNavigator />;
       case '/check-in':
         return <CheckInForm therapistEmail={user.email || ''} />;
       case '/sessoes':

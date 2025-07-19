@@ -23,6 +23,7 @@ export interface BillingPeriod {
     processedBy: string;
     status: 'processed' | 'paid' | 'void';
     canBeVoided: boolean;
+    payments?: any[];
 }
 
 export interface BillingPayment {
@@ -49,7 +50,7 @@ export interface BillingSummary {
 }
 
 export class MonthlyBillingService {
-    
+
     /**
      * Get therapist ID by email
      */
@@ -59,7 +60,7 @@ export class MonthlyBillingService {
                 'SELECT id FROM therapists WHERE email = $1',
                 [therapistEmail]
             );
-            
+
             return result.rows.length > 0 ? result.rows[0].id : null;
         } catch (error) {
             console.error('Error getting therapist ID:', error);
@@ -76,7 +77,7 @@ export class MonthlyBillingService {
                 'SELECT preco FROM patients WHERE id = $1',
                 [patientId]
             );
-            
+
             return result.rows[0]?.preco || 0;
         } catch (error) {
             console.error('Error getting patient session price:', error);
@@ -125,10 +126,29 @@ export class MonthlyBillingService {
             }
 
             // Get events from Google Calendar for this month
+            // Get therapist's selected calendar ID from database
+            const therapistResult = await pool.query(
+                'SELECT google_calendar_id FROM therapists WHERE email = $1',
+                [therapistEmail]
+            );
+
+            if (therapistResult.rows.length === 0) {
+                throw new Error(`Therapist not found: ${therapistEmail}`);
+            }
+
+            const therapistCalendarId = therapistResult.rows[0].google_calendar_id;
+
+            if (!therapistCalendarId) {
+                throw new Error(`No calendar configured for therapist: ${therapistEmail}`);
+            }
+
+            console.log(`Using therapist's selected calendar: ${therapistCalendarId}`);
+
+            // Get events from Google Calendar for this month
             const events = await googleCalendarService.getEventsWithDateFilter(
                 startDate,
                 endDate,
-                undefined, // Use default calendar
+                therapistCalendarId, // Use therapist's selected calendar
                 500, // Should be plenty for one month
                 userAccessToken
             );
@@ -144,34 +164,64 @@ export class MonthlyBillingService {
                 if (!event.start?.dateTime) continue;
 
                 // Try to match patient by email or name
+                // Try to match patient by email (primary method)
                 let isPatientMatch = false;
 
-                // Check attendees for patient email
-                if (event.attendees && patient.email) {
-                    const attendeeEmails = event.attendees.map(a => a.email?.toLowerCase()).filter(Boolean);
-                    if (attendeeEmails.includes(patient.email.toLowerCase())) {
-                        isPatientMatch = true;
+                if (patient.email) {
+                    const patientEmailLower = patient.email.toLowerCase();
+
+                    // 1. Check attendees for patient email
+                    if (event.attendees && event.attendees.length > 0) {
+                        const attendeeEmails = event.attendees.map(a => a.email?.toLowerCase()).filter(Boolean);
+                        if (attendeeEmails.includes(patientEmailLower)) {
+                            isPatientMatch = true;
+                            console.log(`✅ Patient matched by attendee email: ${patient.email}`);
+                        }
                     }
+
+                    // 2. Check event description for patient email
+                    if (!isPatientMatch && event.description) {
+                        if (event.description.toLowerCase().includes(patientEmailLower)) {
+                            isPatientMatch = true;
+                            console.log(`✅ Patient matched by email in description: ${patient.email}`);
+                        }
+                    }
+
+                    // 3. Check event summary/title for patient email
+                    if (!isPatientMatch && event.summary) {
+                        if (event.summary.toLowerCase().includes(patientEmailLower)) {
+                            isPatientMatch = true;
+                            console.log(`✅ Patient matched by email in title: ${patient.email}`);
+                        }
+                    }
+                } else {
+                    console.log(`⚠️ Patient ${patient.name} has no email - cannot match calendar events`);
                 }
 
-                // Check event title for patient name
-                if (!isPatientMatch && event.summary) {
+                // Fallback: If no email match and no email set, try name matching as last resort
+                if (!isPatientMatch && !patient.email && event.summary) {
                     const extractedName = this.extractPatientNameFromTitle(event.summary);
                     if (extractedName && extractedName.toLowerCase().includes(patient.name.toLowerCase())) {
                         isPatientMatch = true;
+                        console.log(`✅ Patient matched by name (no email available): ${patient.name}`);
                     }
+                }
+
+                if (!isPatientMatch) {
+                    // Debug logging to help troubleshoot
+                    console.log(`❌ No match for patient ${patient.name} (${patient.email || 'no email'}) in event: "${event.summary}"`);
                 }
 
                 if (isPatientMatch) {
                     const sessionDate = new Date(event.start.dateTime);
-                    
+
                     patientSessions.push({
                         date: sessionDate.toISOString().split('T')[0], // YYYY-MM-DD
                         time: sessionDate.toTimeString().slice(0, 5), // HH:MM
                         googleEventId: event.id,
                         patientName: patient.name,
-                        duration: event.end?.dateTime ? 
-                            Math.round((new Date(event.end.dateTime).getTime() - sessionDate.getTime()) / (1000 * 60)) : 
+                        duration: event.end?.dateTime ?
+                            Math.round((new Date(event.end.dateTime).getTime() - sessionDate.getTime()) / (1000 * 60)) :
                             60 // default 60 minutes
                     });
                 }
@@ -213,14 +263,14 @@ export class MonthlyBillingService {
                 throw new Error(`Therapist not found: ${therapistEmail}`);
             }
 
-            // Check if billing period already exists
+            // Check if billing period already exists (excluding voided ones)
             const existingResult = await pool.query(
-                'SELECT id FROM monthly_billing_periods WHERE therapist_id = $1 AND patient_id = $2 AND billing_year = $3 AND billing_month = $4',
-                [therapistId, patientId, year, month]
+                'SELECT id, status FROM monthly_billing_periods WHERE therapist_id = $1 AND patient_id = $2 AND billing_year = $3 AND billing_month = $4 AND status != $5',
+                [therapistId, patientId, year, month, 'void']
             );
 
             if (existingResult.rows.length > 0) {
-                throw new Error(`Billing period already exists for patient ${patientId} in ${year}-${month}`);
+                throw new Error(`Billing period already exists for patient ${patientId} in ${year}-${month} with status: ${existingResult.rows[0].status}`);
             }
 
             // Get session snapshots from Google Calendar
@@ -285,7 +335,8 @@ export class MonthlyBillingService {
     async getBillingSummary(
         therapistEmail: string,
         year: number,
-        month: number
+        month: number,
+        userAccessToken?: string
     ): Promise<BillingSummary[]> {
         try {
             const therapistId = await this.getTherapistIdByEmail(therapistEmail);
@@ -299,22 +350,22 @@ export class MonthlyBillingService {
                 [therapistId]
             );
 
-            // Get existing billing periods for this month
+            // Get existing billing periods for this month (only exclude void ones, deleted ones won't exist)
             const billingResult = await pool.query(
                 `SELECT 
-                    bp.id as billing_period_id,
-                    bp.patient_id,
-                    bp.session_count,
-                    bp.total_amount,
-                    bp.status,
-                    bp.processed_at,
-                    bp.can_be_voided,
-                    EXISTS(SELECT 1 FROM monthly_billing_payments pay WHERE pay.billing_period_id = bp.id) as has_payment
-                 FROM monthly_billing_periods bp
-                 WHERE bp.therapist_id = $1 
-                 AND bp.billing_year = $2 
-                 AND bp.billing_month = $3
-                 AND bp.status != 'void'`,
+        bp.id as billing_period_id,
+        bp.patient_id,
+        bp.session_count,
+        bp.total_amount,
+        bp.status,
+        bp.processed_at,
+        bp.can_be_voided,
+        EXISTS(SELECT 1 FROM monthly_billing_payments pay WHERE pay.billing_period_id = bp.id) as has_payment
+     FROM monthly_billing_periods bp
+     WHERE bp.therapist_id = $1 
+     AND bp.billing_year = $2 
+     AND bp.billing_month = $3
+     AND bp.status != 'void'`,
                 [therapistId, year, month]
             );
 
@@ -343,12 +394,40 @@ export class MonthlyBillingService {
                         canProcess: false
                     });
                 } else {
-                    // Patient has no billing period yet
+                    // Patient has no billing period yet - fetch calendar sessions to preview
+                    let sessionCount = 0;
+                    let estimatedAmount = 0;
+
+                    if (userAccessToken) {
+                        try {
+                            // Get calendar sessions for this patient in this month
+                            const calendarSessions = await this.getCalendarSessionsForMonth(
+                                therapistEmail,
+                                patient.id,
+                                year,
+                                month,
+                                userAccessToken
+                            );
+
+                            sessionCount = calendarSessions.length;
+
+                            // Get patient session price to calculate estimated amount
+                            const sessionPrice = await this.getPatientSessionPrice(patient.id);
+                            estimatedAmount = sessionCount * sessionPrice;
+
+                            console.log(`Patient ${patient.name}: ${sessionCount} calendar sessions, estimated R$ ${(estimatedAmount / 100).toFixed(2)}`);
+
+                        } catch (error) {
+                            console.error(`Error fetching calendar sessions for patient ${patient.name}:`, error);
+                            // Keep sessionCount = 0 and estimatedAmount = 0 if there's an error
+                        }
+                    }
+
                     summary.push({
                         patientName: patient.name,
                         patientId: patient.id,
-                        sessionCount: 0,
-                        totalAmount: 0,
+                        sessionCount: sessionCount,
+                        totalAmount: estimatedAmount,
                         hasPayment: false,
                         canProcess: true
                     });
@@ -372,12 +451,31 @@ export class MonthlyBillingService {
         reason?: string
     ): Promise<boolean> {
         try {
-            const result = await pool.query(
-                'SELECT void_billing_period($1, $2, $3) as success',
-                [billingPeriodId, therapistEmail, reason || 'Voided by therapist']
+            // First check if billing period has any payments
+            const paymentsResult = await pool.query(
+                'SELECT COUNT(*) as payment_count FROM monthly_billing_payments WHERE billing_period_id = $1',
+                [billingPeriodId]
             );
 
-            return result.rows[0].success;
+            const hasPayments = parseInt(paymentsResult.rows[0].payment_count) > 0;
+
+            if (hasPayments) {
+                console.log(`Cannot delete billing period ${billingPeriodId} - has payments, marking as void instead`);
+                // If has payments, just mark as void (can't delete)
+                const result = await pool.query(
+                    'UPDATE monthly_billing_periods SET status = $1 WHERE id = $2',
+                    ['void', billingPeriodId]
+                );
+                return result.rowCount ? result.rowCount > 0 : false;
+            } else {
+                console.log(`Deleting billing period ${billingPeriodId} - no payments recorded`);
+                // If no payments, actually delete the billing period
+                const result = await pool.query(
+                    'DELETE FROM monthly_billing_periods WHERE id = $1',
+                    [billingPeriodId]
+                );
+                return result.rowCount ? result.rowCount > 0 : false;
+            }
 
         } catch (error) {
             console.error('Error voiding billing period:', error);
@@ -464,6 +562,66 @@ export class MonthlyBillingService {
         } catch (error) {
             console.error('Error deleting payment:', error);
             return false;
+        }
+    }
+
+    /**
+ * Get billing period details by ID
+ */
+    async getBillingPeriodDetails(billingPeriodId: number): Promise<BillingPeriod> {
+        try {
+            const result = await pool.query(
+                `SELECT 
+                id,
+                therapist_id,
+                patient_id,
+                billing_year,
+                billing_month,
+                session_count,
+                total_amount,
+                session_snapshots,
+                processed_at,
+                processed_by,
+                status,
+                (SELECT COUNT(*) FROM monthly_billing_payments WHERE billing_period_id = $1) = 0 as can_be_voided
+             FROM monthly_billing_periods 
+             WHERE id = $1`,
+                [billingPeriodId]
+            );
+
+            if (result.rows.length === 0) {
+                throw new Error(`Billing period ${billingPeriodId} not found`);
+            }
+
+            // Get associated payments
+            const paymentsResult = await pool.query(
+                `SELECT id, amount, payment_method, payment_date, reference_number
+     FROM monthly_billing_payments 
+     WHERE billing_period_id = $1`,
+                [billingPeriodId]
+            );
+
+            const row = result.rows[0];
+
+            return {
+                id: row.id,
+                therapistId: row.therapist_id,
+                patientId: row.patient_id,
+                billingYear: row.billing_year,
+                billingMonth: row.billing_month,
+                sessionCount: row.session_count,
+                totalAmount: row.total_amount,
+                sessionSnapshots: row.session_snapshots,
+                processedAt: new Date(row.processed_at),
+                processedBy: row.processed_by,
+                status: row.status,
+                canBeVoided: row.can_be_voided,
+                payments: paymentsResult.rows
+            };
+
+        } catch (error) {
+            console.error('Error getting billing period details:', error);
+            throw error;
         }
     }
 }
