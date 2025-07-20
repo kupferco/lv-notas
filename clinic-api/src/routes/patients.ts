@@ -63,12 +63,26 @@ router.get("/", asyncHandler(async (req, res) => {
   return res.json(result.rows);
 }));
 
-// POST /api/patients - Create new patient
+// POST /api/patients - Create new patient (FIXED to handle all fields)
 router.post("/", asyncHandler(async (req, res) => {
-  const { nome, email, telefone, therapistEmail, sessionPrice } = req.body;
+  const {
+    nome,
+    email,
+    telefone,
+    therapistEmail,
+    sessionPrice,
+    therapyStartDate,
+    lvNotasBillingStartDate,
+    observacoes,
+    endereco,
+    dataNascimento,
+    genero,
+    contatoEmergencia,
+    telefoneEmergencia
+  } = req.body;
 
   console.log("=== CREATE PATIENT REQUEST ===");
-  console.log("Request body:", { nome, email, telefone, therapistEmail });
+  console.log("Request body:", req.body);
 
   if (!nome || !email || !therapistEmail) {
     const missingFields = [];
@@ -110,13 +124,63 @@ router.post("/", asyncHandler(async (req, res) => {
     const therapistId = therapistResult.rows[0].id;
     console.log("Found therapist:", therapistResult.rows[0]);
 
-    // Create the patient with therapist_id
-    console.log("Creating patient with data:", [nome, email || null, telefone || null, therapistId]);
+    // Format dates for database (DD/MM/YYYY -> YYYY-MM-DD)
+    const formatDateForDB = (dateString: string | undefined | null): string | null => {
+      if (!dateString) return null;
+      try {
+        // If it's already in YYYY-MM-DD format, return as is
+        if (dateString.includes('-')) return dateString;
+        // Convert from DD/MM/YYYY to YYYY-MM-DD
+        const [day, month, year] = dateString.split('/');
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      } catch (error: any) {
+        console.error('Error formatting date for DB:', dateString, error);
+        return null;
+      }
+    };
+
+    // Create the patient with ALL fields including dates
+    console.log("Creating patient with data:", {
+      nome,
+      email: email || null,
+      telefone: telefone || null,
+      therapistId,
+      sessionPrice: sessionPrice || null,
+      therapyStartDate: formatDateForDB(therapyStartDate),
+      lvNotasBillingStartDate: formatDateForDB(lvNotasBillingStartDate),
+      observacoes: observacoes || null
+    });
+
     const result = await pool.query(
-      `INSERT INTO patients (nome, email, telefone, therapist_id, preco) 
-   VALUES ($1, $2, $3, $4, $5) 
-   RETURNING id, nome as name, email, telefone`,
-      [nome, email || null, telefone || null, therapistId, sessionPrice || null]
+      `INSERT INTO patients (
+        nome, 
+        email, 
+        telefone, 
+        therapist_id, 
+        preco,
+        therapy_start_date,
+        lv_notas_billing_start_date,
+        notes
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+      RETURNING 
+        id, 
+        nome as name, 
+        email, 
+        telefone,
+        CAST(preco AS INTEGER) as "sessionPrice",
+        therapy_start_date as "therapyStartDate",
+        lv_notas_billing_start_date as "lvNotasBillingStartDate",
+        notes as observacoes`,
+      [
+        nome,
+        email || null,
+        telefone || null,
+        therapistId,
+        sessionPrice || null,
+        formatDateForDB(therapyStartDate),
+        formatDateForDB(lvNotasBillingStartDate),
+        observacoes || null
+      ]
     );
 
     console.log("Patient created successfully:", result.rows[0]);
