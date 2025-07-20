@@ -5,6 +5,7 @@ import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Alert
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { apiService } from '../../services/api';
+import { whatsappService } from '../../services/whatsapp';
 
 // Import types
 import {
@@ -15,6 +16,7 @@ import {
   RecordPaymentRequest,
   CalendarOnlyPatient
 } from '../../types/calendar-only';
+import { PatientPaymentSummary, WhatsAppMessageData } from '../../types/payments';
 
 interface MonthlyBillingOverviewProps {
   therapistEmail: string;
@@ -101,17 +103,17 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
       const link = document.createElement('a');
       link.href = url;
       link.download = `cobranca-mensal-${selectedYear}-${selectedMonth.toString().padStart(2, '0')}.csv`;
-      
+
       // Trigger download
       document.body.appendChild(link);
       link.click();
-      
+
       // Cleanup
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
       console.log(`✅ CSV export completed successfully`);
-      
+
       Alert.alert(
         'Exportação Concluída!',
         `Dados de cobrança de ${selectedMonth}/${selectedYear} exportados com sucesso.\n\n` +
@@ -148,11 +150,21 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
         `Cobrança processada para ${patientSummary.patientName}\n\n` +
         `Sessões: ${response.billingPeriod.sessionCount}\n` +
         `Valor total: R$ ${(response.billingPeriod.totalAmount / 100).toFixed(2).replace('.', ',')}\n` +
-        `Status: ${response.billingPeriod.status}`
+        `Status: ${response.billingPeriod.status}\n\n` +
+        `Preparando mensagem WhatsApp...`
       );
 
       // Refresh the summary to show updated status
       await loadBillingSummary();
+
+      // 📱 Automatically trigger WhatsApp message after successful processing
+      await sendWhatsAppMessage({
+        ...patientSummary,
+        status: 'processed',
+        totalAmount: response.billingPeriod.totalAmount,
+        sessionCount: response.billingPeriod.sessionCount,
+        canProcess: false
+      });
 
     } catch (error: any) {
       console.error('❌ Error processing monthly charges:', error);
@@ -161,7 +173,6 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
       setProcessingPatientId(null);
     }
   };
-
   const viewBillingPeriodDetails = async (billingPeriodId: number | undefined) => {
     if (!billingPeriodId) {
       Alert.alert('Erro', 'ID do período de cobrança não encontrado');
@@ -294,6 +305,78 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
     }
   };
 
+  // WhatsApp functionality
+  const sendWhatsAppMessage = async (patientSummary: BillingSummary) => {
+    try {
+      console.log(`📱 Preparing WhatsApp message for ${patientSummary.patientName}`);
+
+      // Get patient info from the API to get phone number
+      const patients = await apiService.getPatients(therapistEmail);
+      console.log('📱 Got patients list, searching for patient...');
+
+      const fullPatientInfo = patients.find(p =>
+        parseInt(p.id) === patientSummary.patientId
+      );
+
+      if (!fullPatientInfo) {
+        console.error('❌ Patient not found in patients list');
+        Alert.alert('Erro', 'Informações do paciente não encontradas');
+        return;
+      }
+
+      console.log('📱 Patient found:', fullPatientInfo.name, 'Phone:', fullPatientInfo.telefone);
+
+      // Convert BillingSummary to PatientPaymentSummary format for WhatsApp service
+      const paymentSummary: PatientPaymentSummary = {
+        patient_name: patientSummary.patientName,
+        telefone: fullPatientInfo.telefone || '',
+        total_sessions: patientSummary.sessionCount,
+        total_amount: patientSummary.totalAmount / 100,
+        pending_amount: patientSummary.totalAmount / 100,
+        last_session_date: new Date().toISOString(),
+        patient_id: patientSummary.patientId,
+        paid_amount: 0,
+        billing_cycle: `${selectedMonth}/${selectedYear}`,
+        payment_requested: false,
+        payment_count: 0,
+        pendente_sessions: 0,
+        aguardando_sessions: 0,
+        nao_cobrado_sessions: patientSummary.sessionCount,
+        paid_sessions: 0
+      };
+
+      console.log('📱 Payment summary created:', paymentSummary);
+
+      // Generate WhatsApp message and show confirmation
+      console.log('📱 Calling whatsappService.previewMessage...');
+      const whatsappData = whatsappService.previewMessage(paymentSummary, 'invoice');
+      console.log('📱 WhatsApp data generated:', whatsappData);
+
+      const confirmed = window.confirm(
+        `Abrir WhatsApp para enviar cobrança para ${patientSummary.patientName} (telefone:${paymentSummary.telefone})?\n\n` +
+        `Sessões: ${patientSummary.sessionCount}\n` +
+        `Valor: R$ ${(patientSummary.totalAmount / 100).toFixed(2).replace('.', ',')}\n\n` +
+        'Prévia da mensagem:\n\n' +
+        whatsappData.message.substring(0, 150) + '...'
+      );
+
+      console.log('📱 User confirmation:', confirmed);
+
+      if (confirmed) {
+        console.log('📱 Opening WhatsApp link...');
+        whatsappService.openWhatsAppLink(whatsappData);
+        console.log(`📱 WhatsApp opened for ${patientSummary.patientName}`);
+      } else {
+        console.log('📱 User cancelled WhatsApp message');
+      }
+
+    } catch (error: any) {
+      console.error('❌ Error preparing WhatsApp message:', error);
+      console.error('❌ Error stack:', error.stack);
+      Alert.alert('Erro', `Falha ao preparar mensagem: ${error.message}`);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'can_process': return '#007bff';
@@ -339,7 +422,7 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
               {isAutoCheckInEnabled() && ' • ⚡ Modo Calendário Ativo'}
             </Text>
           </View>
-          
+
           <View style={styles.headerRight}>
             <Pressable
               style={[styles.exportButton, (loading || billingSummary.length === 0 || isExporting) && styles.exportButtonDisabled]}
@@ -422,7 +505,7 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
                 Nenhum paciente com sessões para {selectedMonth}/{selectedYear}
               </Text>
               <Text style={styles.emptyStateSubtext}>
-                Pacientes sem sessões são automaticamente ocultados. 
+                Pacientes sem sessões são automaticamente ocultados.
                 Verifique se há sessões agendadas no Google Calendar para este período.
               </Text>
             </View>
