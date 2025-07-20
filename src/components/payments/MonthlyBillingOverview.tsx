@@ -37,6 +37,7 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
   const [processingPatientId, setProcessingPatientId] = useState<number | null>(null);
   const [billingPeriodDetails, setBillingPeriodDetails] = useState<BillingPeriod | null>(null);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [paymentFormData, setPaymentFormData] = useState({
     amount: '',
     paymentMethod: 'pix' as 'pix' | 'transferencia' | 'dinheiro' | 'cartao',
@@ -62,8 +63,18 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
         selectedMonth
       );
 
-      setBillingSummary(response.summary);
-      console.log(`✅ Loaded ${response.summary.length} patient billing summaries`);
+      // 🎯 Filter out patients with zero sessions to clean up the interface
+      const patientsWithSessions = response.summary.filter(patient => patient.sessionCount > 0);
+
+      setBillingSummary(patientsWithSessions);
+      console.log(`✅ Loaded ${response.summary.length} total patients, showing ${patientsWithSessions.length} with sessions`);
+
+      // Log filtered patients for debugging
+      const filteredOut = response.summary.filter(patient => patient.sessionCount === 0);
+      if (filteredOut.length > 0) {
+        console.log(`🚫 Filtered out ${filteredOut.length} patients with zero sessions:`,
+          filteredOut.map(p => p.patientName));
+      }
 
     } catch (error: any) {
       console.error('❌ Error loading monthly billing summary:', error);
@@ -73,24 +84,53 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
     }
   };
 
+  // 📊 CSV Export functionality
+  const exportCSV = async () => {
+    try {
+      setIsExporting(true);
+      console.log(`📊 Exporting CSV for ${selectedMonth}/${selectedYear}`);
+
+      const csvBlob = await apiService.exportMonthlyBillingCSV(
+        therapistEmail,
+        selectedYear,
+        selectedMonth
+      );
+
+      // Create a download link
+      const url = window.URL.createObjectURL(csvBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `cobranca-mensal-${selectedYear}-${selectedMonth.toString().padStart(2, '0')}.csv`;
+      
+      // Trigger download
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      console.log(`✅ CSV export completed successfully`);
+      
+      Alert.alert(
+        'Exportação Concluída!',
+        `Dados de cobrança de ${selectedMonth}/${selectedYear} exportados com sucesso.\n\n` +
+        `Arquivo: cobranca-mensal-${selectedYear}-${selectedMonth.toString().padStart(2, '0')}.csv\n\n` +
+        `O arquivo inclui apenas pacientes com sessões no período selecionado.`
+      );
+
+    } catch (error: any) {
+      console.error('❌ Error exporting CSV:', error);
+      Alert.alert('Erro na Exportação', `Falha ao exportar CSV: ${error.message}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const processCharges = async (patientSummary: BillingSummary) => {
     try {
       setProcessingPatientId(patientSummary.patientId);
       console.log(`💰 Processing charges for patient ${patientSummary.patientName}`);
-
-      // Show confirmation dialog
-      // const confirmed = window.confirm(
-      //   `Processar cobrança mensal para ${patientSummary.patientName}?\n\n` +
-      //   `Período: ${selectedMonth}/${selectedYear}\n` +
-      //   `Sessões esperadas: Será calculado a partir do Google Calendar\n` +
-      //   `Valor estimado: R$ ${(patientSummary.totalAmount / 100).toFixed(2).replace('.', ',')}\n\n` +
-      //   `Esta ação criará um período de cobrança com snapshot das sessões do calendário.`
-      // );
-
-      // if (!confirmed) {
-      //   setProcessingPatientId(null);
-      //   return;
-      // }
 
       const request: ProcessChargesRequest = {
         therapistEmail,
@@ -203,15 +243,6 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
     }
 
     try {
-      // const confirmed = window.confirm(
-      //   `Cancelar período de cobrança para ${patientSummary.patientName}?\n\n` +
-      //   `Período: ${selectedMonth}/${selectedYear}\n` +
-      //   `Valor: R$ ${(patientSummary.totalAmount / 100).toFixed(2).replace('.', ',')}\n\n` +
-      //   `Esta ação não pode ser desfeita. O período poderá ser reprocessado posteriormente.`
-      // );
-
-      // if (!confirmed) return;
-
       console.log(`🗑️ Voiding billing period ${patientSummary.billingPeriodId}`);
 
       await apiService.voidBillingPeriod(
@@ -298,14 +329,28 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
 
   return (
     <ScrollView style={styles.container}>
-      {/* Header
+      {/* Header with Export Button */}
       <View style={styles.header}>
-        <Text style={styles.title}>💰 Cobrança Mensal</Text>
-        <Text style={styles.subtitle}>
-          {selectedMonth}/{selectedYear} • {billingSummary.length} pacientes
-          {isAutoCheckInEnabled() && ' • ⚡ Modo Calendário Ativo'}
-        </Text>
-      </View> */}
+        <View style={styles.headerLeft}>
+          <Text style={styles.title}>💰 Cobrança Mensal</Text>
+          <Text style={styles.subtitle}>
+            {selectedMonth}/{selectedYear} • {billingSummary.length} pacientes com sessões
+            {isAutoCheckInEnabled() && ' • ⚡ Modo Calendário Ativo'}
+          </Text>
+        </View>
+        
+        <View style={styles.headerRight}>
+          <Pressable
+            style={[styles.exportButton, (loading || billingSummary.length === 0 || isExporting) && styles.exportButtonDisabled]}
+            onPress={exportCSV}
+            disabled={loading || billingSummary.length === 0 || isExporting}
+          >
+            <Text style={styles.exportButtonText}>
+              {isExporting ? '📊 Exportando...' : '📊 Exportar CSV'}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
 
       {/* Monthly Summary Cards */}
       <View style={styles.summaryContainer}>
@@ -373,10 +418,11 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
         {billingSummary.length === 0 && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>
-              Nenhum paciente encontrado para {selectedMonth}/{selectedYear}
+              Nenhum paciente com sessões para {selectedMonth}/{selectedYear}
             </Text>
             <Text style={styles.emptyStateSubtext}>
-              Verifique se há sessões agendadas no Google Calendar para este período
+              Pacientes sem sessões são automaticamente ocultados. 
+              Verifique se há sessões agendadas no Google Calendar para este período.
             </Text>
           </View>
         )}
@@ -547,11 +593,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6c757d',
   },
+  // Updated header styles with export button
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     padding: 20,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  headerRight: {
+    marginLeft: 16,
   },
   title: {
     fontSize: 24,
@@ -563,6 +619,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6c757d',
     fontStyle: 'italic',
+  },
+  // Export button styles
+  exportButton: {
+    backgroundColor: '#28a745',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 6,
+    minWidth: 140,
+    alignItems: 'center',
+  },
+  exportButtonDisabled: {
+    backgroundColor: '#6c757d',
+  },
+  exportButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   summaryContainer: {
     padding: 15,

@@ -209,7 +209,7 @@ export class MonthlyBillingService {
 
                 if (!isPatientMatch) {
                     // Debug logging to help troubleshoot
-                    console.log(`❌ No match for patient ${patient.name} (${patient.email || 'no email'}) in event: "${event.summary}"`);
+                    // console.log(`❌ No match for patient ${patient.name} (${patient.email || 'no email'}) in event: "${event.summary}"`);
                 }
 
                 if (isPatientMatch) {

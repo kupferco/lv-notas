@@ -73,6 +73,166 @@ router.get("/summary", asyncHandler(async (req, res) => {
     }
 }));
 
+// GET /api/monthly-billing/export-csv?therapistEmail=&year=&month=
+// Fixed CSV export with correct table names
+router.get("/export-csv", asyncHandler(async (req, res) => {
+    const therapistEmail = req.query.therapistEmail as string;
+    const year = parseInt(req.query.year as string) || new Date().getFullYear();
+    const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
+
+    if (!therapistEmail) {
+        return res.status(400).json({ error: "therapistEmail is required" });
+    }
+
+    if (month < 1 || month > 12) {
+        return res.status(400).json({ error: "month must be between 1 and 12" });
+    }
+
+    try {
+        const userAccessToken = req.headers['x-calendar-token'] as string;
+        
+        // Get billing summary
+        const summary = await monthlyBillingService.getBillingSummary(
+            therapistEmail,
+            year,
+            month,
+            userAccessToken
+        );
+
+        // Filter out patients with zero sessions
+        const patientsWithSessions = summary.filter(patient => patient.sessionCount > 0);
+
+        // Get detailed patient info for CSV
+        const csvData = await Promise.all(
+            patientsWithSessions.map(async (billingSummary) => {
+                // Get patient details from database
+                const patientResult = await pool.query(
+                    `SELECT 
+                        p.nome as name,
+                        p.email,
+                        p.telefone,
+                        p.therapy_start_date,
+                        p.lv_notas_billing_start_date,
+                        CAST(p.preco AS INTEGER) as session_price
+                    FROM patients p 
+                    INNER JOIN therapists t ON p.therapist_id = t.id 
+                    WHERE p.id = $1 AND t.email = $2`,
+                    [billingSummary.patientId, therapistEmail]
+                );
+
+                const patient = patientResult.rows[0];
+                
+                // Get payment details if billing period exists (using correct table name)
+                let paymentDate = '';
+                let paymentMethod = '';
+                let paymentReference = '';
+
+                if (billingSummary.billingPeriodId) {
+                    const paymentResult = await pool.query(
+                        `SELECT 
+                            payment_date,
+                            payment_method,
+                            reference_number
+                        FROM monthly_billing_payments 
+                        WHERE billing_period_id = $1 
+                        ORDER BY created_at DESC 
+                        LIMIT 1`,
+                        [billingSummary.billingPeriodId]
+                    );
+
+                    if (paymentResult.rows.length > 0) {
+                        const payment = paymentResult.rows[0];
+                        paymentDate = payment.payment_date ? new Date(payment.payment_date).toLocaleDateString('pt-BR') : '';
+                        paymentMethod = payment.payment_method ? payment.payment_method.toUpperCase() : '';
+                        paymentReference = payment.reference_number || '';
+                    }
+                }
+
+                return {
+                    patientName: patient?.name || billingSummary.patientName || 'Nome não encontrado',
+                    email: patient?.email || '',
+                    telefone: patient?.telefone || '',
+                    sessionCount: billingSummary.sessionCount,
+                    sessionPrice: patient?.session_price ? `R$ ${(patient.session_price / 100).toFixed(2).replace('.', ',')}` : '',
+                    totalAmount: `R$ ${(billingSummary.totalAmount / 100).toFixed(2).replace('.', ',')}`,
+                    status: getStatusText(billingSummary.status || 'can_process'),
+                    paymentDate,
+                    paymentMethod,
+                    paymentReference,
+                    therapyStartDate: patient?.therapy_start_date ? new Date(patient.therapy_start_date).toLocaleDateString('pt-BR') : '',
+                    billingStartDate: patient?.lv_notas_billing_start_date ? new Date(patient.lv_notas_billing_start_date).toLocaleDateString('pt-BR') : ''
+                };
+            })
+        );
+
+        // Helper function to get status text
+        function getStatusText(status: string): string {
+            switch (status) {
+                case 'can_process': return 'Pode Processar';
+                case 'processed': return 'Processado';
+                case 'paid': return 'Pago';
+                case 'void': return 'Cancelado';
+                default: return 'Status Desconhecido';
+            }
+        }
+
+        // Create CSV content with BOM for proper UTF-8 Excel support
+        const csvHeaders = [
+            'Nome Completo',
+            'Email',
+            'Telefone',
+            'Número de Sessões',
+            'Valor por Sessão',
+            'Valor Total',
+            'Status do Pagamento',
+            'Data do Pagamento',
+            'Método de Pagamento',
+            'Referência do Pagamento',
+            'Início da Terapia',
+            'Início Cobrança LV Notas'
+        ];
+
+        const csvRows = csvData.map(row => [
+            `"${row.patientName}"`,
+            `"${row.email}"`,
+            `"${row.telefone}"`,
+            row.sessionCount.toString(),
+            `"${row.sessionPrice}"`,
+            `"${row.totalAmount}"`,
+            `"${row.status}"`,
+            `"${row.paymentDate}"`,
+            `"${row.paymentMethod}"`,
+            `"${row.paymentReference}"`,
+            `"${row.therapyStartDate}"`,
+            `"${row.billingStartDate}"`
+        ]);
+
+        // Add UTF-8 BOM for proper Excel encoding
+        const BOM = '\uFEFF';
+        const csvContent = BOM + 
+            csvHeaders.join(',') + '\n' + 
+            csvRows.map(row => row.join(',')).join('\n');
+
+        // Set response headers for file download
+        const filename = `cobranca-mensal-${year}-${month.toString().padStart(2, '0')}.csv`;
+        
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Cache-Control', 'no-cache');
+        
+        console.log(`📊 CSV export generated: ${csvData.length} patients with sessions for ${month}/${year}`);
+        
+        return res.send(csvContent);
+
+    } catch (error) {
+        console.error('Error generating CSV export:', error);
+        return res.status(500).json({
+            error: "Failed to generate CSV export",
+            details: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+}));
+
 // POST /api/monthly-billing/process
 // Process monthly charges for a specific patient
 router.post("/process", asyncHandler(async (req, res) => {

@@ -1,8 +1,8 @@
 // src/services/api.ts - Enhanced with Calendar-Only Methods
 import type { Patient, Session, Therapist } from "../types/index";
-import type { 
-  CalendarSession, 
-  BillingPeriod, 
+import type {
+  CalendarSession,
+  BillingPeriod,
   BillingSummary,
   ProcessChargesRequest,
   ProcessChargesResponse,
@@ -448,8 +448,37 @@ export const apiService = {
     }
   },
 
+  // Export monthly billing data as CSV
+  async exportMonthlyBillingCSV(
+    therapistEmail: string,
+    year: number,
+    month: number
+  ): Promise<Blob> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for CSV export");
+    }
+
+    const headers = await getAuthHeaders();
+    const params = new URLSearchParams({
+      therapistEmail,
+      year: year.toString(),
+      month: month.toString()
+    });
+
+    console.log(`📊 exportMonthlyBillingCSV API call - ${year}-${month}`);
+    const response = await fetch(`${API_URL}/api/monthly-billing/export-csv?${params}`, { headers });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ exportMonthlyBillingCSV error response:", errorText);
+      throw new Error(`Failed to export CSV. Status: ${response.status}, Error: ${errorText}`);
+    }
+
+    return response.blob();
+  },
+
   // ==========================================
-  // ALL YOUR EXISTING METHODS CONTINUE HERE
+  // 
   // ==========================================
 
   async getCalendars(): Promise<any[]> {
