@@ -38,12 +38,13 @@ CREATE TABLE therapists (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Patients with dual date system and enhanced features
+-- Patients with dual date system, CPF, and enhanced features
 CREATE TABLE patients (
     id SERIAL PRIMARY KEY,
     nome VARCHAR(255) NOT NULL,
     email VARCHAR(255),
     telefone VARCHAR(20),
+    cpf VARCHAR(14), -- Brazilian CPF field (format: XXX.XXX.XXX-XX)
     nota BOOLEAN DEFAULT false,
     preco DECIMAL(10,2),
     therapist_id INTEGER REFERENCES therapists(id) ON DELETE CASCADE,
@@ -64,16 +65,28 @@ CREATE TABLE patients (
 CREATE INDEX idx_patients_therapist_id ON patients(therapist_id);
 CREATE INDEX idx_patients_therapist_billing ON patients(therapist_id, lv_notas_billing_start_date);
 
+-- CPF index with unique constraint (allowing NULLs)
+CREATE UNIQUE INDEX idx_patients_cpf ON patients(cpf) WHERE cpf IS NOT NULL;
+
+-- Email indexes for lookups
+CREATE INDEX idx_therapists_email ON therapists(email);
+CREATE INDEX idx_patients_email ON patients(email);
+
 -- =============================================================================
 -- COMMENTS FOR CORE TABLES
 -- =============================================================================
 
 COMMENT ON COLUMN patients.therapy_start_date IS 'Historical date when therapy actually began (optional, for context only)';
 COMMENT ON COLUMN patients.lv_notas_billing_start_date IS 'Date when LV Notas billing begins (required, affects billing calculations)';
+COMMENT ON COLUMN patients.cpf IS 'Brazilian CPF (Cadastro de Pessoas Físicas) - format XXX.XXX.XXX-XX';
 COMMENT ON TABLE therapists IS 'Core therapist accounts with billing and onboarding configuration';
-COMMENT ON TABLE patients IS 'Patient records with dual date system for therapy vs billing tracking';
+COMMENT ON TABLE patients IS 'Patient records with dual date system for therapy vs billing tracking and CPF support';
 
 -- Success message
 DO $$ BEGIN
-    RAISE NOTICE 'Core tables (therapists, patients) created successfully!';
+    RAISE NOTICE 'Core tables (therapists, patients) created successfully with CPF support!';
+    RAISE NOTICE 'New features:';
+    RAISE NOTICE '  ✅ CPF field with Brazilian formatting (XXX.XXX.XXX-XX)';
+    RAISE NOTICE '  ✅ Unique CPF constraint (NULLs allowed)';
+    RAISE NOTICE '  ✅ Enhanced indexing for performance';
 END $$;

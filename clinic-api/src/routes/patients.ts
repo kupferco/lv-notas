@@ -34,7 +34,7 @@ const asyncHandler = (
 // EXISTING ENDPOINTS
 // ============================================================================
 
-// GET /api/patients?therapistEmail=email - Filter patients by therapist
+// GET /api/patients?therapistEmail=email - Filter patients by therapist (ENHANCED with CPF)
 router.get("/", asyncHandler(async (req, res) => {
   const { therapistEmail } = req.query;
 
@@ -42,13 +42,14 @@ router.get("/", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "therapistEmail parameter is required" });
   }
 
-  // Include all patient fields with proper camelCase aliases
+  // Include all patient fields with proper camelCase aliases including CPF
   const result = await pool.query(
     `SELECT 
      p.id, 
      p.nome as name, 
      p.email, 
      p.telefone,
+     p.cpf,
      CAST(p.preco AS INTEGER) as "sessionPrice",
      p.therapy_start_date as "therapyStartDate",
      p.lv_notas_billing_start_date as "lvNotasBillingStartDate",
@@ -63,12 +64,13 @@ router.get("/", asyncHandler(async (req, res) => {
   return res.json(result.rows);
 }));
 
-// POST /api/patients - Create new patient (FIXED to handle all fields)
+// POST /api/patients - Create new patient (ENHANCED with CPF support)
 router.post("/", asyncHandler(async (req, res) => {
   const {
     nome,
     email,
     telefone,
+    cpf, // New CPF field
     therapistEmail,
     sessionPrice,
     therapyStartDate,
@@ -93,8 +95,29 @@ router.post("/", asyncHandler(async (req, res) => {
     console.log("Missing required fields:", missingFields);
     return res.status(400).json({
       error: `Missing required fields: ${missingFields.join(', ')}`,
-      receivedData: { nome, email, telefone, therapistEmail }
+      receivedData: { nome, email, telefone, cpf, therapistEmail }
     });
+  }
+
+  // CPF validation if provided
+  if (cpf && cpf.trim()) {
+    const cleanCpf = cpf.replace(/\D/g, '');
+
+    // Basic CPF format validation (11 digits)
+    if (cleanCpf.length !== 11) {
+      return res.status(400).json({
+        error: "CPF deve ter 11 dígitos",
+        receivedCpf: cpf
+      });
+    }
+
+    // Check for common invalid CPFs (all same digits)
+    if (/^(\d)\1{10}$/.test(cleanCpf)) {
+      return res.status(400).json({
+        error: "CPF inválido - não pode ter todos os dígitos iguais",
+        receivedCpf: cpf
+      });
+    }
   }
 
   try {
@@ -124,6 +147,23 @@ router.post("/", asyncHandler(async (req, res) => {
     const therapistId = therapistResult.rows[0].id;
     console.log("Found therapist:", therapistResult.rows[0]);
 
+    // Check for duplicate CPF if provided
+    if (cpf && cpf.trim()) {
+      const formattedCpf = formatCpfForStorage(cpf);
+      const cpfCheckResult = await pool.query(
+        "SELECT id, nome FROM patients WHERE cpf = $1 AND therapist_id = $2",
+        [formattedCpf, therapistId]
+      );
+
+      if (cpfCheckResult.rows.length > 0) {
+        return res.status(400).json({
+          error: "CPF já cadastrado para outro paciente",
+          existingPatient: cpfCheckResult.rows[0].nome,
+          cpf: formattedCpf
+        });
+      }
+    }
+
     // Format dates for database (DD/MM/YYYY -> YYYY-MM-DD)
     const formatDateForDB = (dateString: string | undefined | null): string | null => {
       if (!dateString) return null;
@@ -139,11 +179,22 @@ router.post("/", asyncHandler(async (req, res) => {
       }
     };
 
-    // Create the patient with ALL fields including dates
+    // Format CPF for storage (XXX.XXX.XXX-XX)
+    function formatCpfForStorage(cpfInput: string): string | null {
+      if (!cpfInput || !cpfInput.trim()) return null;
+
+      const cleanCpf = cpfInput.replace(/\D/g, '');
+      if (cleanCpf.length !== 11) return null;
+
+      return `${cleanCpf.slice(0, 3)}.${cleanCpf.slice(3, 6)}.${cleanCpf.slice(6, 9)}-${cleanCpf.slice(9, 11)}`;
+    }
+
+    // Create the patient with ALL fields including CPF and dates
     console.log("Creating patient with data:", {
       nome,
       email: email || null,
       telefone: telefone || null,
+      cpf: formatCpfForStorage(cpf),
       therapistId,
       sessionPrice: sessionPrice || null,
       therapyStartDate: formatDateForDB(therapyStartDate),
@@ -156,17 +207,19 @@ router.post("/", asyncHandler(async (req, res) => {
         nome, 
         email, 
         telefone, 
+        cpf,
         therapist_id, 
         preco,
         therapy_start_date,
         lv_notas_billing_start_date,
         notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
       RETURNING 
         id, 
         nome as name, 
         email, 
         telefone,
+        cpf,
         CAST(preco AS INTEGER) as "sessionPrice",
         therapy_start_date as "therapyStartDate",
         lv_notas_billing_start_date as "lvNotasBillingStartDate",
@@ -175,6 +228,7 @@ router.post("/", asyncHandler(async (req, res) => {
         nome,
         email || null,
         telefone || null,
+        formatCpfForStorage(cpf),
         therapistId,
         sessionPrice || null,
         formatDateForDB(therapyStartDate),
@@ -196,13 +250,14 @@ router.post("/", asyncHandler(async (req, res) => {
   }
 }));
 
-// PUT /api/patients/:id - Update patient  
+// PUT /api/patients/:id - Update patient (ENHANCED with CPF support)
 router.put("/:id", asyncHandler(async (req, res) => {
   const { id } = req.params;
   const {
     nome,
     email,
     telefone,
+    cpf, // New CPF field
     sessionPrice,
     therapyStartDate,
     lvNotasBillingStartDate,
@@ -217,31 +272,82 @@ router.put("/:id", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "Nome and email are required" });
   }
 
+  // CPF validation if provided
+  if (cpf && cpf.trim()) {
+    const cleanCpf = cpf.replace(/\D/g, '');
+
+    // Basic CPF format validation (11 digits)
+    if (cleanCpf.length !== 11) {
+      return res.status(400).json({
+        error: "CPF deve ter 11 dígitos",
+        receivedCpf: cpf
+      });
+    }
+
+    // Check for common invalid CPFs (all same digits)
+    if (/^(\d)\1{10}$/.test(cleanCpf)) {
+      return res.status(400).json({
+        error: "CPF inválido - não pode ter todos os dígitos iguais",
+        receivedCpf: cpf
+      });
+    }
+  }
+
   try {
+    // Format CPF for storage (XXX.XXX.XXX-XX)
+    function formatCpfForStorage(cpfInput: string | undefined): string | null {
+      if (!cpfInput || !cpfInput.trim()) return null;
+
+      const cleanCpf = cpfInput.replace(/\D/g, '');
+      if (cleanCpf.length !== 11) return null;
+
+      return `${cleanCpf.slice(0, 3)}.${cleanCpf.slice(3, 6)}.${cleanCpf.slice(6, 9)}-${cleanCpf.slice(9, 11)}`;
+    }
+
+    // Check for duplicate CPF if provided (excluding current patient)
+    if (cpf && cpf.trim()) {
+      const formattedCpf = formatCpfForStorage(cpf);
+      const cpfCheckResult = await pool.query(
+        "SELECT id, nome FROM patients WHERE cpf = $1 AND id != $2",
+        [formattedCpf, id]
+      );
+
+      if (cpfCheckResult.rows.length > 0) {
+        return res.status(400).json({
+          error: "CPF já cadastrado para outro paciente",
+          existingPatient: cpfCheckResult.rows[0].nome,
+          cpf: formattedCpf
+        });
+      }
+    }
+
     const result = await pool.query(
       `UPDATE patients 
        SET 
          nome = $1, 
          email = $2, 
          telefone = $3,
-         preco = $4,
-         therapy_start_date = $5,
-         lv_notas_billing_start_date = $6,
-         notes = $7
-       WHERE id = $8 
+         cpf = $4,
+         preco = $5,
+         therapy_start_date = $6,
+         lv_notas_billing_start_date = $7,
+         notes = $8
+       WHERE id = $9 
        RETURNING 
-  id, 
-  nome as name, 
-  email, 
-  telefone,
-  CAST(preco AS INTEGER) as sessionPrice,
-  therapy_start_date as therapyStartDate,
-  lv_notas_billing_start_date as lvNotasBillingStartDate,
-  notes as observacoes`,
+         id, 
+         nome as name, 
+         email, 
+         telefone,
+         cpf,
+         CAST(preco AS INTEGER) as sessionPrice,
+         therapy_start_date as therapyStartDate,
+         lv_notas_billing_start_date as lvNotasBillingStartDate,
+         notes as observacoes`,
       [
         nome,
         email || null,
         telefone || null,
+        formatCpfForStorage(cpf),
         sessionPrice || null,
         therapyStartDate || null,
         lvNotasBillingStartDate || null,
@@ -254,6 +360,7 @@ router.put("/:id", asyncHandler(async (req, res) => {
       return res.status(404).json({ error: "Patient not found" });
     }
 
+    console.log("Patient updated successfully:", result.rows[0]);
     return res.json(result.rows[0]);
   } catch (error: any) {
     console.error("Database error:", error);

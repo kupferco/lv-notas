@@ -90,7 +90,7 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
 
     try {
         const userAccessToken = req.headers['x-calendar-token'] as string;
-        
+
         // Get billing summary
         const summary = await monthlyBillingService.getBillingSummary(
             therapistEmail,
@@ -111,6 +111,7 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
                         p.nome as name,
                         p.email,
                         p.telefone,
+                        p.cpf,
                         p.therapy_start_date,
                         p.lv_notas_billing_start_date,
                         CAST(p.preco AS INTEGER) as session_price
@@ -121,7 +122,7 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
                 );
 
                 const patient = patientResult.rows[0];
-                
+
                 // Get payment details if billing period exists (using correct table name)
                 let paymentDate = '';
                 let paymentMethod = '';
@@ -152,6 +153,7 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
                     patientName: patient?.name || billingSummary.patientName || 'Nome não encontrado',
                     email: patient?.email || '',
                     telefone: patient?.telefone || '',
+                    cpf: patient?.cpf || '',
                     sessionCount: billingSummary.sessionCount,
                     sessionPrice: patient?.session_price ? `R$ ${(patient.session_price / 100).toFixed(2).replace('.', ',')}` : '',
                     totalAmount: `R$ ${(billingSummary.totalAmount / 100).toFixed(2).replace('.', ',')}`,
@@ -181,6 +183,7 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
             'Nome Completo',
             'Email',
             'Telefone',
+            'CPF',
             'Número de Sessões',
             'Valor por Sessão',
             'Valor Total',
@@ -196,6 +199,7 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
             `"${row.patientName}"`,
             `"${row.email}"`,
             `"${row.telefone}"`,
+            `"${row.cpf}"`,
             row.sessionCount.toString(),
             `"${row.sessionPrice}"`,
             `"${row.totalAmount}"`,
@@ -209,19 +213,31 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
 
         // Add UTF-8 BOM for proper Excel encoding
         const BOM = '\uFEFF';
-        const csvContent = BOM + 
-            csvHeaders.join(',') + '\n' + 
+        const csvContent = BOM +
+            csvHeaders.join(',') + '\n' +
             csvRows.map(row => row.join(',')).join('\n');
 
         // Set response headers for file download
         const filename = `cobranca-mensal-${year}-${month.toString().padStart(2, '0')}.csv`;
-        
+
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.setHeader('Cache-Control', 'no-cache');
-        
+
         console.log(`📊 CSV export generated: ${csvData.length} patients with sessions for ${month}/${year}`);
-        
+
+        // Add this temporary debug code after csvData is created
+        console.log('=== CSV DEBUG ===');
+        console.log('Number of patients:', csvData.length);
+        csvData.forEach((patient, index) => {
+            console.log(`Patient ${index + 1}:`, {
+                name: patient.patientName,
+                cpf: patient.cpf,
+                email: patient.email
+            });
+        });
+        console.log('=== END CSV DEBUG ===');
+
         return res.send(csvContent);
 
     } catch (error) {

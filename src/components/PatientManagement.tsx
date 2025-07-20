@@ -16,6 +16,7 @@ interface PatientFormData {
   nome: string;
   email: string;
   telefone: string;
+  cpf: string; // New CPF field
   endereco: string;
   dataNascimento: string;
   genero: string;
@@ -100,6 +101,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     nome: '',
     email: '',
     telefone: '',
+    cpf: '', // New CPF field
     endereco: '',
     dataNascimento: '',
     genero: '',
@@ -173,6 +175,50 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7, 11)}`;
   };
 
+  // CPF formatting function
+  const formatCpf = (value: string): string => {
+    // Remove all non-numeric characters
+    const numbers = value.replace(/\D/g, '');
+
+    // Apply Brazilian CPF formatting: XXX.XXX.XXX-XX
+    if (numbers.length <= 3) return numbers;
+    if (numbers.length <= 6) return `${numbers.slice(0, 3)}.${numbers.slice(3)}`;
+    if (numbers.length <= 9) return `${numbers.slice(0, 3)}.${numbers.slice(3, 6)}.${numbers.slice(6)}`;
+    return `${numbers.slice(0, 3)}.${numbers.slice(3, 6)}.${numbers.slice(6, 9)}-${numbers.slice(9, 11)}`;
+  };
+
+  // CPF validation function
+  const validateCpf = (cpf: string): boolean => {
+    if (!cpf) return true; // CPF is optional
+
+    const cleanCpf = cpf.replace(/\D/g, '');
+    
+    // Must have exactly 11 digits
+    if (cleanCpf.length !== 11) return false;
+    
+    // Check for common invalid CPFs (all same digits)
+    if (/^(\d)\1{10}$/.test(cleanCpf)) return false;
+    
+    // Basic CPF algorithm validation
+    let sum = 0;
+    for (let i = 0; i < 9; i++) {
+      sum += parseInt(cleanCpf.charAt(i)) * (10 - i);
+    }
+    let remainder = (sum * 10) % 11;
+    if (remainder === 10 || remainder === 11) remainder = 0;
+    if (remainder !== parseInt(cleanCpf.charAt(9))) return false;
+
+    sum = 0;
+    for (let i = 0; i < 10; i++) {
+      sum += parseInt(cleanCpf.charAt(i)) * (11 - i);
+    }
+    remainder = (sum * 10) % 11;
+    if (remainder === 10 || remainder === 11) remainder = 0;
+    if (remainder !== parseInt(cleanCpf.charAt(10))) return false;
+
+    return true;
+  };
+
   const formatDate = (value: string): string => {
     // Remove non-numeric characters
     const numbers = value.replace(/\D/g, '');
@@ -188,6 +234,9 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
   const handleFieldChange = (field: keyof PatientFormData, value: string | number) => {
     if (field === 'telefone' || field === 'telefoneEmergencia') {
       const formattedValue = formatPhone(value as string);
+      setPatientData(prev => ({ ...prev, [field]: formattedValue }));
+    } else if (field === 'cpf') {
+      const formattedValue = formatCpf(value as string);
       setPatientData(prev => ({ ...prev, [field]: formattedValue }));
     } else if (field === 'sessionPrice') {
       // Handle sessionPrice as number in cents
@@ -209,6 +258,12 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
       return;
     }
 
+    // Validate CPF if provided
+    if (patientData.cpf.trim() && !validateCpf(patientData.cpf)) {
+      alert('CPF inválido. Verifique o número digitado.');
+      return;
+    }
+
     // Validate session price
     if (patientData.sessionPrice < 1000) { // R$ 10,00 minimum
       alert('Valor mínimo da sessão é R$ 10,00');
@@ -227,6 +282,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
         nome: patientData.nome.trim(),
         email: patientData.email.trim().toLowerCase(),
         telefone: patientData.telefone.replace(/\D/g, ''), // Store only numbers
+        cpf: patientData.cpf.trim(), // Send formatted CPF
         endereco: patientData.endereco.trim(),
         dataNascimento: patientData.dataNascimento.trim(),
         genero: patientData.genero.trim(),
@@ -249,6 +305,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
           nome: patientData.nome.trim(),
           email: patientData.email.trim().toLowerCase(),
           telefone: patientData.telefone.replace(/\D/g, ''),
+          cpf: patientData.cpf.trim(), // Include CPF in update
           sessionPrice: patientData.sessionPrice,
           therapyStartDate: formatDateForDB(patientData.therapyStartDate.trim()) || undefined,
           lvNotasBillingStartDate: formatDateForDB(patientData.lvNotasBillingStartDate.trim()),
@@ -271,6 +328,10 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
         errorMessage = 'Dados inválidos. Verifique se nome e email foram preenchidos corretamente.';
       } else if (error.message && error.message.includes('email already exists')) {
         errorMessage = 'Este email já está cadastrado para outro paciente.';
+      } else if (error.message && error.message.includes('CPF já cadastrado')) {
+        errorMessage = 'Este CPF já está cadastrado para outro paciente.';
+      } else if (error.message && error.message.includes('CPF inválido')) {
+        errorMessage = 'CPF inválido. Verifique o número digitado.';
       }
       alert(errorMessage);
     } finally {
@@ -289,6 +350,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
       nome: patient.name || '',
       email: patient.email || '',
       telefone: patient.telefone || '',
+      cpf: patient.cpf || '', // Load CPF data
       endereco: patient.endereco || '',
       dataNascimento: patient.dataNascimento || '',
       genero: patient.genero || '',
@@ -333,6 +395,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
       nome: '',
       email: '',
       telefone: '',
+      cpf: '', // Reset CPF field
       endereco: '',
       dataNascimento: '',
       genero: '',
@@ -404,6 +467,20 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
             onChangeText={(text) => handleFieldChange('telefone', text)}
             keyboardType="phone-pad"
           />
+
+          <Text style={styles.fieldLabel}>CPF (opcional)</Text>
+          <TextInput
+            style={[styles.input, !validateCpf(patientData.cpf) && patientData.cpf.length > 0 && styles.inputError]}
+            placeholder="000.000.000-00"
+            value={patientData.cpf}
+            onChangeText={(text) => handleFieldChange('cpf', text)}
+            keyboardType="numeric"
+            maxLength={14} // XXX.XXX.XXX-XX
+          />
+          {patientData.cpf.length > 0 && !validateCpf(patientData.cpf) && (
+            <Text style={styles.errorText}>CPF inválido</Text>
+          )}
+          <Text style={styles.helpText}>Cadastro de Pessoas Físicas para identificação fiscal</Text>
 
           <Text style={styles.fieldLabel}>Endereço</Text>
           <TextInput
@@ -535,9 +612,9 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
 
         <View style={styles.formButtons}>
           <Pressable
-            style={[styles.primaryButton, (!patientData.nome.trim() || !patientData.email.trim() || !patientData.telefone.trim() || patientData.sessionPrice < 1000 || !patientData.lvNotasBillingStartDate.trim()) && styles.buttonDisabled]}
+            style={[styles.primaryButton, (!patientData.nome.trim() || !patientData.email.trim() || !patientData.telefone.trim() || patientData.sessionPrice < 1000 || !patientData.lvNotasBillingStartDate.trim() || (patientData.cpf.length > 0 && !validateCpf(patientData.cpf))) && styles.buttonDisabled]}
             onPress={handleSavePatient}
-            disabled={!patientData.nome.trim() || !patientData.email.trim() || !patientData.telefone.trim() || patientData.sessionPrice < 1000 || !patientData.lvNotasBillingStartDate.trim() || isLoading}
+            disabled={!patientData.nome.trim() || !patientData.email.trim() || !patientData.telefone.trim() || patientData.sessionPrice < 1000 || !patientData.lvNotasBillingStartDate.trim() || (patientData.cpf.length > 0 && !validateCpf(patientData.cpf)) || isLoading}
           >
             <Text style={styles.buttonText}>
               {isLoading ? 'Salvando...' : formMode === 'add' ? 'Adicionar Paciente' : 'Salvar Alterações'}
@@ -599,6 +676,9 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
                   <Text style={styles.patientName}>{patient.name}</Text>
                   <Text style={styles.patientDetail}>📧 {patient.email || 'Email não informado'}</Text>
                   <Text style={styles.patientDetail}>📱 {patient.telefone || 'Telefone não informado'}</Text>
+                  {patient.cpf && (
+                    <Text style={styles.patientDetail}>🆔 CPF: {patient.cpf}</Text>
+                  )}
                   <Text style={styles.patientDetail}>
                     📆 {patient.lvNotasBillingStartDate
                       ? new Date(patient.lvNotasBillingStartDate).toLocaleDateString('pt-BR')
@@ -698,6 +778,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     color: '#212529',
   },
+  inputError: {
+    borderColor: '#dc3545',
+    borderWidth: 2,
+  },
   textArea: {
     height: 100,
     textAlignVertical: 'top',
@@ -730,6 +814,12 @@ const styles = StyleSheet.create({
     color: '#6c757d',
     marginBottom: 8,
     fontStyle: 'italic',
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#dc3545',
+    marginBottom: 8,
+    fontWeight: '600',
   },
 
   // Action buttons at top
@@ -904,14 +994,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-
-  // Error states
-  errorText: {
-    fontSize: 18,
-    color: '#dc3545',
-    textAlign: 'center',
-    marginBottom: 8,
   },
 
   // Bottom spacing
