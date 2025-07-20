@@ -14,7 +14,7 @@ type AppState = "loading" | "onboarding" | "authenticated" | "calendar_permissio
 
 // Main App component that uses AuthContext
 const AppContent: React.FC = () => {
-  console.log('Test Version 1.0.4');
+  console.log('Test Version 1.0.5');
   console.log('🔑 API Key Debug:', {
     safeProxyKey: process.env.SAFE_PROXY_API_KEY ? 'Present' : 'Missing',
     safeProxyKeyValue: process.env.SAFE_PROXY_API_KEY ? 'Hidden' : 'Not found',

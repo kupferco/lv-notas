@@ -25,7 +25,7 @@ const getGoogleToken = async () => {
     if (!isFirebaseHosting()) return null;
 
     await initializeFirebase();
-    const user = auth.currentUser;
+    const user = auth?.currentUser;
 
     console.log("Current user:", user ? user.email : "No user");
 
