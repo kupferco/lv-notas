@@ -49,6 +49,14 @@ export interface BillingSummary {
     canProcess: boolean; // true if no billing period exists yet
 }
 
+interface PatientInfo {
+    id: number;
+    name: string;
+    email: string | null;
+    billingStartDate: Date | null;
+    sessionPrice: number;
+}
+
 export class MonthlyBillingService {
 
     /**
@@ -86,47 +94,72 @@ export class MonthlyBillingService {
     }
 
     /**
-     * Get calendar sessions for a patient in a specific month
+     * Get all active patients for a therapist with billing info
      */
-    private async getCalendarSessionsForMonth(
+    private async getTherapistPatientsWithBillingInfo(therapistId: number): Promise<PatientInfo[]> {
+        try {
+            const result = await pool.query(
+                `SELECT 
+                    id, 
+                    nome as name, 
+                    email, 
+                    lv_notas_billing_start_date as billing_start_date,
+                    COALESCE(preco, 0) as session_price
+                FROM patients 
+                WHERE therapist_id = $1 
+                ORDER BY nome`,
+                [therapistId]
+            );
+
+            return result.rows.map(row => ({
+                id: row.id,
+                name: row.name,
+                email: row.email,
+                billingStartDate: row.billing_start_date ? new Date(row.billing_start_date) : null,
+                sessionPrice: row.session_price
+            }));
+        } catch (error) {
+            console.error('Error getting therapist patients:', error);
+            return [];
+        }
+    }
+
+    /**
+     * OPTIMIZED: Get calendar sessions for ALL patients in one API call
+     */
+    private async getAllCalendarSessionsForMonth(
         therapistEmail: string,
-        patientId: number,
+        patients: PatientInfo[],
         year: number,
         month: number,
         userAccessToken?: string
-    ): Promise<SessionSnapshot[]> {
+    ): Promise<Map<number, SessionSnapshot[]>> {
         try {
-            // Create date range for the month (1st to last day)
-            const startDate = new Date(year, month - 1, 1); // month is 0-indexed in Date constructor
-            const endDate = new Date(year, month, 0); // 0th day of next month = last day of current month
-            endDate.setHours(23, 59, 59, 999); // End of day
+            // Create date range for the month
+            const startDate = new Date(year, month - 1, 1);
+            const endDate = new Date(year, month, 0);
+            endDate.setHours(23, 59, 59, 999);
 
-            console.log(`Getting calendar sessions for patient ${patientId}, ${year}-${month}:`, {
-                startDate: startDate.toISOString(),
-                endDate: endDate.toISOString()
+            console.log(`🚀 OPTIMIZED: Getting ALL calendar sessions for month ${year}-${month} in ONE API call`);
+            console.log(`Date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+
+            // Filter patients who have billing active for this month
+            const activePatientsForMonth = patients.filter(patient => {
+                if (!patient.billingStartDate) return false;
+                return startDate >= patient.billingStartDate;
             });
 
-            // Get patient info to match against calendar events
-            const patientResult = await pool.query(
-                'SELECT nome as name, email, lv_notas_billing_start_date FROM patients WHERE id = $1',
-                [patientId]
-            );
+            console.log(`📊 Processing ${activePatientsForMonth.length} patients with active billing out of ${patients.length} total`);
 
-            if (patientResult.rows.length === 0) {
-                throw new Error(`Patient ${patientId} not found`);
-            }
+            // Create email-to-patient lookup map
+            const emailToPatientMap = new Map<string, PatientInfo>();
+            activePatientsForMonth.forEach(patient => {
+                if (patient.email) {
+                    emailToPatientMap.set(patient.email.toLowerCase(), patient);
+                }
+            });
 
-            const patient = patientResult.rows[0];
-            const billingStartDate = patient.lv_notas_billing_start_date ? new Date(patient.lv_notas_billing_start_date) : null;
-
-            // Skip if billing hasn't started for this patient
-            if (!billingStartDate || startDate < billingStartDate) {
-                console.log(`Billing not active for patient ${patient.name} in ${year}-${month}`);
-                return [];
-            }
-
-            // Get events from Google Calendar for this month
-            // Get therapist's selected calendar ID from database
+            // Get therapist's selected calendar ID
             const therapistResult = await pool.query(
                 'SELECT google_calendar_id FROM therapists WHERE email = $1',
                 [therapistEmail]
@@ -137,102 +170,115 @@ export class MonthlyBillingService {
             }
 
             const therapistCalendarId = therapistResult.rows[0].google_calendar_id;
-
             if (!therapistCalendarId) {
                 throw new Error(`No calendar configured for therapist: ${therapistEmail}`);
             }
 
             console.log(`Using therapist's selected calendar: ${therapistCalendarId}`);
 
-            // Get events from Google Calendar for this month
-            const events = await googleCalendarService.getEventsWithDateFilter(
+            // 🎯 SINGLE API CALL to get ALL events for the month
+            const allEvents = await googleCalendarService.getEventsWithDateFilter(
                 startDate,
                 endDate,
-                therapistCalendarId, // Use therapist's selected calendar
+                therapistCalendarId,
                 500, // Should be plenty for one month
                 userAccessToken
             );
 
-            // Filter events for this specific patient
-            const patientSessions: SessionSnapshot[] = [];
+            console.log(`📅 Retrieved ${allEvents.length} total calendar events in one API call`);
 
-            for (const event of events) {
+            // Process all events and match to patients
+            const patientSessionsMap = new Map<number, SessionSnapshot[]>();
+
+            // Initialize empty arrays for all active patients
+            activePatientsForMonth.forEach(patient => {
+                patientSessionsMap.set(patient.id, []);
+            });
+
+            let totalMatches = 0;
+
+            for (const event of allEvents) {
                 // Skip cancelled events
                 if (event.status === 'cancelled') continue;
 
                 // Only include events with actual appointment times
                 if (!event.start?.dateTime) continue;
 
-                // Try to match patient by email or name
-                // Try to match patient by email (primary method)
-                let isPatientMatch = false;
+                let matchedPatient: PatientInfo | null = null;
 
-                if (patient.email) {
-                    const patientEmailLower = patient.email.toLowerCase();
+                // Try to match patient by email in various places
+                for (const [email, patient] of emailToPatientMap) {
+                    let isMatch = false;
 
                     // 1. Check attendees for patient email
                     if (event.attendees && event.attendees.length > 0) {
                         const attendeeEmails = event.attendees.map(a => a.email?.toLowerCase()).filter(Boolean);
-                        if (attendeeEmails.includes(patientEmailLower)) {
-                            isPatientMatch = true;
-                            console.log(`✅ Patient matched by attendee email: ${patient.email}`);
+                        if (attendeeEmails.includes(email)) {
+                            isMatch = true;
                         }
                     }
 
                     // 2. Check event description for patient email
-                    if (!isPatientMatch && event.description) {
-                        if (event.description.toLowerCase().includes(patientEmailLower)) {
-                            isPatientMatch = true;
-                            console.log(`✅ Patient matched by email in description: ${patient.email}`);
+                    if (!isMatch && event.description) {
+                        if (event.description.toLowerCase().includes(email)) {
+                            isMatch = true;
                         }
                     }
 
                     // 3. Check event summary/title for patient email
-                    if (!isPatientMatch && event.summary) {
-                        if (event.summary.toLowerCase().includes(patientEmailLower)) {
-                            isPatientMatch = true;
-                            console.log(`✅ Patient matched by email in title: ${patient.email}`);
+                    if (!isMatch && event.summary) {
+                        if (event.summary.toLowerCase().includes(email)) {
+                            isMatch = true;
                         }
                     }
-                } else {
-                    console.log(`⚠️ Patient ${patient.name} has no email - cannot match calendar events`);
-                }
 
-                // Fallback: If no email match and no email set, try name matching as last resort
-                if (!isPatientMatch && !patient.email && event.summary) {
-                    const extractedName = this.extractPatientNameFromTitle(event.summary);
-                    if (extractedName && extractedName.toLowerCase().includes(patient.name.toLowerCase())) {
-                        isPatientMatch = true;
-                        console.log(`✅ Patient matched by name (no email available): ${patient.name}`);
+                    if (isMatch) {
+                        matchedPatient = patient;
+                        console.log(`✅ Patient matched: ${patient.name} (${email}) - Event: "${event.summary}"`);
+                        break;
                     }
                 }
 
-                if (!isPatientMatch) {
-                    // Debug logging to help troubleshoot
-                    // console.log(`❌ No match for patient ${patient.name} (${patient.email || 'no email'}) in event: "${event.summary}"`);
-                }
-
-                if (isPatientMatch) {
+                // If we found a match, add the session
+                if (matchedPatient) {
                     const sessionDate = new Date(event.start.dateTime);
+                    const sessions = patientSessionsMap.get(matchedPatient.id) || [];
 
-                    patientSessions.push({
+                    sessions.push({
                         date: sessionDate.toISOString().split('T')[0], // YYYY-MM-DD
                         time: sessionDate.toTimeString().slice(0, 5), // HH:MM
                         googleEventId: event.id,
-                        patientName: patient.name,
+                        patientName: matchedPatient.name,
                         duration: event.end?.dateTime ?
                             Math.round((new Date(event.end.dateTime).getTime() - sessionDate.getTime()) / (1000 * 60)) :
                             60 // default 60 minutes
                     });
+
+                    patientSessionsMap.set(matchedPatient.id, sessions);
+                    totalMatches++;
                 }
             }
 
-            console.log(`Found ${patientSessions.length} sessions for patient ${patient.name} in ${year}-${month}`);
-            return patientSessions.sort((a, b) => a.date.localeCompare(b.date));
+            // Sort sessions by date for each patient
+            patientSessionsMap.forEach((sessions, patientId) => {
+                sessions.sort((a, b) => a.date.localeCompare(b.date));
+            });
+
+            console.log(`🎯 OPTIMIZATION RESULT: Found ${totalMatches} total session matches across all patients in ONE API call`);
+            
+            // Log per-patient results
+            patientSessionsMap.forEach((sessions, patientId) => {
+                const patient = activePatientsForMonth.find(p => p.id === patientId);
+                if (patient && sessions.length > 0) {
+                    console.log(`📊 ${patient.name}: ${sessions.length} sessions`);
+                }
+            });
+
+            return patientSessionsMap;
 
         } catch (error) {
-            console.error('Error getting calendar sessions for month:', error);
-            return [];
+            console.error('Error getting ALL calendar sessions for month:', error);
+            return new Map();
         }
     }
 
@@ -273,14 +319,20 @@ export class MonthlyBillingService {
                 throw new Error(`Billing period already exists for patient ${patientId} in ${year}-${month} with status: ${existingResult.rows[0].status}`);
             }
 
-            // Get session snapshots from Google Calendar
-            const sessionSnapshots = await this.getCalendarSessionsForMonth(
+            // Get all patients (for the optimized call)
+            const allPatients = await this.getTherapistPatientsWithBillingInfo(therapistId);
+            
+            // Get ALL sessions with one API call
+            const allSessionsMap = await this.getAllCalendarSessionsForMonth(
                 therapistEmail,
-                patientId,
+                allPatients,
                 year,
                 month,
                 userAccessToken
             );
+
+            // Get sessions for this specific patient
+            const sessionSnapshots = allSessionsMap.get(patientId) || [];
 
             // Get patient session price
             const sessionPrice = await this.getPatientSessionPrice(patientId);
@@ -330,7 +382,7 @@ export class MonthlyBillingService {
     }
 
     /**
-     * Get billing summary for a therapist for a specific month
+     * OPTIMIZED: Get billing summary for a therapist for a specific month
      */
     async getBillingSummary(
         therapistEmail: string,
@@ -344,28 +396,25 @@ export class MonthlyBillingService {
                 throw new Error(`Therapist not found: ${therapistEmail}`);
             }
 
-            // Get all patients for this therapist
-            const patientsResult = await pool.query(
-                'SELECT id, nome as name FROM patients WHERE therapist_id = $1 ORDER BY nome',
-                [therapistId]
-            );
+            // Get all patients with billing info
+            const allPatients = await this.getTherapistPatientsWithBillingInfo(therapistId);
 
-            // Get existing billing periods for this month (only exclude void ones, deleted ones won't exist)
+            // Get existing billing periods for this month (only exclude void ones)
             const billingResult = await pool.query(
                 `SELECT 
-        bp.id as billing_period_id,
-        bp.patient_id,
-        bp.session_count,
-        bp.total_amount,
-        bp.status,
-        bp.processed_at,
-        bp.can_be_voided,
-        EXISTS(SELECT 1 FROM monthly_billing_payments pay WHERE pay.billing_period_id = bp.id) as has_payment
-     FROM monthly_billing_periods bp
-     WHERE bp.therapist_id = $1 
-     AND bp.billing_year = $2 
-     AND bp.billing_month = $3
-     AND bp.status != 'void'`,
+                    bp.id as billing_period_id,
+                    bp.patient_id,
+                    bp.session_count,
+                    bp.total_amount,
+                    bp.status,
+                    bp.processed_at,
+                    bp.can_be_voided,
+                    EXISTS(SELECT 1 FROM monthly_billing_payments pay WHERE pay.billing_period_id = bp.id) as has_payment
+                 FROM monthly_billing_periods bp
+                 WHERE bp.therapist_id = $1 
+                 AND bp.billing_year = $2 
+                 AND bp.billing_month = $3
+                 AND bp.status != 'void'`,
                 [therapistId, year, month]
             );
 
@@ -374,10 +423,23 @@ export class MonthlyBillingService {
                 billingMap.set(row.patient_id, row);
             });
 
+            // 🚀 OPTIMIZATION: Get ALL calendar sessions in ONE API call
+            let allSessionsMap = new Map<number, SessionSnapshot[]>();
+            if (userAccessToken) {
+                console.log(`🚀 OPTIMIZED getBillingSummary: Fetching ALL sessions in ONE API call`);
+                allSessionsMap = await this.getAllCalendarSessionsForMonth(
+                    therapistEmail,
+                    allPatients,
+                    year,
+                    month,
+                    userAccessToken
+                );
+            }
+
             // Build summary for all patients
             const summary: BillingSummary[] = [];
 
-            for (const patient of patientsResult.rows) {
+            for (const patient of allPatients) {
                 const billing = billingMap.get(patient.id);
 
                 if (billing) {
@@ -394,34 +456,12 @@ export class MonthlyBillingService {
                         canProcess: false
                     });
                 } else {
-                    // Patient has no billing period yet - fetch calendar sessions to preview
-                    let sessionCount = 0;
-                    let estimatedAmount = 0;
+                    // Patient has no billing period yet - use pre-fetched calendar sessions
+                    const calendarSessions = allSessionsMap.get(patient.id) || [];
+                    const sessionCount = calendarSessions.length;
+                    const estimatedAmount = sessionCount * patient.sessionPrice;
 
-                    if (userAccessToken) {
-                        try {
-                            // Get calendar sessions for this patient in this month
-                            const calendarSessions = await this.getCalendarSessionsForMonth(
-                                therapistEmail,
-                                patient.id,
-                                year,
-                                month,
-                                userAccessToken
-                            );
-
-                            sessionCount = calendarSessions.length;
-
-                            // Get patient session price to calculate estimated amount
-                            const sessionPrice = await this.getPatientSessionPrice(patient.id);
-                            estimatedAmount = sessionCount * sessionPrice;
-
-                            console.log(`Patient ${patient.name}: ${sessionCount} calendar sessions, estimated R$ ${(estimatedAmount / 100).toFixed(2)}`);
-
-                        } catch (error) {
-                            console.error(`Error fetching calendar sessions for patient ${patient.name}:`, error);
-                            // Keep sessionCount = 0 and estimatedAmount = 0 if there's an error
-                        }
-                    }
+                    console.log(`Patient ${patient.name}: ${sessionCount} calendar sessions, estimated R$ ${(estimatedAmount / 100).toFixed(2)}`);
 
                     summary.push({
                         patientName: patient.name,
@@ -566,26 +606,26 @@ export class MonthlyBillingService {
     }
 
     /**
- * Get billing period details by ID
- */
+     * Get billing period details by ID
+     */
     async getBillingPeriodDetails(billingPeriodId: number): Promise<BillingPeriod> {
         try {
             const result = await pool.query(
                 `SELECT 
-                id,
-                therapist_id,
-                patient_id,
-                billing_year,
-                billing_month,
-                session_count,
-                total_amount,
-                session_snapshots,
-                processed_at,
-                processed_by,
-                status,
-                (SELECT COUNT(*) FROM monthly_billing_payments WHERE billing_period_id = $1) = 0 as can_be_voided
-             FROM monthly_billing_periods 
-             WHERE id = $1`,
+                    id,
+                    therapist_id,
+                    patient_id,
+                    billing_year,
+                    billing_month,
+                    session_count,
+                    total_amount,
+                    session_snapshots,
+                    processed_at,
+                    processed_by,
+                    status,
+                    (SELECT COUNT(*) FROM monthly_billing_payments WHERE billing_period_id = $1) = 0 as can_be_voided
+                 FROM monthly_billing_periods 
+                 WHERE id = $1`,
                 [billingPeriodId]
             );
 
@@ -596,8 +636,8 @@ export class MonthlyBillingService {
             // Get associated payments
             const paymentsResult = await pool.query(
                 `SELECT id, amount, payment_method, payment_date, reference_number
-     FROM monthly_billing_payments 
-     WHERE billing_period_id = $1`,
+                 FROM monthly_billing_payments 
+                 WHERE billing_period_id = $1`,
                 [billingPeriodId]
             );
 
