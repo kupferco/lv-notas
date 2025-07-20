@@ -4,15 +4,17 @@ module.exports = async function(env, argv) {
   const config = await createExpoWebpackConfigAsync(
     {
       ...env,
-      mode: 'development',
+      // Use production mode for builds, development for dev server
+      mode: env.mode || 'production',
     },
     argv
   );
   
-  // Completely ignore @google-cloud modules for web
+  // Only exclude Airtable for web (keep Google Cloud for server connections)
   config.resolve.alias = {
     ...config.resolve.alias,
-    '@google-cloud/secret-manager': false
+    'airtable': false,
+    'airt': false
   };
   
   config.resolve.fallback = {

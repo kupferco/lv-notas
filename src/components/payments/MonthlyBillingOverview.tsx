@@ -328,174 +328,178 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
   }
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Header with Export Button */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.title}>💰 Cobrança Mensal</Text>
-          <Text style={styles.subtitle}>
-            {selectedMonth}/{selectedYear} • {billingSummary.length} pacientes com sessões
-            {isAutoCheckInEnabled() && ' • ⚡ Modo Calendário Ativo'}
-          </Text>
-        </View>
-        
-        <View style={styles.headerRight}>
-          <Pressable
-            style={[styles.exportButton, (loading || billingSummary.length === 0 || isExporting) && styles.exportButtonDisabled]}
-            onPress={exportCSV}
-            disabled={loading || billingSummary.length === 0 || isExporting}
-          >
-            <Text style={styles.exportButtonText}>
-              {isExporting ? '📊 Exportando...' : '📊 Exportar CSV'}
+    <View style={styles.container}>
+      <ScrollView style={styles.scrollContainer}>
+        {/* Header with Export Button */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.title}>💰 Cobrança Mensal</Text>
+            <Text style={styles.subtitle}>
+              {selectedMonth}/{selectedYear} • {billingSummary.length} pacientes com sessões
+              {isAutoCheckInEnabled() && ' • ⚡ Modo Calendário Ativo'}
             </Text>
-          </Pressable>
+          </View>
+          
+          <View style={styles.headerRight}>
+            <Pressable
+              style={[styles.exportButton, (loading || billingSummary.length === 0 || isExporting) && styles.exportButtonDisabled]}
+              onPress={exportCSV}
+              disabled={loading || billingSummary.length === 0 || isExporting}
+            >
+              <Text style={styles.exportButtonText}>
+                {isExporting ? '📊 Exportando...' : '📊 Exportar CSV'}
+              </Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
 
-      {/* Monthly Summary Cards */}
-      <View style={styles.summaryContainer}>
-        {billingSummary.map(patient => (
-          <View key={patient.patientId} style={styles.patientCard}>
-            <View style={styles.patientHeader}>
-              <Text style={styles.patientName}>{patient.patientName}</Text>
-              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(patient.status) }]}>
-                <Text style={styles.statusText}>{getStatusText(patient.status)}</Text>
+        {/* Monthly Summary Cards */}
+        <View style={styles.summaryContainer}>
+          {billingSummary.map(patient => (
+            <View key={patient.patientId} style={styles.patientCard}>
+              <View style={styles.patientHeader}>
+                <Text style={styles.patientName}>{patient.patientName}</Text>
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(patient.status) }]}>
+                  <Text style={styles.statusText}>{getStatusText(patient.status)}</Text>
+                </View>
+              </View>
+
+              <View style={styles.patientDetails}>
+                <Text style={styles.detailText}>
+                  Sessões: {patient.sessionCount} • Valor: {formatCurrency(patient.totalAmount)}
+                </Text>
+                {patient.hasPayment && (
+                  <Text style={styles.paidIndicator}>💳 Pagamento registrado</Text>
+                )}
+              </View>
+
+              <View style={styles.actionButtons}>
+                {patient.canProcess && (
+                  <Pressable
+                    style={[styles.actionButton, styles.processButton]}
+                    onPress={() => processCharges(patient)}
+                    disabled={processingPatientId === patient.patientId}
+                  >
+                    <Text style={styles.processButtonText}>
+                      {processingPatientId === patient.patientId ? 'Processando...' : 'Processar Cobrança'}
+                    </Text>
+                  </Pressable>
+                )}
+
+                {patient.status === 'processed' && (
+                  <>
+                    <Pressable
+                      style={[styles.actionButton, styles.paymentButton]}
+                      onPress={() => openPaymentForm(patient)}
+                    >
+                      <Text style={styles.paymentButtonText}>Registrar Pagamento</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[styles.actionButton, styles.voidButton]}
+                      onPress={() => voidBillingPeriod(patient)}
+                    >
+                      <Text style={styles.voidButtonText}>Cancelar</Text>
+                    </Pressable>
+                  </>
+                )}
+
+                {patient.billingPeriodId && (
+                  <Pressable
+                    style={[styles.actionButton, styles.detailButton]}
+                    onPress={() => viewBillingPeriodDetails(patient.billingPeriodId)}
+                  >
+                    <Text style={styles.detailButtonText}>Ver Detalhes</Text>
+                  </Pressable>
+                )}
               </View>
             </View>
+          ))}
 
-            <View style={styles.patientDetails}>
-              <Text style={styles.detailText}>
-                Sessões: {patient.sessionCount} • Valor: {formatCurrency(patient.totalAmount)}
+          {billingSummary.length === 0 && (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>
+                Nenhum paciente com sessões para {selectedMonth}/{selectedYear}
               </Text>
-              {patient.hasPayment && (
-                <Text style={styles.paidIndicator}>💳 Pagamento registrado</Text>
-              )}
+              <Text style={styles.emptyStateSubtext}>
+                Pacientes sem sessões são automaticamente ocultados. 
+                Verifique se há sessões agendadas no Google Calendar para este período.
+              </Text>
             </View>
-
-            <View style={styles.actionButtons}>
-              {patient.canProcess && (
-                <Pressable
-                  style={[styles.actionButton, styles.processButton]}
-                  onPress={() => processCharges(patient)}
-                  disabled={processingPatientId === patient.patientId}
-                >
-                  <Text style={styles.processButtonText}>
-                    {processingPatientId === patient.patientId ? 'Processando...' : 'Processar Cobrança'}
-                  </Text>
-                </Pressable>
-              )}
-
-              {patient.status === 'processed' && (
-                <>
-                  <Pressable
-                    style={[styles.actionButton, styles.paymentButton]}
-                    onPress={() => openPaymentForm(patient)}
-                  >
-                    <Text style={styles.paymentButtonText}>Registrar Pagamento</Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={[styles.actionButton, styles.voidButton]}
-                    onPress={() => voidBillingPeriod(patient)}
-                  >
-                    <Text style={styles.voidButtonText}>Cancelar</Text>
-                  </Pressable>
-                </>
-              )}
-
-              {patient.billingPeriodId && (
-                <Pressable
-                  style={[styles.actionButton, styles.detailButton]}
-                  onPress={() => viewBillingPeriodDetails(patient.billingPeriodId)}
-                >
-                  <Text style={styles.detailButtonText}>Ver Detalhes</Text>
-                </Pressable>
-              )}
-            </View>
-          </View>
-        ))}
-
-        {billingSummary.length === 0 && (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateText}>
-              Nenhum paciente com sessões para {selectedMonth}/{selectedYear}
-            </Text>
-            <Text style={styles.emptyStateSubtext}>
-              Pacientes sem sessões são automaticamente ocultados. 
-              Verifique se há sessões agendadas no Google Calendar para este período.
-            </Text>
-          </View>
-        )}
-      </View>
+          )}
+        </View>
+      </ScrollView>
 
       {/* Payment Form Modal */}
       {showPaymentForm && selectedPatient && (
         <View style={styles.modalOverlay}>
-          <View style={styles.paymentForm}>
-            <Text style={styles.formTitle}>
-              Registrar Pagamento - {selectedPatient.patientName}
-            </Text>
+          <View style={styles.modalContent}>
+            <View style={styles.paymentForm}>
+              <Text style={styles.formTitle}>
+                Registrar Pagamento - {selectedPatient.patientName}
+              </Text>
 
-            <View style={styles.formField}>
-              <Text style={styles.formLabel}>Valor (R$)</Text>
-              <input
-                type="number"
-                step="0.01"
-                value={paymentFormData.amount}
-                onChange={(e) => setPaymentFormData({ ...paymentFormData, amount: e.target.value })}
-                style={styles.formInput as any}
-              />
-            </View>
+              <View style={styles.formField}>
+                <Text style={styles.formLabel}>Valor (R$)</Text>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={paymentFormData.amount}
+                  onChange={(e) => setPaymentFormData({ ...paymentFormData, amount: e.target.value })}
+                  style={styles.formInput as any}
+                />
+              </View>
 
-            <View style={styles.formField}>
-              <Text style={styles.formLabel}>Método de Pagamento</Text>
-              <select
-                value={paymentFormData.paymentMethod}
-                onChange={(e) => setPaymentFormData({ ...paymentFormData, paymentMethod: e.target.value as any })}
-                style={styles.formSelect as any}
-              >
-                <option value="pix">PIX</option>
-                <option value="transferencia">Transferência</option>
-                <option value="dinheiro">Dinheiro</option>
-                <option value="cartao">Cartão</option>
-              </select>
-            </View>
+              <View style={styles.formField}>
+                <Text style={styles.formLabel}>Método de Pagamento</Text>
+                <select
+                  value={paymentFormData.paymentMethod}
+                  onChange={(e) => setPaymentFormData({ ...paymentFormData, paymentMethod: e.target.value as any })}
+                  style={styles.formSelect as any}
+                >
+                  <option value="pix">PIX</option>
+                  <option value="transferencia">Transferência</option>
+                  <option value="dinheiro">Dinheiro</option>
+                  <option value="cartao">Cartão</option>
+                </select>
+              </View>
 
-            <View style={styles.formField}>
-              <Text style={styles.formLabel}>Data do Pagamento</Text>
-              <input
-                type="date"
-                value={paymentFormData.paymentDate}
-                onChange={(e) => setPaymentFormData({ ...paymentFormData, paymentDate: e.target.value })}
-                style={styles.formInput as any}
-              />
-            </View>
+              <View style={styles.formField}>
+                <Text style={styles.formLabel}>Data do Pagamento</Text>
+                <input
+                  type="date"
+                  value={paymentFormData.paymentDate}
+                  onChange={(e) => setPaymentFormData({ ...paymentFormData, paymentDate: e.target.value })}
+                  style={styles.formInput as any}
+                />
+              </View>
 
-            <View style={styles.formField}>
-              <Text style={styles.formLabel}>Referência (opcional)</Text>
-              <input
-                type="text"
-                placeholder="ID da transação, número do comprovante..."
-                value={paymentFormData.referenceNumber}
-                onChange={(e) => setPaymentFormData({ ...paymentFormData, referenceNumber: e.target.value })}
-                style={styles.formInput as any}
-              />
-            </View>
+              <View style={styles.formField}>
+                <Text style={styles.formLabel}>Referência (opcional)</Text>
+                <input
+                  type="text"
+                  placeholder="ID da transação, número do comprovante..."
+                  value={paymentFormData.referenceNumber}
+                  onChange={(e) => setPaymentFormData({ ...paymentFormData, referenceNumber: e.target.value })}
+                  style={styles.formInput as any}
+                />
+              </View>
 
-            <View style={styles.formActions}>
-              <Pressable
-                style={[styles.actionButton, styles.cancelFormButton]}
-                onPress={() => setShowPaymentForm(false)}
-              >
-                <Text style={styles.cancelFormButtonText}>Cancelar</Text>
-              </Pressable>
+              <View style={styles.formActions}>
+                <Pressable
+                  style={[styles.actionButton, styles.cancelFormButton]}
+                  onPress={() => setShowPaymentForm(false)}
+                >
+                  <Text style={styles.cancelFormButtonText}>Cancelar</Text>
+                </Pressable>
 
-              <Pressable
-                style={[styles.actionButton, styles.saveFormButton]}
-                onPress={recordPayment}
-              >
-                <Text style={styles.saveFormButtonText}>Registrar Pagamento</Text>
-              </Pressable>
+                <Pressable
+                  style={[styles.actionButton, styles.saveFormButton]}
+                  onPress={recordPayment}
+                >
+                  <Text style={styles.saveFormButtonText}>Registrar Pagamento</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
         </View>
@@ -504,77 +508,79 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
       {/* Billing Period Details Modal */}
       {billingPeriodDetails && (
         <View style={styles.modalOverlay}>
-          <View style={styles.detailsModal}>
-            <Text style={styles.formTitle}>Detalhes do Período de Cobrança</Text>
+          <View style={styles.modalContent}>
+            <ScrollView style={styles.detailsModal}>
+              <Text style={styles.formTitle}>Detalhes do Período de Cobrança</Text>
 
-            <Text style={styles.detailsText}>
-              Período: {billingPeriodDetails.billingMonth}/{billingPeriodDetails.billingYear}
-            </Text>
-            <Text style={styles.detailsText}>
-              Sessões: {billingPeriodDetails.sessionCount}
-            </Text>
-            <Text style={styles.detailsText}>
-              Valor Total: {formatCurrency(billingPeriodDetails.totalAmount)}
-            </Text>
-            <Text style={styles.detailsText}>
-              Status: {getStatusText(billingPeriodDetails.status)}
-            </Text>
-            <Text style={styles.detailsText}>
-              Processado em: {new Date(billingPeriodDetails.processedAt).toLocaleString('pt-BR')}
-            </Text>
+              <Text style={styles.detailsText}>
+                Período: {billingPeriodDetails.billingMonth}/{billingPeriodDetails.billingYear}
+              </Text>
+              <Text style={styles.detailsText}>
+                Sessões: {billingPeriodDetails.sessionCount}
+              </Text>
+              <Text style={styles.detailsText}>
+                Valor Total: {formatCurrency(billingPeriodDetails.totalAmount)}
+              </Text>
+              <Text style={styles.detailsText}>
+                Status: {getStatusText(billingPeriodDetails.status)}
+              </Text>
+              <Text style={styles.detailsText}>
+                Processado em: {new Date(billingPeriodDetails.processedAt).toLocaleString('pt-BR')}
+              </Text>
 
-            {/* Payment Information */}
-            {billingPeriodDetails.payments && Array.isArray(billingPeriodDetails.payments) && billingPeriodDetails.payments.length > 0 && (
-              <>
-                <Text style={[styles.detailsText, { marginTop: 16, fontWeight: 'bold' }]}>
-                  💳 Pagamento Registrado:
-                </Text>
-                {billingPeriodDetails.payments.map((payment: any, index: number) => (
-                  <View key={index}>
-                    <Text style={styles.detailsText}>
-                      Método: {payment.payment_method?.toUpperCase() || 'N/A'}
-                    </Text>
-                    <Text style={styles.detailsText}>
-                      Data: {new Date(payment.payment_date).toLocaleDateString('pt-BR')}
-                    </Text>
-                    {payment.reference_number && (
+              {/* Payment Information */}
+              {billingPeriodDetails.payments && Array.isArray(billingPeriodDetails.payments) && billingPeriodDetails.payments.length > 0 && (
+                <>
+                  <Text style={[styles.detailsText, { marginTop: 16, fontWeight: 'bold' }]}>
+                    💳 Pagamento Registrado:
+                  </Text>
+                  {billingPeriodDetails.payments.map((payment: any, index: number) => (
+                    <View key={index}>
                       <Text style={styles.detailsText}>
-                        Referência: {payment.reference_number}
+                        Método: {payment.payment_method?.toUpperCase() || 'N/A'}
                       </Text>
-                    )}
-                    <Pressable
-                      style={[styles.actionButton, { backgroundColor: '#dc3545', marginTop: 8 }]}
-                      onPress={() => cancelPayment(payment.id)}
-                    >
-                      <Text style={[styles.buttonText, { color: '#fff', fontSize: 12 }]}>
-                        Cancelar Pagamento
+                      <Text style={styles.detailsText}>
+                        Data: {new Date(payment.payment_date).toLocaleDateString('pt-BR')}
                       </Text>
-                    </Pressable>
-                  </View>
+                      {payment.reference_number && (
+                        <Text style={styles.detailsText}>
+                          Referência: {payment.reference_number}
+                        </Text>
+                      )}
+                      <Pressable
+                        style={[styles.actionButton, { backgroundColor: '#dc3545', marginTop: 8 }]}
+                        onPress={() => cancelPayment(payment.id)}
+                      >
+                        <Text style={[styles.buttonText, { color: '#fff', fontSize: 12 }]}>
+                          Cancelar Pagamento
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                </>
+              )}
+
+              <View style={styles.sessionSnapshots}>
+                <Text style={styles.snapshotsTitle}>Snapshot das Sessões:</Text>
+                {billingPeriodDetails.sessionSnapshots.map((snapshot, index) => (
+                  <Text key={index} style={styles.snapshotText}>
+                    📅 {snapshot.date} às {snapshot.time} - {snapshot.patientName}
+                    {snapshot.googleEventId && ` (${snapshot.googleEventId.substring(0, 8)}...)`}
+                  </Text>
                 ))}
-              </>
-            )}
+              </View>
 
-            <View style={styles.sessionSnapshots}>
-              <Text style={styles.snapshotsTitle}>Snapshot das Sessões:</Text>
-              {billingPeriodDetails.sessionSnapshots.map((snapshot, index) => (
-                <Text key={index} style={styles.snapshotText}>
-                  📅 {snapshot.date} às {snapshot.time} - {snapshot.patientName}
-                  {snapshot.googleEventId && ` (${snapshot.googleEventId.substring(0, 8)}...)`}
-                </Text>
-              ))}
-            </View>
-
-            <Pressable
-              style={[styles.actionButton, styles.closeDetailsButton]}
-              onPress={() => setBillingPeriodDetails(null)}
-            >
-              <Text style={styles.closeDetailsButtonText}>Fechar</Text>
-            </Pressable>
+              <Pressable
+                style={[styles.actionButton, styles.closeDetailsButton]}
+                onPress={() => setBillingPeriodDetails(null)}
+              >
+                <Text style={styles.closeDetailsButtonText}>Fechar</Text>
+              </Pressable>
+            </ScrollView>
           </View>
         </View>
       )}
-    </ScrollView>
+    </View>
   );
 };
 
@@ -582,6 +588,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
+  },
+  scrollContainer: {
+    flex: 1,
   },
   centerContainer: {
     flex: 1,
@@ -745,31 +754,33 @@ const styles = StyleSheet.create({
     color: '#adb5bd',
     textAlign: 'center',
   },
+  // Fixed modal styles
   modalOverlay: {
-    position: 'absolute',
+    position: 'fixed' as any,
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
   },
-  paymentForm: {
+  modalContent: {
     backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 8,
-    width: '90%',
-    maxWidth: 400,
-  },
-  detailsModal: {
-    backgroundColor: '#fff',
-    padding: 20,
     borderRadius: 8,
     width: '90%',
     maxWidth: 500,
-    maxHeight: '80%',
+    maxHeight: '90%',
+    overflow: 'hidden',
+  },
+  paymentForm: {
+    padding: 20,
+  },
+  detailsModal: {
+    padding: 20,
+    maxHeight: '100%',
   },
   formTitle: {
     fontSize: 18,
@@ -793,6 +804,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     paddingHorizontal: 10,
     fontSize: 14,
+    width: '100%',
   },
   formSelect: {
     height: 40,
@@ -801,6 +813,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     paddingHorizontal: 10,
     fontSize: 14,
+    width: '100%',
   },
   formActions: {
     flexDirection: 'row',

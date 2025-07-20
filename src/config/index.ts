@@ -11,7 +11,6 @@ const PROXY_URL = window.location.hostname === 'localhost'
 console.log("Environment variables:", {
   deployment_version: '1.0.0',
   proxy_url: PROXY_URL,
-  direct_base: process.env.EXPO_PUBLIC_AIRTABLE_BASE_ID,
   client_key: SAFE_PROXY_API_KEY ? "Present" : "Missing"
 });
 
@@ -40,7 +39,6 @@ const getGoogleToken = async () => {
     const tokenClaims = await user.getIdTokenResult();
     console.log("Token Claims:", {
       email: tokenClaims.claims.email,
-      // google_cloud_platform_scope: tokenClaims.claims['https://www.googleapis.com/auth/cloud-platform']
     });
 
     return token;
@@ -55,7 +53,7 @@ const getSecretFromManager = async () => {
   return process.env.FIREBASE_SAFE_PROXY_KEY || SAFE_PROXY_API_KEY;
 };
 
-const getLocalAirtableApiKey = async () => {
+const getLocalApiKey = async () => {
   console.log("Fetching local proxy key");
   const response = await fetch(`${process.env.EXPO_PUBLIC_LOCAL_URL}/api/key`, {
     headers: {
@@ -75,7 +73,7 @@ const getLocalAirtableApiKey = async () => {
   return data.apiKey;
 };
 
-const getProductionAirtableApiKey = async () => {
+const getProductionApiKey = async () => {
   const clientKey = await getSecretFromManager(); // This currently returns env var
   const proxyUrl = process.env.EXPO_PUBLIC_SAFE_PROXY_URL;
 
@@ -90,7 +88,7 @@ const getProductionAirtableApiKey = async () => {
 
   // Get Firebase authentication token
   const token = await getGoogleToken();
-  console.log("Firebase authentication tokenzinho:", token ? 'Present' : 'Missing');
+  console.log("Firebase authentication token:", token ? 'Present' : 'Missing');
 
   console.log("Safe-proxy api key: ", clientKey ? 'Present' : 'Missing')
   const response = await fetch(`${proxyUrl}/api/key`, {
@@ -113,13 +111,17 @@ const getProductionAirtableApiKey = async () => {
 };
 
 const config = {
-  airtableBaseId: process.env.EXPO_PUBLIC_AIRTABLE_BASE_ID,
   proxyUrl: PROXY_URL,
-  getAirtableApiKey: async () => {
+  firebaseConfig: {
+    apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+    authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  },
+  getApiKey: async () => {
     const isLocal = window.location.hostname === 'localhost';
     return isLocal
-      ? await getLocalAirtableApiKey()
-      : await getProductionAirtableApiKey();
+      ? await getLocalApiKey()
+      : await getProductionApiKey();
   }
 };
 

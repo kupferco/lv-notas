@@ -1,4 +1,4 @@
-// src/services/api.ts - Enhanced with Calendar-Only Methods
+// src/services/api.ts - Enhanced with Better Token Management
 import type { Patient, Session, Therapist } from "../types/index";
 import type {
   CalendarSession,
@@ -12,25 +12,26 @@ import type {
   BillingPeriodPayment,
   CalendarOnlyApiResponse
 } from "../types/calendar-only";
-import { getCurrentUser, isDevelopment, getGoogleAccessToken } from "../config/firebase";
+import { getCurrentUser, isDevelopment, getGoogleAccessToken, trackActivity, ensureValidGoogleToken } from "../config/firebase";
 import type { CalendarEvent, PatientData } from "../types/onboarding";
 
 const API_URL = isDevelopment ? "http://localhost:3000" : process.env.EXPO_PUBLIC_SAFE_PROXY_URL;
 const API_KEY = process.env.SAFE_PROXY_API_KEY;
 
-const getAuthHeaders = async () => {
-  console.log("📡 API CALL MADE at", new Date().toISOString(), "- Stack:", new Error().stack?.split('\n')[2]?.trim());
-  console.log("=== getAuthHeaders Debug ===");
+// Enhanced getAuthHeaders with automatic token refresh and activity tracking
+const getAuthHeaders = async (): Promise<Record<string, string>> => {
+  console.log("📡 ENHANCED API CALL at", new Date().toISOString(), "- Stack:", new Error().stack?.split('\n')[2]?.trim());
+  console.log("=== Enhanced getAuthHeaders Debug ===");
 
   let authHeader = "";
-
+  
   // Always get real Firebase token
   const user = getCurrentUser();
   console.log("getCurrentUser():", user?.email || 'none');
 
   if (user) {
     try {
-      console.log("User found, getting token...");
+      console.log("User found, getting Firebase token...");
       const token = await user.getIdToken();
       authHeader = `Bearer ${token}`;
       console.log("Firebase token obtained:", token ? "✅" : "❌");
@@ -41,10 +42,43 @@ const getAuthHeaders = async () => {
     console.log("No authenticated user found");
   }
 
-  // Get Google access token for calendar operations
-  const googleAccessToken = getGoogleAccessToken();
-  console.log("Google access token available:", !!googleAccessToken);
+  // Enhanced Google access token with auto-refresh and activity tracking
+  let googleAccessToken: string | null = null;
+  
+  // Check if enhanced token management is available
+  if (typeof ensureValidGoogleToken === 'function') {
+    try {
+      console.log("Getting Google access token with enhanced validation...");
+      
+      // Use the enhanced token validation function
+      googleAccessToken = await ensureValidGoogleToken();
+      if (googleAccessToken) {
+        trackActivity(); // Track activity on successful token validation
+      }
+      console.log("Enhanced Google token obtained:", googleAccessToken ? "✅" : "❌");
+      
+    } catch (error) {
+      console.warn("Enhanced Google token check failed:", error);
+      
+      if (error instanceof Error && error.message.includes("FORCE_REAUTH")) {
+        console.log("❌ User inactive for > 10 days, forcing re-authentication");
+        // You may want to trigger a re-auth flow here or notify the user
+        throw new Error("Re-authentication required due to inactivity");
+      }
+      
+      // Fallback to stored token for backwards compatibility
+      googleAccessToken = await getGoogleAccessToken();
+      console.log("Using fallback stored token:", googleAccessToken ? "✅" : "❌");
+    }
+  } else {
+    // Fallback if enhanced functions aren't available yet
+    console.log("Enhanced token management not available, using fallback");
+    const fallbackToken = await getGoogleAccessToken();
+    googleAccessToken = typeof fallbackToken === 'string' ? fallbackToken : null;
+    console.log("Using fallback stored token:", googleAccessToken ? "✅" : "❌");
+  }
 
+  // Build headers
   const headers: Record<string, string> = {
     "X-API-Key": API_KEY || "",
     "Content-Type": "application/json",
@@ -67,6 +101,65 @@ const getAuthHeaders = async () => {
   return headers;
 };
 
+// Enhanced API call wrapper with automatic retry on authentication failures
+const makeEnhancedApiCall = async <T>(
+  url: string, 
+  options: RequestInit = {}
+): Promise<T> => {
+  let retryCount = 0;
+  const maxRetries = 1; // Try once, then retry once
+
+  while (retryCount <= maxRetries) {
+    try {
+      const headers = await getAuthHeaders();
+      
+      const response = await fetch(`${API_URL}${url}`, {
+        ...options,
+        headers: {
+          ...headers,
+          ...options.headers,
+        },
+      });
+
+      // If we get 401, try to refresh and retry
+      if (response.status === 401 && retryCount < maxRetries) {
+        console.warn(`🔄 Got 401, attempting token refresh and retry...`);
+        
+        try {
+          // Force refresh Firebase token
+          const user = getCurrentUser();
+          if (user) {
+            await user.getIdToken(true);
+            console.log("✅ Firebase token refreshed");
+          }
+          
+          // The next getAuthHeaders() call will automatically try to refresh Google token
+          retryCount++;
+          continue; // Retry with fresh tokens
+        } catch (refreshError) {
+          console.error("❌ Token refresh failed:", refreshError);
+          throw new Error("Authentication failed - please sign in again");
+        }
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API call failed: ${response.status} ${response.statusText} - ${errorText}`);
+      }
+
+      return response.json();
+
+    } catch (error) {
+      if (retryCount >= maxRetries) {
+        throw error;
+      }
+      retryCount++;
+    }
+  }
+
+  throw new Error("Max retries exceeded");
+};
+
 // Helper function to check if we can make authenticated API calls
 const canMakeAuthenticatedCall = (): boolean => {
   if (isDevelopment) {
@@ -75,8 +168,9 @@ const canMakeAuthenticatedCall = (): boolean => {
     console.log("🚧 Development mode - can make authenticated call:", hasUser);
     return hasUser;
   }
-  // In production, need both Firebase user and Google access token
-  const canCall = !!(getCurrentUser() && getGoogleAccessToken());
+  // In production, need both Firebase user and a way to get Google access token
+  const user = getCurrentUser();
+  const canCall = !!user;
   console.log("🔥 Production mode - can make authenticated call:", canCall);
   return canCall;
 };
@@ -99,7 +193,7 @@ const getCurrentTherapistEmail = () => {
 
 export const apiService = {
   // ==========================================
-  // EXISTING METHODS (keeping all your current API methods)
+  // PATIENT MANAGEMENT METHODS
   // ==========================================
 
   async getPatients(therapistEmail?: string): Promise<Patient[]> {
@@ -107,489 +201,13 @@ export const apiService = {
       throw new Error("Authentication required for API calls");
     }
 
-    const headers = await getAuthHeaders();
     const email = therapistEmail || getCurrentTherapistEmail();
-
     if (!email) {
       throw new Error("No therapist email provided");
     }
 
     console.log("📞 getPatients API call with email:", email);
-    const response = await fetch(`${API_URL}/api/patients?therapistEmail=${encodeURIComponent(email)}`, { headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ getPatients error response:", errorText);
-      throw new Error(`Failed to fetch patients. Status: ${response.status}, Error: ${errorText}`);
-    }
-    return response.json();
-  },
-
-  async getPatientSessions(patientId: string): Promise<Session[]> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for API calls");
-    }
-
-    const headers = await getAuthHeaders();
-    const therapistEmail = getCurrentTherapistEmail();
-
-    if (!therapistEmail) {
-      throw new Error("No therapist email available");
-    }
-
-    console.log("📞 getPatientSessions API call");
-    const response = await fetch(`${API_URL}/api/sessions/${patientId}?therapistEmail=${encodeURIComponent(therapistEmail)}`, { headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ getPatientSessions error response:", errorText);
-      throw new Error(`Failed to fetch sessions. Status: ${response.status}, Error: ${errorText}`);
-    }
-    return response.json();
-  },
-
-  // ... (keeping all your existing methods) ...
-
-  // ==========================================
-  // NEW CALENDAR-ONLY METHODS
-  // ==========================================
-
-  // Get all patients with their calendar sessions
-  async getCalendarOnlyPatients(
-    therapistEmail?: string,
-    startDate?: string,
-    endDate?: string
-  ): Promise<CalendarOnlyPatient[]> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for calendar operations");
-    }
-
-    const headers = await getAuthHeaders();
-    const email = therapistEmail || getCurrentTherapistEmail();
-
-    if (!email) {
-      throw new Error("No therapist email provided");
-    }
-
-    const params = new URLSearchParams({
-      therapistEmail: email
-    });
-    if (startDate) params.append('startDate', startDate);
-    if (endDate) params.append('endDate', endDate);
-
-    console.log("📅 getCalendarOnlyPatients API call");
-    const response = await fetch(`${API_URL}/api/calendar-only/patients?${params}`, { headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ getCalendarOnlyPatients error response:", errorText);
-      throw new Error(`Failed to fetch calendar patients. Status: ${response.status}, Error: ${errorText}`);
-    }
-    return response.json();
-  },
-
-  // Get specific patient's calendar sessions
-  async getPatientCalendarSessions(
-    patientId: number,
-    therapistEmail?: string
-  ): Promise<CalendarSession[]> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for calendar operations");
-    }
-
-    const headers = await getAuthHeaders();
-    const email = therapistEmail || getCurrentTherapistEmail();
-
-    if (!email) {
-      throw new Error("No therapist email provided");
-    }
-
-    const params = new URLSearchParams({
-      therapistEmail: email
-    });
-
-    console.log("📅 getPatientCalendarSessions API call");
-    const response = await fetch(`${API_URL}/api/calendar-only/patients/${patientId}?${params}`, { headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ getPatientCalendarSessions error response:", errorText);
-      throw new Error(`Failed to fetch patient calendar sessions. Status: ${response.status}, Error: ${errorText}`);
-    }
-    return response.json();
-  },
-
-  // Get all calendar sessions with optional auto check-in
-  async getCalendarOnlySessions(
-    therapistEmail?: string,
-    autoCheckIn: boolean = false,
-    startDate?: string,
-    endDate?: string
-  ): Promise<CalendarSession[]> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for calendar operations");
-    }
-
-    const headers = await getAuthHeaders();
-    const email = therapistEmail || getCurrentTherapistEmail();
-
-    if (!email) {
-      throw new Error("No therapist email provided");
-    }
-
-    const params = new URLSearchParams({
-      therapistEmail: email,
-      autoCheckIn: autoCheckIn.toString()
-    });
-    if (startDate) params.append('startDate', startDate);
-    if (endDate) params.append('endDate', endDate);
-
-    console.log(`📅 getCalendarOnlySessions API call - Auto Check-in: ${autoCheckIn}`);
-    const response = await fetch(`${API_URL}/api/calendar-only/sessions?${params}`, { headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ getCalendarOnlySessions error response:", errorText);
-      throw new Error(`Failed to fetch calendar sessions. Status: ${response.status}, Error: ${errorText}`);
-    }
-    return response.json();
-  },
-
-  // Calendar debug and connectivity check
-  async debugCalendarConnectivity(therapistEmail?: string): Promise<any> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for calendar operations");
-    }
-
-    const headers = await getAuthHeaders();
-    const email = therapistEmail || getCurrentTherapistEmail();
-
-    if (!email) {
-      throw new Error("No therapist email provided");
-    }
-
-    const params = new URLSearchParams({
-      therapistEmail: email
-    });
-
-    console.log("🔍 debugCalendarConnectivity API call");
-    const response = await fetch(`${API_URL}/api/calendar-only/debug?${params}`, { headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ debugCalendarConnectivity error response:", errorText);
-      throw new Error(`Failed to debug calendar connectivity. Status: ${response.status}, Error: ${errorText}`);
-    }
-    return response.json();
-  },
-
-  // ==========================================
-  // MONTHLY BILLING METHODS
-  // ==========================================
-
-  // Get monthly billing summary
-  async getMonthlyBillingSummary(
-    therapistEmail: string,
-    year: number,
-    month: number
-  ): Promise<MonthlyBillingOverviewResponse> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for billing operations");
-    }
-
-    const headers = await getAuthHeaders();
-    const params = new URLSearchParams({
-      therapistEmail,
-      year: year.toString(),
-      month: month.toString()
-    });
-
-    console.log(`💰 getMonthlyBillingSummary API call - ${year}-${month}`);
-    const response = await fetch(`${API_URL}/api/monthly-billing/summary?${params}`, { headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ getMonthlyBillingSummary error response:", errorText);
-      throw new Error(`Failed to fetch monthly billing summary. Status: ${response.status}, Error: ${errorText}`);
-    }
-    return response.json();
-  },
-
-  // Process monthly charges for a specific patient
-  async processMonthlyCharges(
-    request: ProcessChargesRequest
-  ): Promise<ProcessChargesResponse> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for billing operations");
-    }
-
-    const headers = await getAuthHeaders();
-
-    console.log(`💰 processMonthlyCharges API call - Patient ${request.patientId}, ${request.year}-${request.month}`);
-    const response = await fetch(`${API_URL}/api/monthly-billing/process`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(request),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ processMonthlyCharges error response:", errorText);
-      throw new Error(`Failed to process monthly charges. Status: ${response.status}, Error: ${errorText}`);
-    }
-    return response.json();
-  },
-
-  // Get billing period details
-  async getBillingPeriodDetails(billingPeriodId: number): Promise<BillingPeriod> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for billing operations");
-    }
-
-    const headers = await getAuthHeaders();
-
-    console.log(`💰 getBillingPeriodDetails API call - ID ${billingPeriodId}`);
-    const response = await fetch(`${API_URL}/api/monthly-billing/${billingPeriodId}`, { headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ getBillingPeriodDetails error response:", errorText);
-      throw new Error(`Failed to fetch billing period details. Status: ${response.status}, Error: ${errorText}`);
-    }
-    return response.json();
-  },
-
-  // Void billing period (only if no payments)
-  async voidBillingPeriod(
-    billingPeriodId: number,
-    therapistEmail: string,
-    reason: string
-  ): Promise<void> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for billing operations");
-    }
-
-    const headers = await getAuthHeaders();
-
-    console.log(`💰 voidBillingPeriod API call - ID ${billingPeriodId}`);
-    const response = await fetch(`${API_URL}/api/monthly-billing/${billingPeriodId}/void`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({
-        therapistEmail,
-        reason
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ voidBillingPeriod error response:", errorText);
-      throw new Error(`Failed to void billing period. Status: ${response.status}, Error: ${errorText}`);
-    }
-  },
-
-  // Record payment for billing period
-  async recordBillingPeriodPayment(
-    billingPeriodId: number,
-    paymentRequest: RecordPaymentRequest
-  ): Promise<BillingPeriodPayment> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for billing operations");
-    }
-
-    const headers = await getAuthHeaders();
-
-    console.log(`💰 recordBillingPeriodPayment API call - ID ${billingPeriodId}`);
-    const response = await fetch(`${API_URL}/api/monthly-billing/${billingPeriodId}/payments`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(paymentRequest),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ recordBillingPeriodPayment error response:", errorText);
-      throw new Error(`Failed to record billing period payment. Status: ${response.status}, Error: ${errorText}`);
-    }
-    return response.json();
-  },
-
-  // Delete payment (re-enables voiding)
-  async deleteBillingPeriodPayment(paymentId: number): Promise<void> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for billing operations");
-    }
-
-    const headers = await getAuthHeaders();
-
-    console.log(`💰 deleteBillingPeriodPayment API call - Payment ID ${paymentId}`);
-    const response = await fetch(`${API_URL}/api/monthly-billing/payments/${paymentId}`, {
-      method: "DELETE",
-      headers,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ deleteBillingPeriodPayment error response:", errorText);
-      throw new Error(`Failed to delete billing period payment. Status: ${response.status}, Error: ${errorText}`);
-    }
-  },
-
-  // Delete entire billing period (only if no payments)
-  async deleteBillingPeriod(billingPeriodId: number): Promise<void> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for billing operations");
-    }
-
-    const headers = await getAuthHeaders();
-
-    console.log(`💰 deleteBillingPeriod API call - ID ${billingPeriodId}`);
-    const response = await fetch(`${API_URL}/api/monthly-billing/${billingPeriodId}`, {
-      method: "DELETE",
-      headers,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ deleteBillingPeriod error response:", errorText);
-      throw new Error(`Failed to delete billing period. Status: ${response.status}, Error: ${errorText}`);
-    }
-  },
-
-  // Export monthly billing data as CSV
-  async exportMonthlyBillingCSV(
-    therapistEmail: string,
-    year: number,
-    month: number
-  ): Promise<Blob> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for CSV export");
-    }
-
-    const headers = await getAuthHeaders();
-    const params = new URLSearchParams({
-      therapistEmail,
-      year: year.toString(),
-      month: month.toString()
-    });
-
-    console.log(`📊 exportMonthlyBillingCSV API call - ${year}-${month}`);
-    const response = await fetch(`${API_URL}/api/monthly-billing/export-csv?${params}`, { headers });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ exportMonthlyBillingCSV error response:", errorText);
-      throw new Error(`Failed to export CSV. Status: ${response.status}, Error: ${errorText}`);
-    }
-
-    return response.blob();
-  },
-
-  // ==========================================
-  // 
-  // ==========================================
-
-  async getCalendars(): Promise<any[]> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for calendar operations");
-    }
-
-    const headers = await getAuthHeaders();
-    console.log("Calendar reuqest Test Version 1.0.0");
-    console.log(headers);
-    console.log("📞 getCalendars API call");
-    const response = await fetch(`${API_URL}/api/calendars`, { headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ getCalendars error response:", errorText);
-      throw new Error(`Failed to fetch calendars. Status: ${response.status}, Error: ${errorText}`);
-    }
-    return response.json();
-  },
-
-  async submitCheckIn(patientId: string, sessionId: string): Promise<void> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for API calls");
-    }
-
-    const headers = await getAuthHeaders();
-    console.log("📞 submitCheckIn API call");
-    const response = await fetch(`${API_URL}/api/checkin`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ patientId, sessionId }),
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ submitCheckIn error response:", errorText);
-      throw new Error(`Failed to submit check-in. Status: ${response.status}, Error: ${errorText}`);
-    }
-  },
-
-  // Therapist methods
-  async getTherapistByEmail(email: string): Promise<Therapist | null> {
-    console.log("55555 🔄 getTherapistByEmail called for:", email, "at", new Date().toISOString());
-    try {
-      if (!canMakeAuthenticatedCall()) {
-        console.log("⚠️ Authentication not ready, skipping therapist fetch");
-        return null;
-      }
-
-      const headers = await getAuthHeaders();
-      console.log("Test Version 1.0.0 (src/services/api.ts)");
-      console.log("📞 getTherapistByEmail API call for ::: ", email);
-      console.log("Headers", headers);
-      const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(email)}`, { headers });
-      if (response.status === 404) {
-        console.log("📭 Therapist not found (404)");
-        return null; // Therapist doesn't exist
-      }
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("❌ getTherapistByEmail error response:", errorText);
-        throw new Error(`Failed to fetch therapist. Status: ${response.status}, Error: ${errorText}`);
-      }
-      const therapist = await response.json();
-      console.log("✅ getTherapistByEmail success:", therapist);
-      return therapist;
-    } catch (error) {
-      console.error("❌ Error fetching therapist:", error);
-      return null;
-    }
-  },
-
-  async createTherapist(therapist: { name: string; email: string; googleCalendarId: string }): Promise<Therapist> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for API calls");
-    }
-
-    const headers = await getAuthHeaders();
-    console.log("📞 createTherapist API call:", therapist);
-    const response = await fetch(`${API_URL}/api/therapists`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(therapist),
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ createTherapist error response:", errorText);
-      throw new Error(`Failed to create therapist: ${errorText}`);
-    }
-    const result = await response.json();
-    console.log("✅ createTherapist success:", result);
-    return result;
-  },
-
-  async updateTherapistCalendar(email: string, calendarId: string): Promise<void> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for API calls");
-    }
-
-    const headers = await getAuthHeaders();
-    console.log("📞 updateTherapistCalendar API call:", { email, calendarId });
-    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(email)}/calendar`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ googleCalendarId: calendarId }),
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ updateTherapistCalendar error response:", errorText);
-      throw new Error(`Failed to update therapist calendar: ${errorText}`);
-    }
-    console.log("✅ updateTherapistCalendar success");
+    return makeEnhancedApiCall(`/api/patients?therapistEmail=${encodeURIComponent(email)}`);
   },
 
   async createPatient(patient: { nome: string; email: string; telefone: string; therapistEmail: string }): Promise<Patient> {
@@ -597,37 +215,11 @@ export const apiService = {
       throw new Error("Authentication required for API calls");
     }
 
-    const headers = await getAuthHeaders();
     console.log("📞 createPatient API call:", patient);
-    const response = await fetch(`${API_URL}/api/patients`, {
+    return makeEnhancedApiCall(`/api/patients`, {
       method: "POST",
-      headers,
       body: JSON.stringify(patient),
     });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ createPatient error response:", errorText);
-      throw new Error(`Failed to create patient: ${errorText}`);
-    }
-    const result = await response.json();
-    console.log("✅ createPatient success:", result);
-    return result;
-  },
-
-  async getCalendarEvents(therapistEmail: string): Promise<any[]> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for calendar operations");
-    }
-
-    const headers = await getAuthHeaders();
-    console.log("📞 getCalendarEvents API call for:", therapistEmail);
-    const response = await fetch(`${API_URL}/api/calendars/events?therapistEmail=${encodeURIComponent(therapistEmail)}`, { headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ getCalendarEvents error response:", errorText);
-      throw new Error(`Failed to fetch calendar events. Status: ${response.status}, Error: ${errorText}`);
-    }
-    return response.json();
   },
 
   async updatePatient(patientId: string, patient: {
@@ -643,21 +235,11 @@ export const apiService = {
       throw new Error("Authentication required for API calls");
     }
 
-    const headers = await getAuthHeaders();
     console.log("📞 updatePatient API call:", { patientId, patient });
-    const response = await fetch(`${API_URL}/api/patients/${patientId}`, {
+    return makeEnhancedApiCall(`/api/patients/${patientId}`, {
       method: "PUT",
-      headers,
       body: JSON.stringify(patient),
     });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ updatePatient error response:", errorText);
-      throw new Error(`Failed to update patient: ${errorText}`);
-    }
-    const result = await response.json();
-    console.log("✅ updatePatient success:", result);
-    return result;
   },
 
   async deletePatient(patientId: string): Promise<void> {
@@ -665,28 +247,33 @@ export const apiService = {
       throw new Error("Authentication required for API calls");
     }
 
-    const headers = await getAuthHeaders();
     console.log("📞 deletePatient API call:", patientId);
-    const response = await fetch(`${API_URL}/api/patients/${patientId}`, {
+    await makeEnhancedApiCall(`/api/patients/${patientId}`, {
       method: "DELETE",
-      headers,
     });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ deletePatient error response:", errorText);
-      throw new Error(`Failed to delete patient: ${errorText}`);
-    }
     console.log("✅ deletePatient success");
   },
 
-  // Sessions management
+  // ==========================================
+  // SESSION MANAGEMENT METHODS
+  // ==========================================
+
+  async getPatientSessions(patientId: string): Promise<Session[]> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for API calls");
+    }
+
+    const therapistEmail = getCurrentTherapistEmail();
+    if (!therapistEmail) {
+      throw new Error("No therapist email available");
+    }
+
+    console.log("📞 getPatientSessions API call");
+    return makeEnhancedApiCall(`/api/sessions/${patientId}?therapistEmail=${encodeURIComponent(therapistEmail)}`);
+  },
+
   async getSessions(therapistEmail: string): Promise<Session[]> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/sessions?therapistEmail=${encodeURIComponent(therapistEmail)}`, {
-      headers
-    });
-    if (!response.ok) throw new Error("Failed to fetch sessions");
-    return response.json();
+    return makeEnhancedApiCall(`/api/sessions?therapistEmail=${encodeURIComponent(therapistEmail)}`);
   },
 
   async createSession(sessionData: {
@@ -695,26 +282,29 @@ export const apiService = {
     status: string;
     therapistEmail: string;
   }): Promise<Session> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/sessions`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(sessionData),
-    });
-
-    console.log('Response status:', response.status);
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.log('Error response data:', errorData);
-
-      // Throw error with server's message
-      const errorMessage = errorData.message || "Failed to create session";
-      console.log('Error response data:', errorMessage);
-      throw new Error(errorMessage);
+    console.log("📞 createSession API call:", sessionData);
+    
+    try {
+      return await makeEnhancedApiCall(`/api/sessions`, {
+        method: "POST",
+        body: JSON.stringify(sessionData),
+      });
+    } catch (error) {
+      // Enhanced error handling for session creation
+      if (error instanceof Error && error.message.includes("API call failed:")) {
+        const match = error.message.match(/API call failed: (\d+) .* - (.+)/);
+        if (match) {
+          const [, status, errorText] = match;
+          try {
+            const errorData = JSON.parse(errorText);
+            throw new Error(errorData.message || "Failed to create session");
+          } catch {
+            throw new Error(errorText || "Failed to create session");
+          }
+        }
+      }
+      throw error;
     }
-
-    return response.json();
   },
 
   async updateSession(sessionId: string, updateData: {
@@ -722,52 +312,373 @@ export const apiService = {
     date?: string;
     status?: string;
   }): Promise<Session> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    return makeEnhancedApiCall(`/api/sessions/${sessionId}`, {
       method: "PUT",
-      headers,
       body: JSON.stringify(updateData),
     });
-    if (!response.ok) throw new Error("Failed to update session");
-    return response.json();
   },
 
   async deleteSession(sessionId: string): Promise<void> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
-      method: "DELETE",
-      headers,
-    });
-
-    console.log('Delete response status:', response.status);
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.log('Delete error response data:', errorData);
-
-      const errorMessage = errorData.message || "Failed to delete session";
-      throw new Error(errorMessage);
+    console.log("📞 deleteSession API call:", sessionId);
+    
+    try {
+      await makeEnhancedApiCall(`/api/sessions/${sessionId}`, {
+        method: "DELETE",
+      });
+      console.log("✅ deleteSession success");
+    } catch (error) {
+      // Enhanced error handling for session deletion
+      if (error instanceof Error && error.message.includes("API call failed:")) {
+        const match = error.message.match(/API call failed: (\d+) .* - (.+)/);
+        if (match) {
+          const [, status, errorText] = match;
+          try {
+            const errorData = JSON.parse(errorText);
+            throw new Error(errorData.message || "Failed to delete session");
+          } catch {
+            throw new Error(errorText || "Failed to delete session");
+          }
+        }
+      }
+      throw error;
     }
   },
 
-  // Test connection endpoint
-  async testConnection(): Promise<{ message: string }> {
+  async submitCheckIn(patientId: string, sessionId: string): Promise<void> {
     if (!canMakeAuthenticatedCall()) {
       throw new Error("Authentication required for API calls");
     }
 
-    const headers = await getAuthHeaders();
-    console.log("📞 testConnection API call");
-    const response = await fetch(`${API_URL}/api/test`, { headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ testConnection error response:", errorText);
-      throw new Error(`Failed to test connection. Status: ${response.status}, Error: ${errorText}`);
+    console.log("📞 submitCheckIn API call");
+    await makeEnhancedApiCall(`/api/checkin`, {
+      method: "POST",
+      body: JSON.stringify({ patientId, sessionId }),
+    });
+  },
+
+  // ==========================================
+  // THERAPIST MANAGEMENT METHODS
+  // ==========================================
+
+  async getTherapistByEmail(email: string): Promise<Therapist | null> {
+    console.log("🔄 getTherapistByEmail called for:", email, "at", new Date().toISOString());
+    try {
+      if (!canMakeAuthenticatedCall()) {
+        console.log("⚠️ Authentication not ready, skipping therapist fetch");
+        return null;
+      }
+
+      console.log("📞 getTherapistByEmail API call for:", email);
+      
+      try {
+        const therapist = await makeEnhancedApiCall<Therapist>(`/api/therapists/${encodeURIComponent(email)}`);
+        console.log("✅ getTherapistByEmail success:", therapist);
+        return therapist;
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("404")) {
+          console.log("📭 Therapist not found (404)");
+          return null; // Therapist doesn't exist
+        }
+        throw error;
+      }
+    } catch (error) {
+      console.error("❌ Error fetching therapist:", error);
+      return null;
     }
-    const result = await response.json();
-    console.log("✅ testConnection success:", result);
+  },
+
+  async createTherapist(therapist: { name: string; email: string; googleCalendarId: string }): Promise<Therapist> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for API calls");
+    }
+
+    console.log("📞 createTherapist API call:", therapist);
+    const result = await makeEnhancedApiCall<Therapist>(`/api/therapists`, {
+      method: "POST",
+      body: JSON.stringify(therapist),
+    });
+    console.log("✅ createTherapist success:", result);
     return result;
   },
+
+  async updateTherapistCalendar(email: string, calendarId: string): Promise<void> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for API calls");
+    }
+
+    console.log("📞 updateTherapistCalendar API call:", { email, calendarId });
+    await makeEnhancedApiCall(`/api/therapists/${encodeURIComponent(email)}/calendar`, {
+      method: "PUT",
+      body: JSON.stringify({ googleCalendarId: calendarId }),
+    });
+    console.log("✅ updateTherapistCalendar success");
+  },
+
+  // ==========================================
+  // CALENDAR METHODS
+  // ==========================================
+
+  async getCalendars(): Promise<any[]> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for calendar operations");
+    }
+
+    console.log("📞 getCalendars API call");
+    return makeEnhancedApiCall(`/api/calendars`);
+  },
+
+  async getCalendarEvents(therapistEmail: string): Promise<any[]> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for calendar operations");
+    }
+
+    console.log("📞 getCalendarEvents API call for:", therapistEmail);
+    return makeEnhancedApiCall(`/api/calendars/events?therapistEmail=${encodeURIComponent(therapistEmail)}`);
+  },
+
+  async getCalendarEventsForImport(
+    calendarId: string,
+    startDate: string,
+    endDate: string
+  ): Promise<CalendarEvent[]> {
+    const params = new URLSearchParams({
+      calendarId,
+      startDate,
+      endDate,
+      useUserAuth: 'true' // Flag to use user OAuth
+    });
+
+    return makeEnhancedApiCall(`/api/import/calendar/events-for-import?${params}`);
+  },
+
+  // ==========================================
+  // CALENDAR-ONLY METHODS
+  // ==========================================
+
+  async getCalendarOnlyPatients(
+    therapistEmail?: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<CalendarOnlyPatient[]> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for calendar operations");
+    }
+
+    const email = therapistEmail || getCurrentTherapistEmail();
+    if (!email) {
+      throw new Error("No therapist email provided");
+    }
+
+    const params = new URLSearchParams({
+      therapistEmail: email
+    });
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+
+    console.log("📅 getCalendarOnlyPatients API call");
+    return makeEnhancedApiCall(`/api/calendar-only/patients?${params}`);
+  },
+
+  async getPatientCalendarSessions(
+    patientId: number,
+    therapistEmail?: string
+  ): Promise<CalendarSession[]> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for calendar operations");
+    }
+
+    const email = therapistEmail || getCurrentTherapistEmail();
+    if (!email) {
+      throw new Error("No therapist email provided");
+    }
+
+    const params = new URLSearchParams({
+      therapistEmail: email
+    });
+
+    console.log("📅 getPatientCalendarSessions API call");
+    return makeEnhancedApiCall(`/api/calendar-only/patients/${patientId}?${params}`);
+  },
+
+  async getCalendarOnlySessions(
+    therapistEmail?: string,
+    autoCheckIn: boolean = false,
+    startDate?: string,
+    endDate?: string
+  ): Promise<CalendarSession[]> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for calendar operations");
+    }
+
+    const email = therapistEmail || getCurrentTherapistEmail();
+    if (!email) {
+      throw new Error("No therapist email provided");
+    }
+
+    const params = new URLSearchParams({
+      therapistEmail: email,
+      autoCheckIn: autoCheckIn.toString()
+    });
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+
+    console.log(`📅 getCalendarOnlySessions API call - Auto Check-in: ${autoCheckIn}`);
+    return makeEnhancedApiCall(`/api/calendar-only/sessions?${params}`);
+  },
+
+  async debugCalendarConnectivity(therapistEmail?: string): Promise<any> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for calendar operations");
+    }
+
+    const email = therapistEmail || getCurrentTherapistEmail();
+    if (!email) {
+      throw new Error("No therapist email provided");
+    }
+
+    const params = new URLSearchParams({
+      therapistEmail: email
+    });
+
+    console.log("🔍 debugCalendarConnectivity API call");
+    return makeEnhancedApiCall(`/api/calendar-only/debug?${params}`);
+  },
+
+  // ==========================================
+  // MONTHLY BILLING METHODS
+  // ==========================================
+
+  async getMonthlyBillingSummary(
+    therapistEmail: string,
+    year: number,
+    month: number
+  ): Promise<MonthlyBillingOverviewResponse> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    const params = new URLSearchParams({
+      therapistEmail,
+      year: year.toString(),
+      month: month.toString()
+    });
+
+    console.log(`💰 getMonthlyBillingSummary API call - ${year}-${month}`);
+    return makeEnhancedApiCall(`/api/monthly-billing/summary?${params}`);
+  },
+
+  async processMonthlyCharges(
+    request: ProcessChargesRequest
+  ): Promise<ProcessChargesResponse> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    console.log(`💰 processMonthlyCharges API call - Patient ${request.patientId}, ${request.year}-${request.month}`);
+    return makeEnhancedApiCall(`/api/monthly-billing/process`, {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  },
+
+  async getBillingPeriodDetails(billingPeriodId: number): Promise<BillingPeriod> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    console.log(`💰 getBillingPeriodDetails API call - ID ${billingPeriodId}`);
+    return makeEnhancedApiCall(`/api/monthly-billing/${billingPeriodId}`);
+  },
+
+  async voidBillingPeriod(
+    billingPeriodId: number,
+    therapistEmail: string,
+    reason: string
+  ): Promise<void> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    console.log(`💰 voidBillingPeriod API call - ID ${billingPeriodId}`);
+    await makeEnhancedApiCall(`/api/monthly-billing/${billingPeriodId}/void`, {
+      method: "PUT",
+      body: JSON.stringify({
+        therapistEmail,
+        reason
+      }),
+    });
+  },
+
+  async recordBillingPeriodPayment(
+    billingPeriodId: number,
+    paymentRequest: RecordPaymentRequest
+  ): Promise<BillingPeriodPayment> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    console.log(`💰 recordBillingPeriodPayment API call - ID ${billingPeriodId}`);
+    return makeEnhancedApiCall(`/api/monthly-billing/${billingPeriodId}/payments`, {
+      method: "POST",
+      body: JSON.stringify(paymentRequest),
+    });
+  },
+
+  async deleteBillingPeriodPayment(paymentId: number): Promise<void> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    console.log(`💰 deleteBillingPeriodPayment API call - Payment ID ${paymentId}`);
+    await makeEnhancedApiCall(`/api/monthly-billing/payments/${paymentId}`, {
+      method: "DELETE",
+    });
+  },
+
+  async deleteBillingPeriod(billingPeriodId: number): Promise<void> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for billing operations");
+    }
+
+    console.log(`💰 deleteBillingPeriod API call - ID ${billingPeriodId}`);
+    await makeEnhancedApiCall(`/api/monthly-billing/${billingPeriodId}`, {
+      method: "DELETE",
+    });
+  },
+
+  async exportMonthlyBillingCSV(
+    therapistEmail: string,
+    year: number,
+    month: number
+  ): Promise<Blob> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for CSV export");
+    }
+
+    const params = new URLSearchParams({
+      therapistEmail,
+      year: year.toString(),
+      month: month.toString()
+    });
+
+    console.log(`📊 exportMonthlyBillingCSV API call - ${year}-${month}`);
+    
+    // For CSV export, we need to handle the response differently
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/monthly-billing/export-csv?${params}`, { headers });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ exportMonthlyBillingCSV error response:", errorText);
+      throw new Error(`Failed to export CSV. Status: ${response.status}, Error: ${errorText}`);
+    }
+
+    return response.blob();
+  },
+
+  // ==========================================
+  // PAYMENT METHODS
+  // ==========================================
 
   async getPaymentSummary(
     therapistEmail: string,
@@ -777,7 +688,6 @@ export const apiService = {
     status?: string,
     patientFilter?: string
   ): Promise<any> {
-    const headers = await getAuthHeaders();
     const params = new URLSearchParams({
       therapistEmail,
       autoCheckIn: autoCheckIn.toString()
@@ -788,9 +698,7 @@ export const apiService = {
     if (patientFilter) params.append('patientFilter', patientFilter);
 
     console.log(`📞 getPaymentSummary API call - Auto Check-in: ${autoCheckIn}, Filters: ${status}, ${patientFilter}`);
-    const response = await fetch(`${API_URL}/api/payments/summary?${params}`, { headers });
-    if (!response.ok) throw new Error("Failed to fetch payment summary");
-    return response.json();
+    return makeEnhancedApiCall(`/api/payments/summary?${params}`);
   },
 
   async getPatientPayments(
@@ -800,7 +708,6 @@ export const apiService = {
     status?: string,
     autoCheckIn: boolean = false
   ): Promise<any[]> {
-    const headers = await getAuthHeaders();
     const params = new URLSearchParams({
       therapistEmail,
       autoCheckIn: autoCheckIn.toString()
@@ -810,9 +717,7 @@ export const apiService = {
     if (status) params.append('status', status);
 
     console.log(`📞 getPatientPayments API call - Auto Check-in: ${autoCheckIn}`);
-    const response = await fetch(`${API_URL}/api/payments/patients?${params}`, { headers });
-    if (!response.ok) throw new Error("Failed to fetch patient payments");
-    return response.json();
+    return makeEnhancedApiCall(`/api/payments/patients?${params}`);
   },
 
   async getSessionPayments(
@@ -822,7 +727,6 @@ export const apiService = {
     status?: string,
     autoCheckIn: boolean = false
   ): Promise<any[]> {
-    const headers = await getAuthHeaders();
     const params = new URLSearchParams({
       therapistEmail,
       autoCheckIn: autoCheckIn.toString()
@@ -832,40 +736,29 @@ export const apiService = {
     if (status) params.append('status', status);
 
     console.log(`📞 getSessionPayments API call - Auto Check-in: ${autoCheckIn}`);
-    const response = await fetch(`${API_URL}/api/payments/sessions?${params}`, { headers });
-    if (!response.ok) throw new Error("Failed to fetch session payments");
-    return response.json();
+    return makeEnhancedApiCall(`/api/payments/sessions?${params}`);
   },
 
   async sendPaymentRequest(patientId: string, autoCheckIn: boolean = false): Promise<void> {
-    const headers = await getAuthHeaders();
     console.log(`📞 sendPaymentRequest API call - Auto Check-in: ${autoCheckIn}`);
-    const response = await fetch(`${API_URL}/api/payments/request`, {
+    await makeEnhancedApiCall(`/api/payments/request`, {
       method: "POST",
-      headers,
       body: JSON.stringify({
         patientId,
         autoCheckIn
       }),
     });
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to send payment request: ${error}`);
-    }
   },
-
 
   async updatePaymentStatus(sessionId: number, newStatus: string, therapistEmail: string): Promise<void> {
     if (!canMakeAuthenticatedCall()) {
       throw new Error("Authentication required for API calls");
     }
 
-    const headers = await getAuthHeaders();
     console.log("📞 updatePaymentStatus API call:", { sessionId, newStatus, therapistEmail });
 
-    const response = await fetch(`${API_URL}/api/payments/status`, {
+    await makeEnhancedApiCall(`/api/payments/status`, {
       method: "PUT",
-      headers,
       body: JSON.stringify({
         sessionId,
         newStatus,
@@ -875,62 +768,29 @@ export const apiService = {
       }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ updatePaymentStatus error response:", errorText);
-      throw new Error(`Failed to update payment status. Status: ${response.status}, Error: ${errorText}`);
-    }
-
     console.log("✅ updatePaymentStatus success");
   },
 
-
-  async getCalendarEventsForImport(
-    calendarId: string,
-    startDate: string,
-    endDate: string
-  ): Promise<CalendarEvent[]> {
-    const headers = await getAuthHeaders(); // This should include Google access token
-    const params = new URLSearchParams({
-      calendarId,
-      startDate,
-      endDate,
-      useUserAuth: 'true' // Flag to use user OAuth
-    });
-
-    const response = await fetch(`${API_URL}/api/import/calendar/events-for-import?${params}`, {
-      headers
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to fetch calendar events for import");
-    }
-
-    return response.json();
-  },
+  // ==========================================
+  // IMPORT METHODS
+  // ==========================================
 
   async importPatientWithSessions(
     therapistEmail: string,
     patientData: PatientData
   ): Promise<{ patientId: string; sessionIds: string[] }> {
-    const headers = await getAuthHeaders();
-
-    const response = await fetch(`${API_URL}/api/import/patient-with-sessions`, {
+    return makeEnhancedApiCall(`/api/import/patient-with-sessions`, {
       method: "POST",
-      headers,
       body: JSON.stringify({
         therapistEmail,
         patientData
       }),
     });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || "Failed to import patient and sessions");
-    }
-
-    return response.json();
   },
+
+  // ==========================================
+  // THERAPIST SETTINGS METHODS
+  // ==========================================
 
   async getTherapistSettings(therapistEmail: string): Promise<{
     therapistId: number;
@@ -939,17 +799,7 @@ export const apiService = {
     metadata: Record<string, { updated_at: string }>;
     count: number;
   }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(therapistEmail)}/settings`, {
-      headers
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to fetch therapist settings: ${response.status} ${errorText}`);
-    }
-
-    return response.json();
+    return makeEnhancedApiCall(`/api/therapists/${encodeURIComponent(therapistEmail)}/settings`);
   },
 
   async updateTherapistSettings(therapistEmail: string, settings: Record<string, string>): Promise<{
@@ -963,19 +813,10 @@ export const apiService = {
       failed: number;
     };
   }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(therapistEmail)}/settings`, {
+    return makeEnhancedApiCall(`/api/therapists/${encodeURIComponent(therapistEmail)}/settings`, {
       method: "PUT",
-      headers,
       body: JSON.stringify({ settings }),
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to update therapist settings: ${response.status} ${errorText}`);
-    }
-
-    return response.json();
   },
 
   async getTherapistSetting(therapistEmail: string, settingKey: string): Promise<{
@@ -985,30 +826,13 @@ export const apiService = {
     value: string;
     updated_at: string;
   }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(therapistEmail)}/settings/${encodeURIComponent(settingKey)}`, {
-      headers
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to fetch therapist setting: ${response.status} ${errorText}`);
-    }
-
-    return response.json();
+    return makeEnhancedApiCall(`/api/therapists/${encodeURIComponent(therapistEmail)}/settings/${encodeURIComponent(settingKey)}`);
   },
 
   async deleteTherapistSetting(therapistEmail: string, settingKey: string): Promise<void> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(therapistEmail)}/settings/${encodeURIComponent(settingKey)}`, {
-      method: "DELETE",
-      headers
+    await makeEnhancedApiCall(`/api/therapists/${encodeURIComponent(therapistEmail)}/settings/${encodeURIComponent(settingKey)}`, {
+      method: "DELETE"
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to delete therapist setting: ${response.status} ${errorText}`);
-    }
   },
 
   async resetTherapistSettings(therapistEmail: string): Promise<{
@@ -1018,23 +842,29 @@ export const apiService = {
     resetSettings: Record<string, string>;
     count: number;
   }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/therapists/${encodeURIComponent(therapistEmail)}/settings/reset`, {
-      method: "POST",
-      headers
+    return makeEnhancedApiCall(`/api/therapists/${encodeURIComponent(therapistEmail)}/settings/reset`, {
+      method: "POST"
     });
+  },
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to reset therapist settings: ${response.status} ${errorText}`);
+  // ==========================================
+  // UTILITY METHODS
+  // ==========================================
+
+  async testConnection(): Promise<{ message: string }> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for API calls");
     }
 
-    return response.json();
+    console.log("📞 testConnection API call");
+    const result = await makeEnhancedApiCall<{ message: string }>(`/api/test`);
+    console.log("✅ testConnection success:", result);
+    return result;
   },
 
   // Helper methods
   getCurrentTherapistEmail,
   canMakeAuthenticatedCall,
   getAuthHeaders,
+  makeEnhancedApiCall, // Export the enhanced wrapper for custom usage
 };
-
