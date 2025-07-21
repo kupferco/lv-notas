@@ -253,7 +253,7 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
 // Process monthly charges for a specific patient
 router.post("/process", asyncHandler(async (req, res) => {
     const { therapistEmail, patientId, year, month } = req.body;
-    const userAccessToken = req.headers['x-google-access-token'] as string;
+    const userAccessToken = req.headers['x-calendar-token'] as string;
 
     if (!therapistEmail || !patientId || !year || !month) {
         return res.status(400).json({

@@ -581,8 +581,25 @@ export class GoogleCalendarService {
             // Use user auth if token provided, otherwise use service account
             let calendarClient = this.calendar;
             if (userAccessToken) {
+                console.log('🔍 AUTH DEBUG: Using OAuth token');
+                console.log('🔍 AUTH DEBUG: Target calendar ID:', targetCalendarId);
+
                 const userAuth = this._createUserAuth(userAccessToken);
                 calendarClient = google.calendar({ version: "v3", auth: userAuth });
+
+                // Debug calendar access
+                try {
+                    const calendarListResponse = await calendarClient.calendarList.list();
+                    console.log('📋 Available calendars:');
+                    calendarListResponse.data.items?.forEach((cal: { summary: any; id: string | undefined; accessRole: any; }) => {
+                        console.log(`  - ${cal.summary}: ${cal.id} (${cal.accessRole})`);
+                        if (cal.id === targetCalendarId) {
+                            console.log(`    ⭐ THIS IS THE TARGET CALENDAR`);
+                        }
+                    });
+                } catch (error) {
+                    console.log('❌ Failed to list calendars:', error);
+                }
 
                 // 🔍 DEBUG: Test the OAuth token
                 console.log('🔍 Testing OAuth token access...');

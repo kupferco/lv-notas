@@ -146,7 +146,7 @@ export class MonthlyBillingService {
             // Filter patients who have billing active for this month
             const activePatientsForMonth = patients.filter(patient => {
                 if (!patient.billingStartDate) return false;
-                return startDate >= patient.billingStartDate;
+                return patient.billingStartDate <= endDate;
             });
 
             console.log(`📊 Processing ${activePatientsForMonth.length} patients with active billing out of ${patients.length} total`);
