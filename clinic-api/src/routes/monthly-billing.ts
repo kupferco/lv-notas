@@ -51,13 +51,13 @@ router.get("/summary", asyncHandler(async (req, res) => {
             userAccessToken
         );
 
-        console.log('=== MONTHLY BILLING SUMMARY DEBUG ===');
-        console.log('therapistEmail:', therapistEmail);
-        console.log('year:', year, 'month:', month);
-        console.log('summary:', summary);
-        console.log('userAccessToken:', userAccessToken ? 'Present' : 'Missing');
-        console.log('Headers x-calendar-token:', req.headers['x-calendar-token'] ? 'Present' : 'Missing');
-        console.log('Headers x-google-access-token:', req.headers['x-google-access-token'] ? 'Present' : 'Missing');
+        // console.log('=== MONTHLY BILLING SUMMARY DEBUG ===');
+        // console.log('therapistEmail:', therapistEmail);
+        // console.log('year:', year, 'month:', month);
+        // console.log('summary:', summary);
+        // console.log('userAccessToken:', userAccessToken ? 'Present' : 'Missing');
+        // console.log('Headers x-calendar-token:', req.headers['x-calendar-token'] ? 'Present' : 'Missing');
+        // console.log('Headers x-google-access-token:', req.headers['x-google-access-token'] ? 'Present' : 'Missing');
 
         return res.json({
             year,

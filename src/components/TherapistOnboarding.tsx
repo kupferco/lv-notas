@@ -92,22 +92,6 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
     }
   };
 
-  const getProgressPercentage = (): number => {
-    if (mode === "addPatient") {
-      return 100;
-    }
-
-    const stepMap: Record<string, number> = {
-      welcome: 20,
-      auth: 40,
-      "calendar-selection": 60,
-      calendar: 70,
-      success: 80,
-      "import-wizard": 90,  // ADD THIS LINE
-      addPatients: 100
-    };
-    return stepMap[state.step] || 20;
-  };
 
   const handleGetStarted = async () => {
     setIsLoading(true);
@@ -400,19 +384,19 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
           </View>
         )}
 
-        <View style={styles.successInfo}>
+        {/* <View style={styles.successInfo}>
           <Text style={styles.infoTitle}>Próximo passo:</Text>
           <Text style={styles.infoItem}>• Importe seus pacientes do calendário automaticamente</Text>
           <Text style={styles.infoItem}>• Ou adicione pacientes manualmente mais tarde</Text>
-        </View>
+        </View> */}
 
         <View style={styles.buttonContainer}>
-          <Pressable
+          {/* <Pressable
             style={styles.secondaryButton}
             onPress={() => setState(prev => ({ ...prev, step: "import-wizard" }))}
           >
             <Text style={styles.secondaryButtonText}>📅 Importar do Calendário</Text>
-          </Pressable>
+          </Pressable> */}
 
           <Pressable
             style={styles.primaryButton}

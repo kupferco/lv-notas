@@ -26,7 +26,7 @@ export interface PatientWithSessions {
 }
 
 export class CalendarOnlySessionsService {
-    
+
     /**
      * Get earliest billing start date for a therapist (dynamic calculation)
      */
@@ -36,11 +36,11 @@ export class CalendarOnlySessionsService {
                 'SELECT MIN(lv_notas_billing_start_date) as earliest_date FROM patients WHERE therapist_id = $1 AND lv_notas_billing_start_date IS NOT NULL',
                 [therapistId]
             );
-            
+
             if (result.rows.length > 0 && result.rows[0].earliest_date) {
                 return new Date(result.rows[0].earliest_date);
             }
-            
+
             // Default to 6 months ago if no patients have billing start dates
             const defaultDate = new Date();
             defaultDate.setMonth(defaultDate.getMonth() - 6);
@@ -63,7 +63,7 @@ export class CalendarOnlySessionsService {
                 'SELECT id FROM therapists WHERE email = $1',
                 [therapistEmail]
             );
-            
+
             return result.rows.length > 0 ? result.rows[0].id : null;
         } catch (error) {
             console.error('Error getting therapist ID:', error);
@@ -130,10 +130,10 @@ export class CalendarOnlySessionsService {
         try {
             const patient = await this.findPatientFromEvent(event);
             const eventDate = new Date(event.start?.dateTime || event.start?.date || '');
-            
+
             // Determine session status based on event status and date
             let status: 'agendada' | 'compareceu' | 'cancelada' = 'agendada';
-            
+
             if (event.status === 'cancelled') {
                 status = 'cancelada';
             } else if (eventDate < new Date()) {
@@ -158,10 +158,10 @@ export class CalendarOnlySessionsService {
     }
 
     /**
-     * Get sessions for a specific patient from Google Calendar
-     */
+ * Get sessions for a specific patient from Google Calendar
+ */
     async getPatientSessions(
-        patientId: number, 
+        patientId: number,
         therapistEmail: string,
         userAccessToken?: string
     ): Promise<CalendarSession[]> {
@@ -185,23 +185,44 @@ export class CalendarOnlySessionsService {
             }
 
             console.log(`Getting calendar sessions for patient ${patient.name} from ${patientStartDate.toISOString()}`);
+            console.log(`🔍 DEBUG: About to call Google Calendar API`);
+            console.log(`🔍 DEBUG: Calendar ID from env: ${process.env.GOOGLE_CALENDAR_ID}`);
+            console.log(`🔍 DEBUG: User access token present: ${userAccessToken ? 'YES' : 'NO'}`);
 
-            // Get events from Google Calendar starting from patient's billing start date
-            const events = await googleCalendarService.getEventsWithDateFilter(
-                patientStartDate,
-                undefined, // No end date - get all events from start date forward
-                undefined, // Use default calendar
-                1000, // Higher limit for comprehensive data
-                userAccessToken
-            );
+            // Set a reasonable end date (3 months from now)
+            const endDate = new Date();
+            endDate.setMonth(endDate.getMonth() + 3);
+
+            let events: any[] = [];
+
+            try {
+                events = await googleCalendarService.getEventsWithDateFilter(
+                    patientStartDate,
+                    endDate, // Use end date instead of undefined
+                    undefined, // Use default calendar
+                    1000,
+                    userAccessToken
+                );
+                console.log(`🔍 DEBUG: Google Calendar API returned ${events.length} events`);
+            } catch (calendarError) {
+                console.error(`❌ DEBUG: Google Calendar API error:`, calendarError);
+                throw calendarError;
+            }
 
             // Filter events for this specific patient and convert to sessions
             const patientSessions: CalendarSession[] = [];
-            
+
             for (const event of events) {
                 const session = await this.convertEventToSession(event);
+                console.log(`🔍 DEBUG: Event "${event.summary}" -> Session patientId: ${session?.patientId}, target: ${patientId}`);
+
                 if (session && session.patientId === patientId) {
+                    console.log(`✅ MATCH: Event "${event.summary}" matches patient ${patientId}`);
                     patientSessions.push(session);
+                } else if (session) {
+                    console.log(`❌ NO MATCH: Event "${event.summary}" is for patient ${session.patientId}, not ${patientId}`);
+                } else {
+                    console.log(`❌ NO SESSION: Could not convert event "${event.summary}" to session`);
                 }
             }
 
@@ -240,10 +261,10 @@ export class CalendarOnlySessionsService {
 
             // Get earliest billing start date dynamically
             const earliestBillingDate = await this.getEarliestBillingStartDate(therapistId);
-            
+
             // Use the provided start date or the earliest billing date
             const calendarStartDate = startDate || earliestBillingDate;
-            
+
             console.log(`Loading calendar events from ${calendarStartDate.toISOString()} for ${patients.length} patients`);
 
             // Get events from Google Calendar
@@ -262,7 +283,7 @@ export class CalendarOnlySessionsService {
 
             for (const patient of patients) {
                 const patientStartDate = patient.lv_notas_billing_start_date ? new Date(patient.lv_notas_billing_start_date) : null;
-                
+
                 // Skip patients without billing start date
                 if (!patientStartDate) {
                     patientsWithSessions.push({
@@ -282,10 +303,10 @@ export class CalendarOnlySessionsService {
                 // Filter events for this patient
                 for (const event of events) {
                     const eventDate = new Date(event.start?.dateTime || event.start?.date || '');
-                    
+
                     // Skip events before patient's billing start date
                     if (eventDate < patientStartDate) continue;
-                    
+
                     // Skip events that don't match date range filter
                     if (startDate && eventDate < startDate) continue;
                     if (endDate && eventDate > endDate) continue;
@@ -342,11 +363,11 @@ export class CalendarOnlySessionsService {
                     if (autoCheckIn && session.status === 'agendada' && session.date < new Date()) {
                         session.status = 'compareceu';
                     }
-                    
+
                     // TODO: Add payment status logic here when needed
                     // For now, we'll use the session status to infer payment status
                     session.paymentStatus = session.status === 'compareceu' ? 'pendente' : 'nao_cobrado';
-                    
+
                     allSessions.push(session);
                 }
             }
