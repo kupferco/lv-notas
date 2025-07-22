@@ -65,6 +65,8 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
         selectedMonth
       );
 
+      console.log(555, response.summary)
+
       // 🎯 Filter out patients with zero sessions to clean up the interface
       const patientsWithSessions = response.summary.filter(patient => patient.sessionCount > 0);
 
@@ -173,22 +175,46 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
       setProcessingPatientId(null);
     }
   };
-  const viewBillingPeriodDetails = async (billingPeriodId: number | undefined) => {
-    if (!billingPeriodId) {
-      Alert.alert('Erro', 'ID do período de cobrança não encontrado');
-      return;
-    }
 
+  const viewBillingPeriodDetails = async (billingPeriodId: number | undefined, patientSummary?: BillingSummary) => {
     try {
-      console.log(`🔍 Loading billing period details: ${billingPeriodId}`);
+      if (billingPeriodId && billingPeriodId > 0) {
+        // Existing logic for processed payments
+        console.log(`🔍 Loading billing period details: ${billingPeriodId}`);
 
-      const details = await apiService.getBillingPeriodDetails(billingPeriodId);
-      setBillingPeriodDetails(details);
+        const details = await apiService.getBillingPeriodDetails(billingPeriodId);
+        setBillingPeriodDetails(details);
 
-      console.log(`✅ Loaded billing period details:`, details);
+        console.log(`✅ Loaded billing period details:`, details);
+      } else if (patientSummary) {
+        // Use the session snapshots that are already included in patientSummary
+        console.log(`🔍 Creating preview for unprocessed patient: ${patientSummary.patientName}`);
+        console.log(`✅ Found ${patientSummary.sessionSnapshots?.length || 0} session snapshots already formatted`);
 
+        // Create billing period details using the pre-formatted snapshots
+        const tempDetails: BillingPeriod = {
+          id: 0, // Temporary ID to indicate this is unprocessed
+          therapistId: 1, // Placeholder therapist ID
+          patientId: patientSummary.patientId,
+          billingYear: selectedYear,
+          billingMonth: selectedMonth,
+          sessionCount: patientSummary.sessionCount,
+          totalAmount: patientSummary.totalAmount,
+          status: 'processed' as const, // Use valid status for display purposes
+          processedAt: new Date(),
+          processedBy: 'preview',
+          canBeVoided: false,
+          sessionSnapshots: patientSummary.sessionSnapshots || [] // Use the pre-formatted snapshots!
+        };
+
+        setBillingPeriodDetails(tempDetails);
+        console.log(`✅ Created preview with ${tempDetails.sessionSnapshots.length} session snapshots`);
+      } else {
+        Alert.alert('Erro', 'Não foi possível carregar os detalhes - dados insuficientes');
+        return;
+      }
     } catch (error: any) {
-      console.error('❌ Error loading billing period details:', error);
+      console.error('❌ Error loading details:', error);
       Alert.alert('Erro', `Falha ao carregar detalhes: ${error.message}`);
     }
   };
@@ -206,7 +232,7 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
 
   const recordPayment = async () => {
     if (!selectedPatient?.billingPeriodId) {
-      Alert.alert('Erro', 'Período de cobrança não encontrado');
+      alert('Erro: Período de cobrança não encontrado');
       return;
     }
 
@@ -487,14 +513,13 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
                   </>
                 )}
 
-                {patient.billingPeriodId && (
-                  <Pressable
-                    style={[styles.actionButton, styles.detailButton]}
-                    onPress={() => viewBillingPeriodDetails(patient.billingPeriodId)}
-                  >
-                    <Text style={styles.detailButtonText}>Ver Detalhes</Text>
-                  </Pressable>
-                )}
+                {/* Always show "Ver Detalhes" button for all payment states */}
+                <Pressable
+                  style={[styles.actionButton, styles.detailButton]}
+                  onPress={() => viewBillingPeriodDetails(patient.billingPeriodId, patient)}
+                >
+                  <Text style={styles.detailButtonText}>Ver Detalhes</Text>
+                </Pressable>
               </View>
             </View>
           ))}
@@ -612,12 +637,12 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
               </Text>
 
               {/* Payment Information */}
-              {billingPeriodDetails.payments && Array.isArray(billingPeriodDetails.payments) && billingPeriodDetails.payments.length > 0 && (
+              {(billingPeriodDetails as any).payments && Array.isArray((billingPeriodDetails as any).payments) && (billingPeriodDetails as any).payments.length > 0 && (
                 <>
                   <Text style={[styles.detailsText, { marginTop: 16, fontWeight: 'bold' }]}>
                     💳 Pagamento Registrado:
                   </Text>
-                  {billingPeriodDetails.payments.map((payment: any, index: number) => (
+                  {(billingPeriodDetails as any).payments.map((payment: any, index: number) => (
                     <View key={index}>
                       <Text style={styles.detailsText}>
                         Método: {payment.payment_method?.toUpperCase() || 'N/A'}
@@ -641,6 +666,14 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
                     </View>
                   ))}
                 </>
+              )}
+
+              {/* Show message for unprocessed billing periods */}
+              {billingPeriodDetails.id === 0 && (
+                <Text style={[styles.detailsText, { marginTop: 16, fontStyle: 'italic', color: '#6c757d' }]}>
+                  ℹ️ Esta é uma prévia dos dados. Para ver detalhes completos e registrar pagamentos,
+                  primeiro processe a cobrança clicando em "Processar Cobrança".
+                </Text>
               )}
 
               <View style={styles.sessionSnapshots}>

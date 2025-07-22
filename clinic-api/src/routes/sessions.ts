@@ -143,15 +143,15 @@ router.post("/", asyncHandler(async (req, res) => {
       [date, patientId, therapistId, status, sessionPrice]
     );
 
-      let session = {
-        id: result.rows[0].id.toString(),
-        date: result.rows[0].date,
-        google_calendar_event_id: result.rows[0].google_calendar_event_id,
-        patient_id: result.rows[0].patient_id.toString(),
-        therapist_id: result.rows[0].therapist_id.toString(),
-        status: result.rows[0].status,
-        created_at: result.rows[0].created_at
-      };
+    let session = {
+      id: result.rows[0].id.toString(),
+      date: result.rows[0].date,
+      google_calendar_event_id: result.rows[0].google_calendar_event_id,
+      patient_id: result.rows[0].patient_id.toString(),
+      therapist_id: result.rows[0].therapist_id.toString(),
+      status: result.rows[0].status,
+      created_at: result.rows[0].created_at
+    };
 
     // Create Google Calendar event if patient has email and therapist has calendar selected
     if (patient.email && therapist.google_calendar_id) {
@@ -525,6 +525,96 @@ router.delete("/:id", asyncHandler(async (req, res) => {
   } catch (error) {
     console.error('Error deleting session:', error);
     return res.status(500).json({ message: "Internal server error" });
+  }
+}));
+
+// GET /api/sessions/:patientId/period - Get sessions for a specific patient in a specific period
+router.get("/:patientId/period", asyncHandler(async (req, res) => {
+  const { patientId } = req.params;
+  const therapistEmail = req.query.therapistEmail as string;
+  const startDate = req.query.startDate as string;
+  const endDate = req.query.endDate as string;
+
+  if (!therapistEmail) {
+    return res.status(400).json({ error: "therapistEmail query parameter is required" });
+  }
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: "startDate and endDate query parameters are required" });
+  }
+
+  try {
+    console.log(patientId, therapistEmail, startDate, endDate);
+    // Get therapist ID, 
+    const therapistResult = await pool.query(
+      "SELECT id FROM therapists WHERE email = $1",
+      [therapistEmail]
+    );
+
+    if (!therapistResult.rows[0]) {
+      return res.status(404).json({ error: "Therapist not found" });
+    }
+
+    const therapistId = therapistResult.rows[0].id;
+
+    console.log('🔍 SQL Query Debug:', {
+      patientId,
+      patientIdType: typeof patientId,
+      therapistId,
+      therapistIdType: typeof therapistId,
+      startDate,
+      endDate
+    });
+
+    // First, let's see what patients exist for this therapist
+    const debugPatients = await pool.query(
+      `SELECT id, nome FROM patients WHERE therapist_id = $1`,
+      [therapistId]
+    );
+    console.log('🔍 Patients for this therapist:', debugPatients.rows);
+
+    // Then let's see all sessions for this therapist
+    const debugSessions = await pool.query(
+      `SELECT s.id, s.patient_id, s.date, p.nome 
+   FROM sessions s 
+   LEFT JOIN patients p ON s.patient_id = p.id 
+   WHERE s.therapist_id = $1`,
+      [therapistId]
+    );
+    console.log('🔍 All sessions for this therapist:', debugSessions.rows);
+
+    // Now the original query
+    const result = await pool.query(
+      `SELECT s.id, s.date, s.google_calendar_event_id, s.patient_id, 
+          s.therapist_id, s.status, s.created_at,
+          p.nome as patient_name
+   FROM sessions s
+   LEFT JOIN patients p ON s.patient_id = p.id
+   WHERE s.patient_id = $1 
+     AND s.therapist_id = $2 
+     AND s.date >= $3 
+     AND s.date <= $4
+   ORDER BY s.date ASC`,
+      [patientId, therapistId, startDate, endDate]
+    );
+
+    const sessions = result.rows.map(row => ({
+      id: row.id.toString(),
+      date: row.date,
+      googleCalendarEventId: row.google_calendar_event_id,
+      patientId: row.patient_id.toString(),
+      therapistId: row.therapist_id.toString(),
+      status: row.status,
+      createdAt: row.created_at,
+      patientName: row.patient_name
+    }));
+
+    console.log(sessions)
+
+    return res.json(sessions);
+  } catch (error) {
+    console.error('Error fetching patient sessions for period:', error);
+    return res.status(500).json({ error: "Internal server error" });
   }
 }));
 
