@@ -47,6 +47,7 @@ export interface BillingSummary {
     hasPayment: boolean;
     processedAt?: Date;
     canProcess: boolean; // true if no billing period exists yet
+    sessionSnapshots?: SessionSnapshot[];
 }
 
 interface PatientInfo {
@@ -265,7 +266,7 @@ export class MonthlyBillingService {
             });
 
             console.log(`🎯 OPTIMIZATION RESULT: Found ${totalMatches} total session matches across all patients in ONE API call`);
-            
+
             // Log per-patient results
             patientSessionsMap.forEach((sessions, patientId) => {
                 const patient = activePatientsForMonth.find(p => p.id === patientId);
@@ -321,7 +322,7 @@ export class MonthlyBillingService {
 
             // Get all patients (for the optimized call)
             const allPatients = await this.getTherapistPatientsWithBillingInfo(therapistId);
-            
+
             // Get ALL sessions with one API call
             const allSessionsMap = await this.getAllCalendarSessionsForMonth(
                 therapistEmail,
@@ -463,13 +464,27 @@ export class MonthlyBillingService {
 
                     console.log(`Patient ${patient.name}: ${sessionCount} calendar sessions, estimated R$ ${(estimatedAmount / 100).toFixed(2)}`);
 
+                    // In monthly-billing.ts, when returning session details for unprocessed patients:
+                    const sessionSnapshots = calendarSessions.map(session => ({
+                        date: new Date(session.date).toLocaleDateString('pt-BR'),
+                        time: new Date(session.date).toLocaleTimeString('pt-BR', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        }),
+                        patientName: session.patientName,
+                        googleEventId: session.googleEventId
+                    }));
+
+                    // Return this formatted snapshot with the billing summary
+
                     summary.push({
                         patientName: patient.name,
                         patientId: patient.id,
                         sessionCount: sessionCount,
                         totalAmount: estimatedAmount,
                         hasPayment: false,
-                        canProcess: true
+                        canProcess: true,
+                        sessionSnapshots: sessionSnapshots
                     });
                 }
             }

@@ -24,7 +24,7 @@ const getAuthHeaders = async (): Promise<Record<string, string>> => {
   console.log("=== Enhanced getAuthHeaders Debug ===");
 
   let authHeader = "";
-  
+
   // Always get real Firebase token
   const user = getCurrentUser();
   console.log("getCurrentUser():", user?.email || 'none');
@@ -44,28 +44,28 @@ const getAuthHeaders = async (): Promise<Record<string, string>> => {
 
   // Enhanced Google access token with auto-refresh and activity tracking
   let googleAccessToken: string | null = null;
-  
+
   // Check if enhanced token management is available
   if (typeof ensureValidGoogleToken === 'function') {
     try {
       console.log("Getting Google access token with enhanced validation...");
-      
+
       // Use the enhanced token validation function
       googleAccessToken = await ensureValidGoogleToken();
       if (googleAccessToken) {
         trackActivity(); // Track activity on successful token validation
       }
       console.log("Enhanced Google token obtained:", googleAccessToken ? "✅" : "❌");
-      
+
     } catch (error) {
       console.warn("Enhanced Google token check failed:", error);
-      
+
       if (error instanceof Error && error.message.includes("FORCE_REAUTH")) {
         console.log("❌ User inactive for > 10 days, forcing re-authentication");
         // You may want to trigger a re-auth flow here or notify the user
         throw new Error("Re-authentication required due to inactivity");
       }
-      
+
       // Fallback to stored token for backwards compatibility
       googleAccessToken = await getGoogleAccessToken();
       console.log("Using fallback stored token:", googleAccessToken ? "✅" : "❌");
@@ -103,7 +103,7 @@ const getAuthHeaders = async (): Promise<Record<string, string>> => {
 
 // Enhanced API call wrapper with automatic retry on authentication failures
 const makeEnhancedApiCall = async <T>(
-  url: string, 
+  url: string,
   options: RequestInit = {}
 ): Promise<T> => {
   let retryCount = 0;
@@ -112,7 +112,7 @@ const makeEnhancedApiCall = async <T>(
   while (retryCount <= maxRetries) {
     try {
       const headers = await getAuthHeaders();
-      
+
       const response = await fetch(`${API_URL}${url}`, {
         ...options,
         headers: {
@@ -124,7 +124,7 @@ const makeEnhancedApiCall = async <T>(
       // If we get 401, try to refresh and retry
       if (response.status === 401 && retryCount < maxRetries) {
         console.warn(`🔄 Got 401, attempting token refresh and retry...`);
-        
+
         try {
           // Force refresh Firebase token
           const user = getCurrentUser();
@@ -132,7 +132,7 @@ const makeEnhancedApiCall = async <T>(
             await user.getIdToken(true);
             console.log("✅ Firebase token refreshed");
           }
-          
+
           // The next getAuthHeaders() call will automatically try to refresh Google token
           retryCount++;
           continue; // Retry with fresh tokens
@@ -283,7 +283,7 @@ export const apiService = {
     therapistEmail: string;
   }): Promise<Session> {
     console.log("📞 createSession API call:", sessionData);
-    
+
     try {
       return await makeEnhancedApiCall(`/api/sessions`, {
         method: "POST",
@@ -320,7 +320,7 @@ export const apiService = {
 
   async deleteSession(sessionId: string): Promise<void> {
     console.log("📞 deleteSession API call:", sessionId);
-    
+
     try {
       await makeEnhancedApiCall(`/api/sessions/${sessionId}`, {
         method: "DELETE",
@@ -369,7 +369,7 @@ export const apiService = {
       }
 
       console.log("📞 getTherapistByEmail API call for:", email);
-      
+
       try {
         const therapist = await makeEnhancedApiCall<Therapist>(`/api/therapists/${encodeURIComponent(email)}`);
         console.log("✅ getTherapistByEmail success:", therapist);
@@ -492,11 +492,15 @@ export const apiService = {
       throw new Error("No therapist email provided");
     }
 
+    // Get the Google access token
+    const googleAccessToken = await getGoogleAccessToken();
+
     const params = new URLSearchParams({
-      therapistEmail: email
+      therapistEmail: email,
+      userAccessToken: googleAccessToken || '' // Pass the token as query param
     });
 
-    console.log("📅 getPatientCalendarSessions API call");
+    console.log("📅 getPatientCalendarSessions API call with token");
     return makeEnhancedApiCall(`/api/calendar-only/patients/${patientId}?${params}`);
   },
 
@@ -524,6 +528,25 @@ export const apiService = {
 
     console.log(`📅 getCalendarOnlySessions API call - Auto Check-in: ${autoCheckIn}`);
     return makeEnhancedApiCall(`/api/calendar-only/sessions?${params}`);
+  },
+
+  async getPatientSessionsForPeriod(
+    patientId: string,
+    startDate: string,
+    endDate: string,
+    therapistEmail?: string
+  ): Promise<Session[]> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for API calls");
+    }
+
+    const email = therapistEmail || getCurrentTherapistEmail();
+    if (!email) {
+      throw new Error("No therapist email available");
+    }
+
+    console.log(`📞 getPatientSessionsForPeriod API call - Patient ${patientId}, ${startDate} to ${endDate}`);
+    return makeEnhancedApiCall(`/api/sessions/${patientId}/period?therapistEmail=${encodeURIComponent(email)}&startDate=${startDate}&endDate=${endDate}`);
   },
 
   async debugCalendarConnectivity(therapistEmail?: string): Promise<any> {
@@ -662,7 +685,7 @@ export const apiService = {
     });
 
     console.log(`📊 exportMonthlyBillingCSV API call - ${year}-${month}`);
-    
+
     // For CSV export, we need to handle the response differently
     const headers = await getAuthHeaders();
     const response = await fetch(`${API_URL}/api/monthly-billing/export-csv?${params}`, { headers });
