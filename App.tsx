@@ -8,7 +8,7 @@ import { SettingsProvider } from './src/contexts/SettingsContext';
 import { checkAuthState, onAuthStateChange, isDevelopment } from "./src/config/firebase";
 import { apiService } from "./src/services/api";
 import { ensureCalendarPermissions, checkCalendarPermissionStatus } from "./src/services/calendarPermissions";
-import type { User } from "firebase/auth";
+// import type { User } from "firebase/auth";
 
 type AppState = "loading" | "onboarding" | "authenticated" | "calendar_permissions";
 
