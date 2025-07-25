@@ -510,6 +510,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 16,
     minWidth: 200,
+    // width: '100%',
   },
   buttonDisabled: {
     backgroundColor: "#ccc",

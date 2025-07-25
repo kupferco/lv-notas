@@ -464,6 +464,7 @@ export class MonthlyBillingService {
 
                     console.log(`Patient ${patient.name}: ${sessionCount} calendar sessions, estimated R$ ${(estimatedAmount / 100).toFixed(2)}`);
 
+                    // console.log(222, calendarSessions);
                     // In monthly-billing.ts, when returning session details for unprocessed patients:
                     const sessionSnapshots = calendarSessions.map(session => ({
                         date: new Date(session.date).toLocaleDateString('pt-BR'),
@@ -474,6 +475,7 @@ export class MonthlyBillingService {
                         patientName: session.patientName,
                         googleEventId: session.googleEventId
                     }));
+                    // console.log(333, sessionSnapshots);
 
                     // Return this formatted snapshot with the billing summary
 
@@ -484,7 +486,7 @@ export class MonthlyBillingService {
                         totalAmount: estimatedAmount,
                         hasPayment: false,
                         canProcess: true,
-                        sessionSnapshots: sessionSnapshots
+                        sessionSnapshots: calendarSessions
                     });
                 }
             }

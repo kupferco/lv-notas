@@ -42,6 +42,7 @@ export interface SessionSnapshot {
 
 // Monthly billing summary interface
 export interface BillingSummary {
+  sessionSnapshots: any;
   patientName: string;
   patientId: number;
   sessionCount: number;

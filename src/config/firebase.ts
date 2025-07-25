@@ -1,22 +1,34 @@
 // src/config/firebase.ts
 import { initializeApp } from "firebase/app";
 import type { FirebaseApp } from "firebase/app";
-import { 
-  getAuth, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  setPersistence, 
-  browserLocalPersistence, 
+import {
+  getAuth,
+  signInWithPopup,
+  GoogleAuthProvider,
+  setPersistence,
+  browserLocalPersistence,
   onAuthStateChanged,
   signOut,
-  User 
+  User
 } from "firebase/auth";
 import type { Auth } from "firebase/auth";
 import { config } from "./config";
 
 // Activity tracking constants
+// Activity tracking constants - TESTING VALUES
 const ACTIVITY_STORAGE_KEY = "last_activity_timestamp";
-const MAX_INACTIVE_DAYS = 10;
+const MAX_INACTIVE_DAYS = 10; // CHANGE THIS TO: 5 / (24 * 60); // 5 minutes in "days"
+// For testing: const MAX_INACTIVE_DAYS = 5 / (24 * 60); // 5 minutes converted to days
+
+// TOKEN REFRESH TESTING CONSTANTS
+const TOKEN_REFRESH_INTERVAL = 5 * 60 * 1000; // CHANGE THIS TO: 30 * 1000; // 30 seconds instead of 5 minutes
+const TOKEN_EXPIRY_WARNING_THRESHOLD = 5 * 60 * 1000; // CHANGE THIS TO: 30 * 1000; // 30 seconds instead of 5 minutes
+
+// TESTING CONFIGURATION - Set these for quick testing
+const TESTING_MODE = false; // Set to false for production
+const TESTING_MAX_INACTIVE_MINUTES = 5; // Force re-auth after 5 minutes of inactivity
+const TESTING_TOKEN_REFRESH_SECONDS = 30; // Check tokens every 30 seconds
+const TESTING_TOKEN_WARNING_SECONDS = 30; // Warn when token expires in 30 seconds
 
 // Activity tracking functions
 const updateLastActivity = (): void => {
@@ -30,49 +42,95 @@ const getLastActivity = (): Date | null => {
 
 const shouldForceReAuth = (): boolean => {
   const lastActivity = getLastActivity();
-  if (!lastActivity) return true;
-  
-  const daysSinceLastActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
+  if (!lastActivity) return true; // No activity recorded, force re-auth
+
+  const minutesSinceLastActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60);
+
+  if (TESTING_MODE) {
+    console.log(`⏱️ TESTING MODE: ${minutesSinceLastActivity.toFixed(1)} minutes since last activity`);
+    console.log(`⏱️ TESTING MODE: Will force re-auth after ${TESTING_MAX_INACTIVE_MINUTES} minutes`);
+    return minutesSinceLastActivity > TESTING_MAX_INACTIVE_MINUTES;
+  }
+
+  // Production: 10 days
+  const daysSinceLastActivity = minutesSinceLastActivity / (60 * 24);
   return daysSinceLastActivity > MAX_INACTIVE_DAYS;
 };
 
-// Enhanced Google token validation and refresh
+// Enhanced Google token validation and refresh - FIXED VERSION
 export const ensureValidGoogleToken = async (): Promise<string | null> => {
   try {
-    const currentToken = localStorage.getItem("google_access_token");
-    
-    if (!currentToken) {
-      console.log("❌ No Google access token found");
+    const user = getCurrentUser();
+    if (!user) {
+      console.log("❌ No Firebase user found");
       return null;
     }
 
-    // Test current token
-    const tokenTest = await fetch(`https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${currentToken}`);
-    
-    if (tokenTest.ok) {
-      const tokenInfo = await tokenTest.json();
-      updateLastActivity();
-      console.log(`✅ Google token valid, expires in ${tokenInfo.expires_in} seconds`);
-      return currentToken;
+    // First, ensure Firebase token is valid and get a fresh one if needed
+    const firebaseToken = await user.getIdToken(true); // Always get fresh token
+    console.log("✅ Firebase token refreshed");
+
+    // Check if we have a Google access token
+    let googleToken = localStorage.getItem("google_access_token");
+
+    if (!googleToken) {
+      console.log("❌ No Google access token found");
+      // Only return null if user has been inactive for too long
+      if (shouldForceReAuth()) {
+        throw new Error("FORCE_REAUTH_REQUIRED");
+      }
+      return null;
     }
 
-    // Token is invalid/expired
-    console.log("⚠️ Google access token expired");
-    
+    // Test current Google token
+    try {
+      const tokenTest = await fetch(`https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${googleToken}`, {
+        method: 'GET'
+      });
+
+      if (tokenTest.ok) {
+        const tokenInfo = await tokenTest.json();
+        updateLastActivity();
+        console.log(`✅ Google token valid, expires in ${tokenInfo.expires_in} seconds`);
+        return googleToken;
+      }
+    } catch (testError) {
+      console.log("⚠️ Google token test failed, attempting refresh...");
+    }
+
+    // Token test failed - try to get a new one using Firebase
+    // Since Google refresh tokens are not easily available through Firebase,
+    // we'll use a different approach: silently get a new token if possible
+
+    // Check if we should force re-auth due to inactivity (only after 10+ days)
     if (shouldForceReAuth()) {
       console.log("❌ User inactive for > 10 days, forcing re-authentication");
       throw new Error("FORCE_REAUTH_REQUIRED");
     }
 
-    console.log("❌ Token refresh not implemented yet, re-authentication required");
-    throw new Error("REAUTH_REQUIRED");
+    // If user has been active recently, try to get a new token silently
+    console.log("⚠️ Google token expired but user is active, attempting silent refresh...");
+
+    // For now, return null but don't throw error - this allows the app to continue
+    // working with Firebase-only features while gracefully degrading calendar features
+    console.log("ℹ️ Google token refresh not available, calendar features may be limited");
+    updateLastActivity(); // Still update activity since user is using the app
+
+    return null; // Return null instead of throwing error
 
   } catch (error) {
-    if (error instanceof Error && error.message.includes("FORCE_REAUTH")) {
-      throw error;
+    if (error instanceof Error && error.message === "FORCE_REAUTH_REQUIRED") {
+      throw error; // Re-throw to handle at higher level
     }
     console.error("❌ Error ensuring valid Google token:", error);
-    throw new Error("REAUTH_REQUIRED");
+
+    // Only force re-auth if user has been inactive for too long
+    if (shouldForceReAuth()) {
+      throw new Error("FORCE_REAUTH_REQUIRED");
+    }
+
+    // Otherwise, just return null and let app continue
+    return null;
   }
 };
 
@@ -89,12 +147,12 @@ export const getActivityStatus = () => ({
 
 
 // Environment detection
-export const isDevelopment = window.location.hostname === 'localhost' || 
-                            window.location.hostname === '127.0.0.1';
+export const isDevelopment = window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1';
 
 const isFirebaseHosting = () => {
   return window.location.hostname.includes("web.app") ||
-         window.location.hostname.includes("firebaseapp.com");
+    window.location.hostname.includes("firebaseapp.com");
 };
 
 let auth: Auth | null = null;
@@ -120,7 +178,7 @@ const REFRESH_TOKEN_STORAGE_KEY = "google_refresh_token";
 // const shouldForceReAuth = (): boolean => {
 //   const lastActivity = getLastActivity();
 //   if (!lastActivity) return true; // No activity recorded, force re-auth
-  
+
 //   const daysSinceLastActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
 //   return daysSinceLastActivity > MAX_INACTIVE_DAYS;
 // };
@@ -155,7 +213,7 @@ const refreshGoogleAccessToken = async (): Promise<string | null> => {
     }
 
     const data = await response.json();
-    
+
     if (data.access_token) {
       // Store new access token
       localStorage.setItem("google_access_token", data.access_token);
@@ -176,7 +234,7 @@ const refreshGoogleAccessToken = async (): Promise<string | null> => {
 // export const ensureValidGoogleToken = async (): Promise<string | null> => {
 //   try {
 //     const currentToken = localStorage.getItem("google_access_token");
-    
+
 //     if (!currentToken) {
 //       console.log("❌ No Google access token found");
 //       return null;
@@ -184,7 +242,7 @@ const refreshGoogleAccessToken = async (): Promise<string | null> => {
 
 //     // Test current token
 //     const tokenTest = await fetch(`https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${currentToken}`);
-    
+
 //     if (tokenTest.ok) {
 //       const tokenInfo = await tokenTest.json();
 //       updateLastActivity(); // Update activity on successful token use
@@ -194,7 +252,7 @@ const refreshGoogleAccessToken = async (): Promise<string | null> => {
 
 //     // Token is invalid/expired, try to refresh
 //     console.log("⚠️ Google access token expired, attempting refresh...");
-    
+
 //     // Check if we should force re-auth due to inactivity
 //     if (shouldForceReAuth()) {
 //       console.log("❌ User inactive for > 10 days, forcing re-authentication");
@@ -231,17 +289,17 @@ export const checkTokenHealth = async (): Promise<any> => {
 
     const token = await user.getIdToken(false); // Don't force refresh yet
     const tokenPayload = JSON.parse(atob(token.split('.')[1]));
-    
+
     const issuedAt = new Date(tokenPayload.iat * 1000);
     const expiresAt = new Date(tokenPayload.exp * 1000);
     const now = new Date();
-    
+
     console.log("🔑 Firebase token health check:");
     console.log("  Issued at:", issuedAt);
     console.log("  Expires at:", expiresAt);
     console.log("  Current time:", now);
     console.log("  Minutes until expiry:", Math.round((expiresAt.getTime() - now.getTime()) / 1000 / 60));
-    
+
     // Also check Google token health
     try {
       const googleToken = await ensureValidGoogleToken();
@@ -249,19 +307,19 @@ export const checkTokenHealth = async (): Promise<any> => {
     } catch (error) {
       console.log("🗓️ Google token status: ❌ Failed", error instanceof Error ? error.message : error);
     }
-    
+
     if (expiresAt < now) {
       console.log("⚠️ FIREBASE TOKEN EXPIRED!");
       return { status: 'expired', expiresAt, now };
     }
-    
+
     if ((expiresAt.getTime() - now.getTime()) < 5 * 60 * 1000) { // Less than 5 minutes
       console.log("⚠️ FIREBASE TOKEN EXPIRING SOON!");
       return { status: 'expiring_soon', expiresAt, now };
     }
-    
+
     return { status: 'valid', expiresAt, now };
-    
+
   } catch (error) {
     console.log("🚨 Token check failed:", error);
     return { status: 'error', error };
@@ -275,11 +333,19 @@ const setupTokenRefresh = (user: User) => {
     clearInterval(tokenRefreshInterval);
   }
 
-  // Set up auto token refresh every 5 minutes
+  const refreshInterval = TESTING_MODE ?
+    TESTING_TOKEN_REFRESH_SECONDS * 1000 : // 30 seconds for testing
+    TOKEN_REFRESH_INTERVAL; // 5 minutes for production
+
+  console.log(`🔄 Setting up token refresh every ${refreshInterval / 1000} seconds`);
+
+  // Set up auto token refresh
   tokenRefreshInterval = setInterval(async () => {
     try {
       // Check Firebase token
       const health = await checkTokenHealth();
+      console.log(`🔄 Auto token check: ${health.status}`);
+
       if (health.status === 'expiring_soon' || health.status === 'expired') {
         console.log("🔄 Auto-refreshing Firebase token...");
         await user.getIdToken(true); // Force refresh
@@ -294,12 +360,19 @@ const setupTokenRefresh = (user: User) => {
           console.log("⚠️ Google token requires re-authentication, will prompt user on next API call");
         }
       }
+
+      // Check activity status
+      const activityStatus = getActivityStatus();
+      if (activityStatus.shouldForceReAuth) {
+        console.log("🚨 User has been inactive too long - will require re-authentication on next action");
+      }
+
     } catch (error) {
       console.log("🚨 Auto token refresh failed:", error);
     }
-  }, 5 * 60 * 1000); // Check every 5 minutes
+  }, refreshInterval);
 
-  console.log("✅ Enhanced auto token refresh setup completed");
+  console.log(`✅ Enhanced auto token refresh setup completed (${TESTING_MODE ? 'TESTING' : 'PRODUCTION'} mode)`);
 };
 
 // Clean up token refresh
@@ -316,7 +389,7 @@ const hasCalendarPermissions = (): boolean => {
   // Check if we have a stored Google access token with calendar scope
   const googleToken = localStorage.getItem("google_access_token");
   const calendarPermissionGranted = localStorage.getItem("calendar_permission_granted");
-  
+
   return !!(googleToken && calendarPermissionGranted === "true");
 };
 
@@ -331,7 +404,7 @@ const initializeFirebase = async (): Promise<User | null> => {
   if (isInitialized && auth) {
     console.log("Firebase already initialized");
     const currentUser = getCurrentUser();
-    
+
     // Even if Firebase is initialized, check if we need calendar permissions
     if (currentUser && !hasCalendarPermissions()) {
       console.log("🔄 User exists but missing calendar permissions - forcing re-authentication");
@@ -339,13 +412,13 @@ const initializeFirebase = async (): Promise<User | null> => {
       await signOutUser();
       return await signInWithGoogle();
     }
-    
+
     return currentUser;
   }
 
   try {
     console.log("🔥 Initializing Firebase...");
-    
+
     // Always use real Firebase (both development and production)
     if (!config.firebaseConfig?.apiKey || !config.firebaseConfig?.authDomain || !config.firebaseConfig?.projectId) {
       console.error("Firebase configuration is incomplete");
@@ -358,7 +431,7 @@ const initializeFirebase = async (): Promise<User | null> => {
       authDomain: config.firebaseConfig.authDomain,
       projectId: config.firebaseConfig.projectId
     });
-    
+
     app = initializeApp(config.firebaseConfig);
     auth = getAuth(app);
 
@@ -378,10 +451,10 @@ const initializeFirebase = async (): Promise<User | null> => {
       const unsubscribe = onAuthStateChanged(auth, async (user) => {
         unsubscribe(); // Remove listener after first check
         console.log("Firebase auth state:", user ? `signed in as ${user.email}` : "signed out");
-        
+
         if (user) {
           setupTokenRefresh(user);
-          
+
           // Check if user has calendar permissions
           if (!hasCalendarPermissions()) {
             console.log("⚠️ User authenticated but missing calendar permissions - forcing re-authentication");
@@ -416,21 +489,21 @@ const initializeFirebase = async (): Promise<User | null> => {
 export const signInWithGoogle = async (): Promise<User | null> => {
   try {
     console.log("🚀 Starting Google sign-in with calendar permissions...");
-    
+
     await initializeFirebase();
-    
+
     if (!auth) {
       throw new Error("Firebase not initialized");
     }
 
     const provider = new GoogleAuthProvider();
-    
+
     // CRITICAL: Add calendar scopes BEFORE setting custom parameters (READ ONLY)
     provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
     // provider.addScope('https://www.googleapis.com/auth/calendar.events');
     provider.addScope('email');
     provider.addScope('profile');
-    
+
     // Force consent screen to ensure we get all permissions including calendar
     provider.setCustomParameters({
       'prompt': 'consent', // Force consent to get fresh permissions
@@ -454,24 +527,24 @@ export const signInWithGoogle = async (): Promise<User | null> => {
       // Store access token
       localStorage.setItem("google_access_token", credential.accessToken);
       localStorage.setItem("calendar_permission_granted", "true");
-      
+
       // Store refresh token if available (THIS IS THE KEY ENHANCEMENT)
       if (credential.idToken) {
         // Note: Google refresh tokens are not always available via Firebase
         // They're typically only provided on first consent
         console.log("🔄 Checking for refresh token availability...");
-        
+
         // We need to store the refresh token separately if we can get it
         // For now, we'll rely on Firebase's token refresh for Firebase tokens
         // and implement Google token refresh via the OAuth flow
       }
-      
+
       // Update activity timestamp
       updateLastActivity();
-      
+
       console.log("✅ Google access token stored with calendar permissions");
       console.log("📈 Activity timestamp updated");
-      
+
       // Test calendar access immediately
       try {
         const testResponse = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
@@ -480,7 +553,7 @@ export const signInWithGoogle = async (): Promise<User | null> => {
             'Content-Type': 'application/json'
           }
         });
-        
+
         if (testResponse.ok) {
           console.log("✅ Calendar access confirmed immediately after authentication");
         } else {
@@ -489,7 +562,7 @@ export const signInWithGoogle = async (): Promise<User | null> => {
       } catch (testError) {
         console.warn("⚠️ Calendar access test error:", testError);
       }
-      
+
     } else {
       console.warn("⚠️ No Google access token received - calendar permissions may not be granted");
       localStorage.setItem("calendar_permission_granted", "false");
@@ -502,12 +575,12 @@ export const signInWithGoogle = async (): Promise<User | null> => {
     return result.user;
   } catch (error) {
     console.error("❌ Error signing in with Google:", error);
-    
+
     // Clear any partial authentication state
     localStorage.removeItem("google_access_token");
     localStorage.removeItem("calendar_permission_granted");
     localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
-    
+
     throw error;
   }
 };
@@ -516,10 +589,10 @@ export const signInWithGoogle = async (): Promise<User | null> => {
 export const signOutUser = async (): Promise<void> => {
   try {
     console.log("🚪 Starting sign out process...");
-    
+
     // Clean up token refresh first
     cleanupTokenRefresh();
-    
+
     if (auth) {
       await signOut(auth);
       console.log("✅ Firebase sign out completed");
@@ -535,14 +608,14 @@ export const signOutUser = async (): Promise<void> => {
     localStorage.removeItem("currentTherapist");
     localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
     localStorage.removeItem(ACTIVITY_STORAGE_KEY);
-    
+
     // Clear any other potential auth-related items
     localStorage.removeItem("firebase_user");
     localStorage.removeItem("auth_state");
-    
+
     console.log("✅ All localStorage data cleared");
     console.log("✅ Sign out process completed - user will need to start from beginning");
-    
+
   } catch (error) {
     console.error("❌ Error signing out:", error);
     throw error;
@@ -595,14 +668,14 @@ export const onAuthStateChange = (callback: (user: User | null) => void): (() =>
       console.error("❌ Firebase initialization error in onAuthStateChange:", error);
       callback(null);
     });
-    
-    return () => {}; // Return empty cleanup function for now
+
+    return () => { }; // Return empty cleanup function for now
   }
 
   // Auth is ready, set up listener
   if (!auth) {
     console.warn("❌ Auth is still null, cannot set up listener");
-    return () => {};
+    return () => { };
   }
 
   return onAuthStateChanged(auth, (user) => {
@@ -618,19 +691,19 @@ export const onAuthStateChange = (callback: (user: User | null) => void): (() =>
 // Check authentication state (enhanced)
 export const checkAuthState = async (): Promise<User | null> => {
   console.log("🔍 Checking enhanced auth state...");
-  
+
   try {
     // Add a small delay to ensure localStorage is ready
     await new Promise(resolve => setTimeout(resolve, 100));
-    
+
     const user = await initializeFirebase();
     console.log("Auth state check result:", user ? `authenticated as ${user.email}` : "not authenticated");
-    
+
     // Check calendar permissions
     if (user) {
       const hasPermissions = hasCalendarPermissions();
       console.log("Calendar permissions:", hasPermissions ? "granted" : "missing");
-      
+
       if (!hasPermissions) {
         console.log("⚠️ User authenticated but calendar permissions missing - may need re-authentication");
       }
@@ -640,7 +713,7 @@ export const checkAuthState = async (): Promise<User | null> => {
       if (lastActivity) {
         const daysSinceActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
         console.log(`📈 Last activity: ${daysSinceActivity.toFixed(1)} days ago`);
-        
+
         if (shouldForceReAuth()) {
           console.log("⚠️ User inactive for > 10 days, may require re-authentication");
         }
@@ -648,12 +721,12 @@ export const checkAuthState = async (): Promise<User | null> => {
         console.log("📈 No previous activity recorded");
       }
     }
-    
+
     // Check token health if user exists
     if (user) {
       const health = await checkTokenHealth();
       console.log("Token health:", health.status);
-      
+
       if (health.status === 'expired') {
         console.log("🔄 Token expired, attempting refresh...");
         try {
@@ -665,7 +738,7 @@ export const checkAuthState = async (): Promise<User | null> => {
         }
       }
     }
-    
+
     return user;
   } catch (error) {
     console.error("Error checking auth state:", error);
@@ -688,11 +761,11 @@ export const refreshAuthToken = async (): Promise<boolean> => {
     }
 
     console.log("🔄 Manually refreshing auth tokens...");
-    
+
     // Refresh Firebase token
     await user.getIdToken(true); // Force refresh
     console.log("✅ Firebase token refreshed");
-    
+
     // Refresh Google token
     try {
       const googleToken = await ensureValidGoogleToken();
@@ -713,25 +786,100 @@ export const refreshAuthToken = async (): Promise<boolean> => {
   }
 };
 
-// Activity tracking exports
-// export const trackActivity = updateLastActivity;
-// export const getActivityStatus = () => ({
-//   lastActivity: getLastActivity(),
-//   daysSinceActivity: (() => {
-//     const last = getLastActivity();
-//     return last ? (Date.now() - last.getTime()) / (1000 * 60 * 60 * 24) : null;
-//   })(),
-//   shouldForceReAuth: shouldForceReAuth()
-// });
+// DEBUG FUNCTIONS - Add these temporarily for testing
+export const debugAuthState = async () => {
+  console.log("🔍 === AUTHENTICATION DEBUG ===");
+
+  // Check Firebase user
+  const user = getCurrentUser();
+  console.log("Firebase User:", user ? `${user.email} (${user.uid})` : "None");
+
+  // Check stored tokens
+  const googleToken = localStorage.getItem("google_access_token");
+  const calendarPermission = localStorage.getItem("calendar_permission_granted");
+  const lastActivity = getLastActivity();
+
+  console.log("Google Token:", googleToken ? `${googleToken.substring(0, 20)}...` : "None");
+  console.log("Calendar Permission:", calendarPermission);
+  console.log("Last Activity:", lastActivity ? lastActivity.toLocaleString() : "None");
+
+  if (lastActivity) {
+    const daysSince = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
+    console.log("Days Since Activity:", daysSince.toFixed(2));
+    console.log("Should Force Reauth:", shouldForceReAuth());
+  }
+
+  // Test Firebase token
+  if (user) {
+    try {
+      const fbToken = await user.getIdToken(false);
+      const tokenPayload = JSON.parse(atob(fbToken.split('.')[1]));
+      const expiresAt = new Date(tokenPayload.exp * 1000);
+      console.log("Firebase Token Expires:", expiresAt.toLocaleString());
+      console.log("Minutes Until FB Expiry:", Math.round((expiresAt.getTime() - Date.now()) / 1000 / 60));
+    } catch (error) {
+      console.error("Firebase Token Error:", error);
+    }
+  }
+
+  // Test Google token
+  if (googleToken) {
+    try {
+      const response = await fetch(`https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${googleToken}`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Google Token Valid - Expires in:", data.expires_in, "seconds");
+        console.log("Google Token Scope:", data.scope);
+      } else {
+        console.log("Google Token Invalid - Status:", response.status);
+      }
+    } catch (error) {
+      console.error("Google Token Test Error:", error);
+    }
+  }
+
+  console.log("🔍 === END DEBUG ===");
+};
+
+// Force token refresh test
+export const debugForceTokenRefresh = async () => {
+  console.log("🔄 === FORCING TOKEN REFRESH TEST ===");
+
+  try {
+    const result = await ensureValidGoogleToken();
+    console.log("Token Refresh Result:", result ? "Success" : "Failed");
+    return result;
+  } catch (error) {
+    console.error("Token Refresh Error:", error);
+    return null;
+  }
+};
+
+// Simulate old activity (for testing 10-day logic)
+export const debugSimulateOldActivity = (daysAgo: number = 11) => {
+  console.log(`🕒 Simulating activity from ${daysAgo} days ago...`);
+  const oldTimestamp = Date.now() - (daysAgo * 24 * 60 * 60 * 1000);
+  localStorage.setItem(ACTIVITY_STORAGE_KEY, oldTimestamp.toString());
+  console.log("New last activity:", new Date(oldTimestamp).toLocaleString());
+  console.log("Should force reauth:", shouldForceReAuth());
+};
+
+// Reset activity to now
+export const debugResetActivity = () => {
+  console.log("🔄 Resetting activity to now...");
+  updateLastActivity();
+  console.log("Activity reset. Should force reauth:", shouldForceReAuth());
+};
+
 
 // Export the auth instance for direct use if needed
 export { auth };
-export default { 
-  initializeFirebase, 
-  getCurrentUser, 
-  signInWithGoogle, 
-  signOutUser, 
-  onAuthStateChange, 
+export default {
+  initializeFirebase,
+  getCurrentUser,
+  signInWithGoogle,
+  signOutUser,
+  onAuthStateChange,
   checkAuthState,
   getGoogleAccessToken,
   getGoogleAccessTokenSync,
@@ -741,5 +889,5 @@ export default {
   ensureValidGoogleToken,
   trackActivity,
   getActivityStatus,
-  isDevelopment 
+  isDevelopment
 };

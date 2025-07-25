@@ -11,6 +11,7 @@ import { PatientManagement } from './PatientManagement';
 import { PaymentSystemNavigator } from './payments/PaymentSystemNavigator';
 import { Settings } from './Settings';
 import { Dashboard } from './dashboard/Dashboard';
+import AuthDebug from '../components/AuthDebug';
 
 // Simple URL-based routing
 export const getCurrentPath = (): string => {
@@ -82,6 +83,8 @@ export const Router: React.FC = () => {
             }}
           />
         );
+      case '/debug': // ADD THIS NEW CASE
+        return <AuthDebug />;
       default:
         return (
           <View style={styles.centerContainer}>

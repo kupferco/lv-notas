@@ -44,6 +44,8 @@ import calendarOnlySessionsRoute from './routes/calendar-only-sessions.js';
 import monthlyBillingRoute from './routes/monthly-billing.js';
 import importRoute from './routes/import.js';
 import pool from './config/database.js';
+import authRoutes from './routes/auth.js';
+import { authenticateCredentials, getTherapistEmailFromAuth } from './services/auth-service.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -123,6 +125,7 @@ export default authenticateRequest;
 // Set up routes
 const setupRoutes = () => {
     // Use routes explicitly
+    app.use('/api/auth', authRoutes);
     app.use('/api/patients', authenticateRequest, patientsRoute);
     app.use('/api/sessions', authenticateRequest, sessionsRoute);
     app.use('/api/therapists', authenticateRequest, therapistsRoute);
