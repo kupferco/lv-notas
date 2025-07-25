@@ -15,8 +15,20 @@ import type { Auth } from "firebase/auth";
 import { config } from "./config";
 
 // Activity tracking constants
+// Activity tracking constants - TESTING VALUES
 const ACTIVITY_STORAGE_KEY = "last_activity_timestamp";
-const MAX_INACTIVE_DAYS = 10;
+const MAX_INACTIVE_DAYS = 10; // CHANGE THIS TO: 5 / (24 * 60); // 5 minutes in "days"
+// For testing: const MAX_INACTIVE_DAYS = 5 / (24 * 60); // 5 minutes converted to days
+
+// TOKEN REFRESH TESTING CONSTANTS
+const TOKEN_REFRESH_INTERVAL = 5 * 60 * 1000; // CHANGE THIS TO: 30 * 1000; // 30 seconds instead of 5 minutes
+const TOKEN_EXPIRY_WARNING_THRESHOLD = 5 * 60 * 1000; // CHANGE THIS TO: 30 * 1000; // 30 seconds instead of 5 minutes
+
+// TESTING CONFIGURATION - Set these for quick testing
+const TESTING_MODE = false; // Set to false for production
+const TESTING_MAX_INACTIVE_MINUTES = 5; // Force re-auth after 5 minutes of inactivity
+const TESTING_TOKEN_REFRESH_SECONDS = 30; // Check tokens every 30 seconds
+const TESTING_TOKEN_WARNING_SECONDS = 30; // Warn when token expires in 30 seconds
 
 // Activity tracking functions
 const updateLastActivity = (): void => {
@@ -30,9 +42,18 @@ const getLastActivity = (): Date | null => {
 
 const shouldForceReAuth = (): boolean => {
   const lastActivity = getLastActivity();
-  if (!lastActivity) return true;
+  if (!lastActivity) return true; // No activity recorded, force re-auth
 
-  const daysSinceLastActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
+  const minutesSinceLastActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60);
+
+  if (TESTING_MODE) {
+    console.log(`⏱️ TESTING MODE: ${minutesSinceLastActivity.toFixed(1)} minutes since last activity`);
+    console.log(`⏱️ TESTING MODE: Will force re-auth after ${TESTING_MAX_INACTIVE_MINUTES} minutes`);
+    return minutesSinceLastActivity > TESTING_MAX_INACTIVE_MINUTES;
+  }
+
+  // Production: 10 days
+  const daysSinceLastActivity = minutesSinceLastActivity / (60 * 24);
   return daysSinceLastActivity > MAX_INACTIVE_DAYS;
 };
 
@@ -312,11 +333,19 @@ const setupTokenRefresh = (user: User) => {
     clearInterval(tokenRefreshInterval);
   }
 
-  // Set up auto token refresh every 5 minutes
+  const refreshInterval = TESTING_MODE ?
+    TESTING_TOKEN_REFRESH_SECONDS * 1000 : // 30 seconds for testing
+    TOKEN_REFRESH_INTERVAL; // 5 minutes for production
+
+  console.log(`🔄 Setting up token refresh every ${refreshInterval / 1000} seconds`);
+
+  // Set up auto token refresh
   tokenRefreshInterval = setInterval(async () => {
     try {
       // Check Firebase token
       const health = await checkTokenHealth();
+      console.log(`🔄 Auto token check: ${health.status}`);
+
       if (health.status === 'expiring_soon' || health.status === 'expired') {
         console.log("🔄 Auto-refreshing Firebase token...");
         await user.getIdToken(true); // Force refresh
@@ -331,12 +360,19 @@ const setupTokenRefresh = (user: User) => {
           console.log("⚠️ Google token requires re-authentication, will prompt user on next API call");
         }
       }
+
+      // Check activity status
+      const activityStatus = getActivityStatus();
+      if (activityStatus.shouldForceReAuth) {
+        console.log("🚨 User has been inactive too long - will require re-authentication on next action");
+      }
+
     } catch (error) {
       console.log("🚨 Auto token refresh failed:", error);
     }
-  }, 5 * 60 * 1000); // Check every 5 minutes
+  }, refreshInterval);
 
-  console.log("✅ Enhanced auto token refresh setup completed");
+  console.log(`✅ Enhanced auto token refresh setup completed (${TESTING_MODE ? 'TESTING' : 'PRODUCTION'} mode)`);
 };
 
 // Clean up token refresh

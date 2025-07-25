@@ -281,6 +281,22 @@ case "$1" in
         pg_dump -h $DB_HOST -U $DB_USER $DB_NAME > $backup_file
         echo -e "${GREEN}✅ Backup created: $backup_file${NC}"
         ;;
+    "migrate-auth")
+        echo -e "${YELLOW}🔐 Migrating to new authentication system (PRODUCTION SAFE)${NC}"
+        if ! check_db_exists; then
+            echo -e "${RED}❌ Database doesn't exist. Run '$0 schema' first.${NC}"
+            exit 1
+        fi
+        echo -e "${BLUE}This migration is SAFE for production - no existing data will be deleted${NC}"
+        read -p "Continue with authentication migration? (yes/no): " confirm
+        if [ "$confirm" = "yes" ]; then
+            run_sql "migrate_to_auth_system.sql"
+            echo -e "${GREEN}🎉 Authentication system migration completed!${NC}"
+            echo -e "${YELLOW}⚠️  IMPORTANT: All users need to reset their passwords using 'Forgot Password'${NC}"
+        else
+            echo -e "${RED}❌ Migration cancelled${NC}"
+        fi
+        ;;
     *)
         echo -e "${BLUE}Usage: $0 [command]${NC}"
         echo
@@ -295,6 +311,7 @@ case "$1" in
         echo -e "  ${GREEN}reset-comprehensive${NC}  - 🔄 Fresh database + schema + comprehensive data"
         echo -e "  ${GREEN}cleanup-user [email]${NC}  - 🧹 Remove all data for specific user/therapist"
         echo -e "  ${GREEN}backup${NC}               - 💾 Create database backup"
+        echo -e "  ${GREEN}migrate-auth${NC}         - 🔐 Migrate to new authentication system (PRODUCTION SAFE)"
         echo
         echo -e "${YELLOW}Examples for User Management:${NC}"
         echo -e "  $0 cleanup-user your-email@example.com  # Clean specific user"

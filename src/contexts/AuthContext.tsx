@@ -42,8 +42,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return !!(user && accessToken);
   };
 
-  const updateAuthState = (user: User | null) => {
-    const googleAccessToken = getGoogleAccessToken();
+  const updateAuthState = async (user: User | null) => {
+    // Get Google access token asynchronously
+    let googleAccessToken: string | null = null;
+
+    try {
+      googleAccessToken = await getGoogleAccessToken();
+    } catch (error) {
+      console.warn('Warning: Could not get Google access token:', error);
+      // Don't fail completely, just continue without Google token
+    }
+
     const hasValidTokens = checkTokensValidity(user, googleAccessToken);
 
     console.log('🔐 Auth state updated:', {
@@ -71,10 +80,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.log("🔥 Checking Firebase auth state");
       const currentUser = await checkAuthState();
       console.log("🔥 Got current user from checkAuthState:", currentUser?.email || 'none');
-      updateAuthState(currentUser);
+      await updateAuthState(currentUser); // Add await here
     } catch (error) {
       console.error('❌ Error refreshing auth:', error);
-      updateAuthState(null);
+      await updateAuthState(null); // Add await here
     }
   };
 
@@ -91,16 +100,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (!currentUser) {
         // If checkAuthState fails, try getCurrentUser
         console.log("🔄 Trying getCurrentUser as fallback");
-        const fallbackUser = await getCurrentUser();
+        const fallbackUser = getCurrentUser(); // This one is synchronous
         console.log("🔄 Fallback user:", fallbackUser?.email || 'none');
-        updateAuthState(fallbackUser);
+        await updateAuthState(fallbackUser); // Add await here
       } else {
         console.log("✅ Force refresh got user:", currentUser.email);
-        updateAuthState(currentUser);
+        await updateAuthState(currentUser); // Add await here
       }
     } catch (error) {
       console.error('❌ Error in force refresh:', error);
-      updateAuthState(null);
+      await updateAuthState(null); // Add await here
     }
   };
 
@@ -112,9 +121,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Set up auth state listener
     console.log("🔔 Setting up Firebase auth state listener");
-    const unsubscribe = onAuthStateChange((user) => {
+    const unsubscribe = onAuthStateChange(async (user) => {
       console.log('🔔 Firebase auth state changed:', user?.email || 'signed out');
-      updateAuthState(user);
+      await updateAuthState(user); // Add await here
     });
 
     return unsubscribe;
