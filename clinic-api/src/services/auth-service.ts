@@ -129,7 +129,7 @@ export async function createUserSession(
         config.inactiveTimeoutMinutes,
         config.warningTimeoutMinutes,
         config.maxSessionHours,
-        new Date(Date.now() + config.maxSessionHours * 60 * 60 * 1000),
+        new Date(Date.now() + (config.maxSessionHours || 8) * 60 * 60 * 1000),
         ipAddress,
         userAgent
     ]);
@@ -450,7 +450,7 @@ export async function terminateSession(sessionId: number, reason: string = 'logo
             VALUES ($1, 'logout', $2)
         `, [sessionId, JSON.stringify({ reason, terminated_at: new Date() })]);
         
-        return result.rowCount > 0;
+        return (result.rowCount ?? 0) > 0;
     } catch (error) {
         console.error('Error terminating session:', error);
         return false;
@@ -498,3 +498,140 @@ export async function getUserByToken(token: string): Promise<UserInfo | null> {
         permissions
     };
 }
+
+// =============================================================================
+// MIDDLEWARE FUNCTIONS (Express middlewares using the service functions above)
+// =============================================================================
+
+import { Request, Response, NextFunction } from 'express';
+
+// Extend Express Request type
+declare global {
+    namespace Express {
+        interface Request {
+            authUser?: UserInfo;
+            sessionToken?: string;
+        }
+    }
+}
+
+/**
+ * Authentication middleware for new credential-based auth
+ */
+export const authenticateCredentials = async (
+    req: Request, 
+    res: Response, 
+    next: NextFunction
+): Promise<void> => {
+    try {
+        const authHeader = req.headers.authorization;
+        const token = authHeader && authHeader.split(' ')[1];
+        
+        if (!token) {
+            res.status(401).json({ error: 'Access token required' });
+            return;
+        }
+        
+        const user = await getUserByToken(token);
+        if (!user) {
+            res.status(401).json({ 
+                error: 'Invalid or expired token',
+                code: 'SESSION_EXPIRED',
+                action: 'redirect_to_login'
+            });
+            return;
+        }
+        
+        // Attach user info to request
+        req.authUser = user;
+        req.sessionToken = token;
+        
+        // Update session activity
+        await updateSessionActivity(user.sessionId, req.originalUrl);
+        
+        next();
+    } catch (error) {
+        console.error('Authentication error:', error);
+        res.status(500).json({ error: 'Internal authentication error' });
+    }
+};
+
+/**
+ * Check if user has specific permission for a therapist
+ */
+export const requirePermission = (
+    requiredRole: 'viewer' | 'manager' | 'owner' | 'super_admin' = 'viewer'
+) => {
+    return (req: Request, res: Response, next: NextFunction): void => {
+        if (!req.authUser) {
+            res.status(401).json({ error: 'Authentication required' });
+            return;
+        }
+        
+        const therapistId = req.query.therapistId || req.params.therapistId || req.body.therapistId;
+        
+        if (!therapistId) {
+            res.status(400).json({ error: 'Therapist ID required' });
+            return;
+        }
+        
+        // Check permission
+        const hasPermission = req.authUser.permissions.some(permission => {
+            if (permission.role === 'super_admin') return true;
+            if (permission.therapistId !== parseInt(therapistId)) return false;
+            
+            const roleHierarchy = { 'viewer': 1, 'manager': 2, 'owner': 3, 'super_admin': 4 };
+            return roleHierarchy[permission.role] >= roleHierarchy[requiredRole];
+        });
+        
+        if (!hasPermission) {
+            res.status(403).json({ 
+                error: 'Insufficient permissions',
+                required: requiredRole,
+                therapistId: therapistId
+            });
+            return;
+        }
+        
+        next();
+    };
+};
+
+/**
+ * Get therapist email from user permissions (for backward compatibility)
+ */
+export const getTherapistEmailFromAuth = (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.authUser) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+    }
+    
+    const requestedEmail = req.query.therapistEmail || req.body.therapistEmail;
+    
+    if (requestedEmail) {
+        // Validate user has permission for this email
+        const hasPermission = req.authUser.permissions.some(permission => {
+            return permission.role === 'super_admin' || permission.therapistEmail === requestedEmail;
+        });
+        
+        if (!hasPermission) {
+            res.status(403).json({ 
+                error: 'No permission for requested therapist',
+                requestedEmail
+            });
+            return;
+        }
+    } else {
+        // Use first available therapist email
+        if (req.authUser.permissions.length === 0) {
+            res.status(403).json({ error: 'No therapist access permissions' });
+            return;
+        }
+        
+        const firstPermission = req.authUser.permissions[0];
+        req.query.therapistEmail = firstPermission.therapistEmail;
+        req.body.therapistEmail = firstPermission.therapistEmail;
+    }
+    
+    next();
+};
