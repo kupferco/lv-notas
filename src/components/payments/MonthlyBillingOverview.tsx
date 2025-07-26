@@ -68,16 +68,16 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
       console.log(555, response.summary)
 
       // 🎯 Filter out patients with zero sessions to clean up the interface
-      const patientsWithSessions = response.summary.filter(patient => patient.sessionCount > 0);
+      const patientsWithSessions = response.summary.filter((patient: BillingSummary) => patient.sessionCount > 0);
 
       setBillingSummary(patientsWithSessions);
       console.log(`✅ Loaded ${response.summary.length} total patients, showing ${patientsWithSessions.length} with sessions`);
 
       // Log filtered patients for debugging
-      const filteredOut = response.summary.filter(patient => patient.sessionCount === 0);
+      const filteredOut = response.summary.filter((patient: BillingSummary) => patient.sessionCount === 0);
       if (filteredOut.length > 0) {
         console.log(`🚫 Filtered out ${filteredOut.length} patients with zero sessions:`,
-          filteredOut.map(p => p.patientName));
+          filteredOut.map((p: BillingSummary) => p.patientName));
       }
 
     } catch (error: any) {

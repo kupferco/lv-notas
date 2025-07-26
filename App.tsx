@@ -1,39 +1,80 @@
-// App.tsx
+// App.tsx - Updated with comprehensive debug logging to identify flickering issue
 import React, { useState, useEffect } from "react";
 import { View, StyleSheet, ActivityIndicator, Text } from "react-native";
 import { Router } from "./src/components/Router";
 import { TherapistOnboarding } from "./src/components/TherapistOnboarding";
 import { AuthProvider, useAuth } from "./src/contexts/AuthContext";
+import { AuthNavigator } from "./src/components/auth/AuthNavigator";
 import { SettingsProvider } from './src/contexts/SettingsContext';
-import { checkAuthState, onAuthStateChange, isDevelopment } from "./src/config/firebase";
+import { SessionTimeoutModal } from "./src/components/common/SessionTimeoutModal";
+import { isDevelopment } from "./src/config/firebase";
 import { apiService } from "./src/services/api";
 import { ensureCalendarPermissions, checkCalendarPermissionStatus } from "./src/services/calendarPermissions";
-// import type { User } from "firebase/auth";
 
-type AppState = "loading" | "onboarding" | "authenticated" | "calendar_permissions";
+type AppState = "loading" | "login" | "onboarding" | "authenticated" | "calendar_permissions";
 
 // Main App component that uses AuthContext
 const AppContent: React.FC = () => {
-  console.log('Test Version 1.0.9');
+  console.log('LV Notas Version 2.0.0 - New Credential Authentication System');
   console.log('🔑 API Key Debug:', {
     safeProxyKey: process.env.SAFE_PROXY_API_KEY ? 'Present' : 'Missing',
-    safeProxyKeyValue: process.env.SAFE_PROXY_API_KEY ? 'Hidden' : 'Not found',
-    allProcessEnv: typeof process !== 'undefined' ? Object.keys(process.env || {}) : 'process not defined'
+    isDevelopment: isDevelopment
   });
 
   const [appState, setAppState] = useState<AppState>("loading");
   const [retryCount, setRetryCount] = useState(0);
   const [isInitializing, setIsInitializing] = useState(false);
   const [calendarPermissionMessage, setCalendarPermissionMessage] = useState("");
-  const { user, isAuthenticated, isLoading: authLoading, hasValidTokens, signOut, forceRefresh } = useAuth();
 
+  const {
+    user,
+    isLoading: authLoading,
+    isAuthenticated,
+    hasValidTokens,
+    showSessionWarning,
+    extendSession,
+    signOut,
+    forceRefresh
+  } = useAuth();
+
+  // Add this at the very top of your AppContent component
+  console.log('🎬 AppContent RENDER:', {
+    appState,
+    authLoading,
+    isAuthenticated,
+    hasValidTokens,
+    userEmail: user?.email,
+    isInitializing,
+    retryCount
+  });
+
+  // Add this to your useEffect
   useEffect(() => {
+    console.log('🔄 Main useEffect triggered:', {
+      authLoading,
+      isAuthenticated,
+      hasValidTokens,
+      appState,
+      userEmail: user?.email
+    });
+    
     if (!authLoading) {
+      if (isAuthenticated) {
+        setRetryCount(0);
+      }
       initializeApp();
     }
   }, [authLoading, isAuthenticated, hasValidTokens]);
 
   const initializeApp = async () => {
+    console.log('🚀 initializeApp CALLED:', {
+      isInitializing,
+      appState,
+      isAuthenticated,
+      hasValidTokens,
+      userEmail: user?.email
+    });
+    
     // Prevent duplicate initialization calls
     if (isInitializing) {
       console.log("⏸️ Already initializing, skipping duplicate call");
@@ -41,40 +82,40 @@ const AppContent: React.FC = () => {
     }
 
     setIsInitializing(true);
+    console.log("🔥 setIsInitializing(true) - Starting initialization");
+    
     try {
-      console.log("🚀 Initializing LV Notas App");
+      console.log("🚀 Initializing LV Notas App with new auth system");
       console.log("Auth state:", { isAuthenticated, hasValidTokens, userEmail: user?.email });
 
-      // Add this debug info:
+      // Debug localStorage
       console.log("🔍 Debug localStorage:");
-      console.log("- therapist_email:", localStorage.getItem("therapist_email"));
-      console.log("- therapist_name:", localStorage.getItem("therapist_name"));
+      console.log("- session_token:", !!localStorage.getItem("session_token"));
+      console.log("- user_data:", !!localStorage.getItem("user_data"));
       console.log("- google_access_token:", !!localStorage.getItem("google_access_token"));
       console.log("- calendar_permission_granted:", localStorage.getItem("calendar_permission_granted"));
 
+      // If not authenticated, show login
       if (!isAuthenticated) {
-        console.log("No authenticated user, showing onboarding");
-        setAppState("onboarding");
+        console.log("❌ No authenticated user, showing login screen");
+        setAppState("login");
+        console.log("🔥 setAppState('login') called");
         setIsInitializing(false);
-        return;
-      }
-
-      if (!hasValidTokens) {
-        console.log("Invalid tokens, showing onboarding");
-        setAppState("onboarding");
-        setIsInitializing(false);
+        console.log("🔥 setIsInitializing(false) - Not authenticated");
         return;
       }
 
       const email = user?.email;
-      if (!isAuthenticated || !hasValidTokens || !email) {
-        console.log("No email available, showing onboarding");
-        setAppState("onboarding");
+      if (!email) {
+        console.log("❌ No email available, showing login screen");
+        setAppState("login");
+        console.log("🔥 setAppState('login') called - no email");
         setIsInitializing(false);
+        console.log("🔥 setIsInitializing(false) - No email");
         return;
       }
 
-      // STEP 1: Check calendar permissions first
+      // STEP 1: Check calendar permissions (for Google Calendar integration)
       console.log("📅 Checking calendar permissions...");
       const calendarStatus = await checkCalendarPermissionStatus();
 
@@ -82,6 +123,7 @@ const AppContent: React.FC = () => {
         console.log("⚠️ Calendar permissions missing, requesting permissions...");
         setCalendarPermissionMessage("Solicitando permissões do Google Calendar...");
         setAppState("calendar_permissions");
+        console.log("🔥 setAppState('calendar_permissions') called");
 
         try {
           const permissionsGranted = await ensureCalendarPermissions();
@@ -90,6 +132,7 @@ const AppContent: React.FC = () => {
             console.error("❌ Failed to get calendar permissions");
             setCalendarPermissionMessage("Erro: Permissões do calendário são obrigatórias para continuar.");
             setIsInitializing(false);
+            console.log("🔥 setIsInitializing(false) - Calendar permissions failed");
             return;
           }
 
@@ -98,6 +141,7 @@ const AppContent: React.FC = () => {
           console.error("❌ Error getting calendar permissions:", error);
           setCalendarPermissionMessage("Erro ao solicitar permissões do calendário. Tente novamente.");
           setIsInitializing(false);
+          console.log("🔥 setIsInitializing(false) - Calendar permissions error");
           return;
         }
       } else {
@@ -106,31 +150,38 @@ const AppContent: React.FC = () => {
 
       // STEP 2: Check if therapist exists and has calendar configured
       try {
+        console.log("👨‍⚕️ Checking therapist data for:", email);
         const therapist = await apiService.getTherapistByEmail(email);
-        console.log("Therapist data:", therapist);
+        console.log("👨‍⚕️ Therapist data:", therapist);
 
         if (therapist && therapist.googleCalendarId) {
           console.log("✅ Therapist fully configured, going to authenticated state");
           setAppState("authenticated");
+          console.log("🔥 setAppState('authenticated') called");
 
           // Update localStorage for development
           if (isDevelopment) {
             localStorage.setItem("therapist_email", email);
             localStorage.setItem("therapist_calendar_id", therapist.googleCalendarId);
+            console.log("💾 Updated localStorage with therapist data");
           }
         } else {
           console.log("⚠️ Therapist needs onboarding");
           setAppState("onboarding");
+          console.log("🔥 setAppState('onboarding') called");
         }
       } catch (error) {
-        console.error("Error checking therapist:", error);
+        console.error("❌ Error checking therapist:", error);
         setAppState("onboarding");
+        console.log("🔥 setAppState('onboarding') called - error");
       }
     } catch (error) {
       console.error("❌ Error initializing app:", error);
-      setAppState("onboarding");
+      setAppState("login");
+      console.log("🔥 setAppState('login') called - global error");
     } finally {
       setIsInitializing(false);
+      console.log("🔥 setIsInitializing(false) - Finally block");
     }
   };
 
@@ -225,31 +276,39 @@ const AppContent: React.FC = () => {
     await initializeApp();
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     console.log("🚪 User logged out");
 
     // Reset all state
     setRetryCount(0);
     setAppState("loading");
 
+    // Clear any cached data - BUT DON'T CLEAR GOOGLE TOKENS
     if (isDevelopment) {
       localStorage.removeItem("therapist_email");
       localStorage.removeItem("therapist_calendar_id");
-      localStorage.removeItem("google_access_token");
-      localStorage.removeItem("calendar_permission_granted");
+      // DON'T CLEAR THESE:
+      // localStorage.removeItem("google_access_token");
+      // localStorage.removeItem("calendar_permission_granted");
     }
 
     // Force re-initialization after clearing state
     setTimeout(() => {
-      setAppState("onboarding");
+      setAppState("login");
     }, 500);
+  };
+
+  const handleSessionTimeout = async () => {
+    console.log("🕐 Session timeout - logging out");
+    await signOut();
+    setAppState("login");
   };
 
   const emergencyReset = () => {
     console.log("🚨 Emergency reset triggered");
     localStorage.clear();
     setRetryCount(0);
-    setAppState("onboarding");
+    setAppState("login");
   };
 
   const renderLoadingScreen = () => (
@@ -257,7 +316,7 @@ const AppContent: React.FC = () => {
       <ActivityIndicator size="large" color="#6200ee" />
       <Text style={styles.loadingText}>Carregando LV Notas...</Text>
       {isDevelopment && (
-        <Text style={styles.devText}>Modo Desenvolvimento</Text>
+        <Text style={styles.devText}>Modo Desenvolvimento - Novo Sistema de Autenticação</Text>
       )}
       <Text style={styles.debugText}>Estado atual: {appState}</Text>
       {retryCount > 0 && (
@@ -268,6 +327,14 @@ const AppContent: React.FC = () => {
           🚨 Clique aqui para reset de emergência
         </Text>
       )}
+    </View>
+  );
+
+  const renderLoginScreen = () => (
+    <View style={styles.centeredContainer}>
+      <AuthNavigator
+        initialScreen="login"
+      />
     </View>
   );
 
@@ -302,6 +369,13 @@ const AppContent: React.FC = () => {
   const renderAuthenticatedApp = () => (
     <View style={styles.appContainer}>
       <Router />
+
+      {/* Session Timeout Warning Modal */}
+      <SessionTimeoutModal
+        visible={showSessionWarning}
+        onExtend={extendSession}
+        onLogout={handleSessionTimeout}
+      />
     </View>
   );
 
@@ -309,8 +383,15 @@ const AppContent: React.FC = () => {
     console.log("🎨 Rendering screen for appState:", appState);
     console.log("🔍 Current auth state:", { isAuthenticated, hasValidTokens, userEmail: user?.email });
 
+    // CRITICAL FIX: Never show login screen if user is authenticated
     if (authLoading) {
       console.log("🔄 Auth still loading, showing loading screen");
+      return renderLoadingScreen();
+    }
+
+    // If user is authenticated but appState hasn't caught up yet, show loading
+    if (isAuthenticated && (appState === "loading" || appState === "login")) {
+      console.log("🔄 User authenticated but app state not ready, showing loading screen");
       return renderLoadingScreen();
     }
 
@@ -318,6 +399,14 @@ const AppContent: React.FC = () => {
       case "loading":
         console.log("📱 Rendering loading screen");
         return renderLoadingScreen();
+      case "login":
+        // Double-check: only show login if NOT authenticated
+        if (isAuthenticated) {
+          console.log("🚨 User authenticated but appState is login - showing loading instead");
+          return renderLoadingScreen();
+        }
+        console.log("🔐 Rendering login screen");
+        return renderLoginScreen();
       case "calendar_permissions":
         console.log("📅 Rendering calendar permissions screen");
         return renderCalendarPermissionScreen();
@@ -366,12 +455,10 @@ const styles = StyleSheet.create({
   centeredContainer: {
     flex: 1,
     backgroundColor: "#f8f9fa",
-    paddingHorizontal: 20,
   },
   appContainer: {
     flex: 1,
     backgroundColor: "#fff",
-    // paddingHorizontal: 20,
     maxWidth: 730,
     alignSelf: 'center',
     width: '100%',

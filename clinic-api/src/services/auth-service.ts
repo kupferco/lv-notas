@@ -6,6 +6,29 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 
+// Session timeout configuration (in minutes) - Simple constants approach
+const SESSION_TIMEOUTS = {
+    development: 5,    // 5 minutes for development
+    production: 30,    // 30 minutes for production  
+    default: 15        // 15 minutes fallback
+};
+
+// Get current session timeout based on environment
+const getSessionTimeout = (): number => {
+    const env = process.env.NODE_ENV || 'development';
+    return SESSION_TIMEOUTS[env as keyof typeof SESSION_TIMEOUTS] || SESSION_TIMEOUTS.default;
+};
+
+// Warning timeout (1 minute before session expires)
+const getWarningTimeout = (): number => {
+    return 1; // Always 1 minute warning
+};
+
+// Max session duration (8 hours regardless of environment)
+const getMaxSessionHours = (): number => {
+    return 8;
+};
+
 // Configuration
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 const JWT_EXPIRES_IN = '1h';
@@ -34,22 +57,15 @@ export interface UserInfo {
 }
 
 /**
- * Get authentication configuration from database
+ * Get authentication configuration using simple constants
  */
 export async function getAuthConfig(): Promise<SessionConfig> {
-    try {
-        const result = await pool.query('SELECT * FROM get_session_timeouts()');
-        return result.rows[0];
-    } catch (error) {
-        console.error('Error getting auth config:', error);
-        // Fallback defaults
-        return {
-            inactiveTimeoutMinutes: 10,
-            warningTimeoutMinutes: 1,
-            maxSessionHours: 8,
-            tokenRefreshMinutes: 55
-        };
-    }
+    return {
+        inactiveTimeoutMinutes: getSessionTimeout(),
+        warningTimeoutMinutes: getWarningTimeout(),
+        maxSessionHours: getMaxSessionHours(),
+        tokenRefreshMinutes: 55  // Keep existing token refresh timing
+    };
 }
 
 /**
@@ -57,9 +73,9 @@ export async function getAuthConfig(): Promise<SessionConfig> {
  */
 export function createJWTToken(userId: number, sessionId: number): string {
     return jwt.sign(
-        { 
-            userId, 
-            sessionId, 
+        {
+            userId,
+            sessionId,
             type: 'session',
             iat: Math.floor(Date.now() / 1000)
         },
@@ -109,12 +125,12 @@ export function generateSecureToken(): string {
  * Create user session in database
  */
 export async function createUserSession(
-    userId: number, 
-    ipAddress: string, 
+    userId: number,
+    ipAddress: string,
     userAgent: string
 ): Promise<{ sessionId: number; sessionToken: string }> {
     const config = await getAuthConfig();
-    
+
     // Create session in database
     const result = await pool.query(`
         INSERT INTO user_sessions (
@@ -133,22 +149,22 @@ export async function createUserSession(
         ipAddress,
         userAgent
     ]);
-    
+
     const sessionId = result.rows[0].id;
     const sessionToken = createJWTToken(userId, sessionId);
-    
+
     // Update with real token
     await pool.query(
         'UPDATE user_sessions SET session_token = $1 WHERE id = $2',
         [sessionToken, sessionId]
     );
-    
+
     // Log session creation
     await pool.query(`
         INSERT INTO session_activity_log (session_id, user_id, activity_type, ip_address, user_agent)
         VALUES ($1, $2, 'login', $3, $4)
     `, [sessionId, userId, ipAddress, userAgent]);
-    
+
     return { sessionId, sessionToken };
 }
 
@@ -170,7 +186,7 @@ export async function getUserPermissions(userId: number): Promise<UserPermission
         AND (up.expires_at IS NULL OR up.expires_at > CURRENT_TIMESTAMP)
         ORDER BY up.granted_at ASC
     `, [userId]);
-    
+
     return result.rows.map(row => ({
         therapistId: row.therapist_id,
         therapistName: row.therapist_name,
@@ -189,7 +205,7 @@ export async function updateSessionActivity(sessionId: number, endpoint?: string
             'UPDATE user_sessions SET last_activity_at = CURRENT_TIMESTAMP WHERE id = $1',
             [sessionId]
         );
-        
+
         await pool.query(`
             INSERT INTO session_activity_log (session_id, activity_type, endpoint, timestamp)
             VALUES ($1, 'activity', $2, CURRENT_TIMESTAMP)
@@ -210,14 +226,14 @@ export async function validateSession(sessionId: number): Promise<boolean> {
         FROM user_sessions 
         WHERE id = $1 AND status = 'active'
     `, [sessionId]);
-    
+
     if (result.rows.length === 0) {
         return false;
     }
-    
+
     const session = result.rows[0];
     const now = new Date();
-    
+
     // Check if session has expired
     if (session.expires_at < now) {
         await pool.query(
@@ -229,13 +245,13 @@ export async function validateSession(sessionId: number): Promise<boolean> {
         );
         return false;
     }
-    
+
     // Check if session is inactive
     const inactiveLimit = new Date(
-        session.last_activity_at.getTime() + 
+        session.last_activity_at.getTime() +
         session.inactive_timeout_minutes * 60 * 1000
     );
-    
+
     if (now > inactiveLimit) {
         await pool.query(
             `UPDATE user_sessions 
@@ -246,7 +262,7 @@ export async function validateSession(sessionId: number): Promise<boolean> {
         );
         return false;
     }
-    
+
     return true;
 }
 
@@ -260,31 +276,31 @@ export async function authenticateUser(email: string, password: string): Promise
             'SELECT id, email, password_hash, display_name, is_active, email_verified FROM user_credentials WHERE email = $1',
             [email.toLowerCase()]
         );
-        
+
         if (userResult.rows.length === 0 || !userResult.rows[0].is_active) {
             return null;
         }
-        
+
         const user = userResult.rows[0];
-        
+
         // Verify password
         const validPassword = await comparePassword(password, user.password_hash);
         if (!validPassword) {
             return null;
         }
-        
+
         // Check email verification if required
         const emailVerificationRequired = await pool.query(
             "SELECT value FROM app_configuration WHERE key = 'auth_require_email_verification'"
         );
-        
+
         if (emailVerificationRequired.rows[0]?.value === 'true' && !user.email_verified) {
             throw new Error('EMAIL_NOT_VERIFIED');
         }
-        
+
         // Get permissions
         const permissions = await getUserPermissions(user.id);
-        
+
         return {
             id: user.id,
             email: user.email,
@@ -305,30 +321,30 @@ export async function authenticateUser(email: string, password: string): Promise
  * Create new user account
  */
 export async function createUser(
-    email: string, 
-    password: string, 
-    displayName: string, 
+    email: string,
+    password: string,
+    displayName: string,
     invitationToken?: string
 ): Promise<{ id: number; email: string; displayName: string }> {
     // Validate input
     if (password.length < 8) {
         throw new Error('Password must be at least 8 characters long');
     }
-    
+
     // Check if user exists
     const existingUser = await pool.query(
         'SELECT id FROM user_credentials WHERE email = $1',
         [email.toLowerCase()]
     );
-    
+
     if (existingUser.rows.length > 0) {
         throw new Error('User already exists with this email');
     }
-    
+
     // Hash password
     const passwordHash = await hashPassword(password);
     const emailVerificationToken = generateSecureToken();
-    
+
     // Create user
     const userResult = await pool.query(`
         INSERT INTO user_credentials (
@@ -336,9 +352,9 @@ export async function createUser(
         ) VALUES ($1, $2, $3, $4, true)
         RETURNING id, email, display_name
     `, [email.toLowerCase(), passwordHash, displayName, emailVerificationToken]);
-    
+
     const newUser = userResult.rows[0];
-    
+
     // Handle invitation if provided
     if (invitationToken) {
         const invitationResult = await pool.query(`
@@ -346,16 +362,16 @@ export async function createUser(
             FROM practice_invitations
             WHERE invitation_token = $1 AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP
         `, [invitationToken]);
-        
+
         if (invitationResult.rows.length > 0) {
             const invitation = invitationResult.rows[0];
-            
+
             // Grant permission
             await pool.query(`
                 INSERT INTO user_permissions (user_id, therapist_id, role, granted_by, notes)
                 VALUES ($1, $2, $3, $4, 'Granted via invitation acceptance')
             `, [newUser.id, invitation.therapist_id, invitation.invited_role, invitation.invited_by]);
-            
+
             // Mark invitation as accepted
             await pool.query(`
                 UPDATE practice_invitations 
@@ -364,7 +380,7 @@ export async function createUser(
             `, [newUser.id, invitation.id]);
         }
     }
-    
+
     return newUser;
 }
 
@@ -376,20 +392,20 @@ export async function requestPasswordReset(email: string): Promise<string | null
         'SELECT id FROM user_credentials WHERE email = $1 AND is_active = true',
         [email.toLowerCase()]
     );
-    
+
     if (userResult.rows.length === 0) {
         return null; // Don't reveal if user exists
     }
-    
+
     const resetToken = generateSecureToken();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-    
+
     await pool.query(`
         UPDATE user_credentials 
         SET password_reset_token = $1, password_reset_expires_at = $2
         WHERE id = $3
     `, [resetToken, expiresAt, userResult.rows[0].id]);
-    
+
     return resetToken;
 }
 
@@ -400,21 +416,21 @@ export async function resetPassword(token: string, newPassword: string): Promise
     if (newPassword.length < 8) {
         throw new Error('Password must be at least 8 characters long');
     }
-    
+
     const userResult = await pool.query(`
         SELECT id FROM user_credentials 
         WHERE password_reset_token = $1 
         AND password_reset_expires_at > CURRENT_TIMESTAMP
         AND is_active = true
     `, [token]);
-    
+
     if (userResult.rows.length === 0) {
         return false;
     }
-    
+
     const passwordHash = await hashPassword(newPassword);
     const userId = userResult.rows[0].id;
-    
+
     // Update password and clear reset token
     await pool.query(`
         UPDATE user_credentials 
@@ -422,7 +438,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
             email_verified = true
         WHERE id = $2
     `, [passwordHash, userId]);
-    
+
     // Terminate all existing sessions for security
     await pool.query(`
         UPDATE user_sessions 
@@ -430,7 +446,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
             termination_reason = 'password_reset'
         WHERE user_id = $1 AND status = 'active'
     `, [userId]);
-    
+
     return true;
 }
 
@@ -444,12 +460,12 @@ export async function terminateSession(sessionId: number, reason: string = 'logo
             SET status = 'terminated', terminated_at = CURRENT_TIMESTAMP, termination_reason = $1
             WHERE id = $2 AND status = 'active'
         `, [reason, sessionId]);
-        
+
         await pool.query(`
             INSERT INTO session_activity_log (session_id, activity_type, metadata)
             VALUES ($1, 'logout', $2)
         `, [sessionId, JSON.stringify({ reason, terminated_at: new Date() })]);
-        
+
         return (result.rowCount ?? 0) > 0;
     } catch (error) {
         console.error('Error terminating session:', error);
@@ -476,20 +492,20 @@ export async function extendSession(sessionToken: string): Promise<boolean> {
 export async function getUserByToken(token: string): Promise<UserInfo | null> {
     const decoded = verifyJWTToken(token);
     if (!decoded) return null;
-    
+
     const isValid = await validateSession(decoded.sessionId);
     if (!isValid) return null;
-    
+
     const userResult = await pool.query(
         'SELECT id, email, display_name FROM user_credentials WHERE id = $1 AND is_active = true',
         [decoded.userId]
     );
-    
+
     if (userResult.rows.length === 0) return null;
-    
+
     const user = userResult.rows[0];
     const permissions = await getUserPermissions(user.id);
-    
+
     return {
         id: user.id,
         email: user.email,
@@ -519,36 +535,36 @@ declare global {
  * Authentication middleware for new credential-based auth
  */
 export const authenticateCredentials = async (
-    req: Request, 
-    res: Response, 
+    req: Request,
+    res: Response,
     next: NextFunction
 ): Promise<void> => {
     try {
         const authHeader = req.headers.authorization;
         const token = authHeader && authHeader.split(' ')[1];
-        
+
         if (!token) {
             res.status(401).json({ error: 'Access token required' });
             return;
         }
-        
+
         const user = await getUserByToken(token);
         if (!user) {
-            res.status(401).json({ 
+            res.status(401).json({
                 error: 'Invalid or expired token',
                 code: 'SESSION_EXPIRED',
                 action: 'redirect_to_login'
             });
             return;
         }
-        
+
         // Attach user info to request
         req.authUser = user;
         req.sessionToken = token;
-        
+
         // Update session activity
         await updateSessionActivity(user.sessionId, req.originalUrl);
-        
+
         next();
     } catch (error) {
         console.error('Authentication error:', error);
@@ -567,32 +583,32 @@ export const requirePermission = (
             res.status(401).json({ error: 'Authentication required' });
             return;
         }
-        
+
         const therapistId = req.query.therapistId || req.params.therapistId || req.body.therapistId;
-        
+
         if (!therapistId) {
             res.status(400).json({ error: 'Therapist ID required' });
             return;
         }
-        
+
         // Check permission
         const hasPermission = req.authUser.permissions.some(permission => {
             if (permission.role === 'super_admin') return true;
             if (permission.therapistId !== parseInt(therapistId)) return false;
-            
+
             const roleHierarchy = { 'viewer': 1, 'manager': 2, 'owner': 3, 'super_admin': 4 };
             return roleHierarchy[permission.role] >= roleHierarchy[requiredRole];
         });
-        
+
         if (!hasPermission) {
-            res.status(403).json({ 
+            res.status(403).json({
                 error: 'Insufficient permissions',
                 required: requiredRole,
                 therapistId: therapistId
             });
             return;
         }
-        
+
         next();
     };
 };
@@ -605,17 +621,17 @@ export const getTherapistEmailFromAuth = (req: Request, res: Response, next: Nex
         res.status(401).json({ error: 'Authentication required' });
         return;
     }
-    
+
     const requestedEmail = req.query.therapistEmail || req.body.therapistEmail;
-    
+
     if (requestedEmail) {
         // Validate user has permission for this email
         const hasPermission = req.authUser.permissions.some(permission => {
             return permission.role === 'super_admin' || permission.therapistEmail === requestedEmail;
         });
-        
+
         if (!hasPermission) {
-            res.status(403).json({ 
+            res.status(403).json({
                 error: 'No permission for requested therapist',
                 requestedEmail
             });
@@ -627,11 +643,33 @@ export const getTherapistEmailFromAuth = (req: Request, res: Response, next: Nex
             res.status(403).json({ error: 'No therapist access permissions' });
             return;
         }
-        
+
         const firstPermission = req.authUser.permissions[0];
         req.query.therapistEmail = firstPermission.therapistEmail;
         req.body.therapistEmail = firstPermission.therapistEmail;
     }
-    
+
     next();
 };
+
+
+// Temporary test function - remove after testing
+export async function testSessionConfig(): Promise<void> {
+    console.log('🧪 Testing session configuration...');
+
+    const config = await getAuthConfig();
+    console.log('📋 Current session config:', {
+        environment: process.env.NODE_ENV || 'development',
+        inactiveTimeoutMinutes: config.inactiveTimeoutMinutes,
+        warningTimeoutMinutes: config.warningTimeoutMinutes,
+        maxSessionHours: config.maxSessionHours,
+        tokenRefreshMinutes: config.tokenRefreshMinutes
+    });
+
+    // Test the individual functions
+    console.log('🔧 Direct function calls:', {
+        sessionTimeout: getSessionTimeout(),
+        warningTimeout: getWarningTimeout(),
+        maxSessionHours: getMaxSessionHours()
+    });
+}

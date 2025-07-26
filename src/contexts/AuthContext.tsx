@@ -1,20 +1,39 @@
 // src/contexts/AuthContext.tsx
+// Credential-based authentication context replacing Firebase auth
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User } from 'firebase/auth';
-import { getCurrentUser, onAuthStateChange, isDevelopment, getGoogleAccessToken, checkAuthState } from '../config/firebase';
+import { authService, User as CredentialUser, LoginResponse } from '../services/authService';
+import { getGoogleAccessToken, isDevelopment } from '../config/firebase';
 
-interface AuthState {
-  user: User | null;
-  isAuthenticated: boolean;
+export type AuthMethod = 'credentials';
+
+export interface AuthContextType {
+  // User state
+  user: CredentialUser | null;
+  authMethod: AuthMethod | null;
   isLoading: boolean;
-  googleAccessToken: string | null;
+  isAuthenticated: boolean;
   hasValidTokens: boolean;
-}
+  googleAccessToken: string | null;
 
-interface AuthContextType extends AuthState {
-  refreshAuth: () => Promise<void>;
+  loginError: string | null;
+  clearLoginError: () => void;
+
+  // Credential methods
+  login: (email: string, password: string) => Promise<LoginResponse>;
+  register: (email: string, password: string, displayName: string, invitationToken?: string) => Promise<any>;
+  forgotPassword: (email: string) => Promise<string>;
+  resetPassword: (token: string, newPassword: string) => Promise<void>;
+  extendSession: () => Promise<boolean>;
   signOut: () => Promise<void>;
-  forceRefresh: () => Promise<void>; // Add this for post-onboarding refresh
+
+  // Session management
+  showSessionWarning: boolean;
+  dismissSessionWarning: () => void;
+
+  // Legacy compatibility methods (for smooth transition)
+  refreshAuth: () => Promise<void>;
+  forceRefresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -24,139 +43,296 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [authState, setAuthState] = useState<AuthState>({
-    user: null,
-    isAuthenticated: false,
-    isLoading: true,
-    googleAccessToken: null,
-    hasValidTokens: false,
-  });
+  const [user, setUser] = useState<CredentialUser | null>(null);
+  const [authMethod, setAuthMethod] = useState<AuthMethod | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showSessionWarning, setShowSessionWarning] = useState(false);
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
-  const checkTokensValidity = (user: User | null, accessToken: string | null): boolean => {
-    // Always require both Firebase user and Google access token
+  // Check if user has valid tokens (session + Google calendar access)
+  const checkTokensValidity = (user: CredentialUser | null, googleToken: string | null): boolean => {
     console.log("🔍 Checking tokens validity:", {
       hasUser: !!user,
-      hasAccessToken: !!accessToken,
+      hasSessionToken: !!authService.getSessionToken(),
+      hasGoogleToken: !!googleToken,
       userEmail: user?.email
     });
-    return !!(user && accessToken);
+
+    // For calendar operations, we need both session token and Google access token
+    return !!(user && authService.getSessionToken() && googleToken);
   };
 
-  const updateAuthState = async (user: User | null) => {
-    // Get Google access token asynchronously
-    let googleAccessToken: string | null = null;
-
+  const updateGoogleAccessToken = async (): Promise<string | null> => {
     try {
-      googleAccessToken = await getGoogleAccessToken();
+      const token = await getGoogleAccessToken();
+      setGoogleAccessToken(token);
+      return token;
     } catch (error) {
       console.warn('Warning: Could not get Google access token:', error);
-      // Don't fail completely, just continue without Google token
-    }
-
-    const hasValidTokens = checkTokensValidity(user, googleAccessToken);
-
-    console.log('🔐 Auth state updated:', {
-      userEmail: user?.email || 'none',
-      hasGoogleToken: !!googleAccessToken,
-      hasValidTokens,
-      isDevelopment
-    });
-
-    setAuthState({
-      user,
-      isAuthenticated: !!user,
-      isLoading: false,
-      googleAccessToken,
-      hasValidTokens,
-    });
-  };
-
-  const refreshAuth = async (): Promise<void> => {
-    console.log('🔄 Refreshing auth state...');
-    setAuthState(prev => ({ ...prev, isLoading: true }));
-
-    try {
-      // Always check Firebase auth state (no development mode special handling)
-      console.log("🔥 Checking Firebase auth state");
-      const currentUser = await checkAuthState();
-      console.log("🔥 Got current user from checkAuthState:", currentUser?.email || 'none');
-      await updateAuthState(currentUser); // Add await here
-    } catch (error) {
-      console.error('❌ Error refreshing auth:', error);
-      await updateAuthState(null); // Add await here
-    }
-  };
-
-  // New method for forcing a complete refresh (useful after onboarding)
-  const forceRefresh = async (): Promise<void> => {
-    console.log('⚡ Force refreshing auth state...');
-    setAuthState(prev => ({ ...prev, isLoading: true }));
-
-    try {
-      // Try multiple methods to get the current user
-      console.log("🔥 Force checking Firebase auth state");
-      const currentUser = await checkAuthState();
-
-      if (!currentUser) {
-        // If checkAuthState fails, try getCurrentUser
-        console.log("🔄 Trying getCurrentUser as fallback");
-        const fallbackUser = getCurrentUser(); // This one is synchronous
-        console.log("🔄 Fallback user:", fallbackUser?.email || 'none');
-        await updateAuthState(fallbackUser); // Add await here
-      } else {
-        console.log("✅ Force refresh got user:", currentUser.email);
-        await updateAuthState(currentUser); // Add await here
-      }
-    } catch (error) {
-      console.error('❌ Error in force refresh:', error);
-      await updateAuthState(null); // Add await here
+      setGoogleAccessToken(null);
+      return null;
     }
   };
 
   useEffect(() => {
-    console.log('🚀 AuthProvider initializing...');
+    initializeAuth();
 
-    // Always check auth state immediately on mount
-    refreshAuth();
-
-    // Set up auth state listener
-    console.log("🔔 Setting up Firebase auth state listener");
-    const unsubscribe = onAuthStateChange(async (user) => {
-      console.log('🔔 Firebase auth state changed:', user?.email || 'signed out');
-      await updateAuthState(user); // Add await here
+    // Set up session warning callback
+    authService.setWarningCallback(() => {
+      setShowSessionWarning(true);
     });
 
-    return unsubscribe;
-  }, []); // ← Keep empty dependency array and simplify the callback
+    // Set up session expired callback
+    authService.setExpiredCallback(() => {
+      console.log('🕐 Session expired - logging out user');
+      handleSessionExpired();
+    });
+  }, []);
 
-  const handleSignOut = async (): Promise<void> => {
-    console.log('🚪 AuthContext handling sign out...');
+  const initializeAuth = async () => {
     try {
-      // Import signOutUser dynamically to avoid circular dependencies
-      const { signOutUser } = await import('../config/firebase');
-      await signOutUser();
+      console.log('🔄 Initializing credential authentication...');
 
-      // Immediately update auth state to signed out
-      updateAuthState(null);
-      console.log('✅ AuthContext sign out completed');
+      // First check if we have a stored session token
+      const storedToken = localStorage.getItem('session_token');
+      const storedUserData = localStorage.getItem('user_data');
+
+      if (storedToken && storedUserData) {
+        console.log('🔍 Found stored session, validating...');
+
+        // Check if the stored session is still valid
+        const credentialUser = await authService.getCurrentUser();
+        if (credentialUser) {
+          console.log('✅ Stored session is valid:', credentialUser.email);
+          setUser(credentialUser);
+          setAuthMethod('credentials');
+
+          // Also get Google access token for calendar operations
+          await updateGoogleAccessToken();
+
+          setIsLoading(false);
+          return;
+        } else {
+          console.log('❌ Stored session expired, clearing storage');
+          localStorage.removeItem('session_token');
+          localStorage.removeItem('user_data');
+        }
+      }
+
+      console.log('ℹ️ No valid stored session found');
+      setUser(null);
+      setAuthMethod(null);
+      setGoogleAccessToken(null);
     } catch (error) {
-      console.error('❌ Error in AuthContext sign out:', error);
-      throw error;
+      console.error('❌ Authentication initialization error:', error);
+      // Clear potentially corrupted data
+      localStorage.removeItem('session_token');
+      localStorage.removeItem('user_data');
+      setUser(null);
+      setAuthMethod(null);
+      setGoogleAccessToken(null);
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  const handleSessionExpired = async () => {
+    console.log('🕐 Handling session expiration...');
+    setShowSessionWarning(false);
+    setUser(null);
+    setAuthMethod(null);
+    setGoogleAccessToken(null);
+
+    // Show user-friendly message
+    if (typeof window !== 'undefined') {
+      window.alert('Sua sessão expirou. Você será redirecionado para a tela de login.');
+    }
+  };
+
+  // Credential authentication methods
+  const handleLogin = async (email: string, password: string): Promise<LoginResponse> => {
+    try {
+      setIsLoading(true);
+      setLoginError(null); // Clear any previous errors
+
+      const loginResponse = await authService.login(email, password);
+
+      setUser(loginResponse.user);
+      setAuthMethod('credentials');
+
+      // Also get Google access token for calendar operations
+      await updateGoogleAccessToken();
+
+      return loginResponse;
+    } catch (error: any) {
+      console.error('Login error:', error);
+
+      // Set error at context level instead of component level
+      if (error.message === 'Invalid email or password') {
+        setLoginError('Email ou senha incorretos. Verifique suas credenciais.');
+      } else if (error.message === 'EMAIL_NOT_VERIFIED') {
+        setLoginError('Sua conta precisa ser verificada. Verifique seu email ou contate o administrador.');
+      } else {
+        setLoginError(error.message || 'Erro ao fazer login. Tente novamente.');
+      }
+
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRegister = async (email: string, password: string, displayName: string, invitationToken?: string): Promise<any> => {
+    try {
+      setIsLoading(true);
+      return await authService.register(email, password, displayName, invitationToken);
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (email: string): Promise<string> => {
+    return await authService.forgotPassword(email);
+  };
+
+  const handleResetPassword = async (token: string, newPassword: string): Promise<void> => {
+    return await authService.resetPassword(token, newPassword);
+  };
+
+  const handleExtendSession = async (): Promise<boolean> => {
+    const success = await authService.extendSession();
+    if (success) {
+      setShowSessionWarning(false);
+    }
+    return success;
+  };
+
+  const handleSignOut = async (): Promise<void> => {
+    try {
+      setIsLoading(true);
+
+      // Logout from credential system
+      await authService.logout();
+
+      // Clear all state
+      setUser(null);
+      setAuthMethod(null);
+      setShowSessionWarning(false);
+      setGoogleAccessToken(null);
+
+      // Clear app-specific cached data but PRESERVE Google tokens for persistence
+      localStorage.removeItem("therapist_email");
+      localStorage.removeItem("therapist_calendar_id");
+      localStorage.removeItem("currentTherapist");
+
+      // DO NOT remove these - we want to keep Google permissions across sessions:
+      // localStorage.removeItem("google_access_token");
+      // localStorage.removeItem("calendar_permission_granted");
+
+      console.log("✅ Sign out completed (Google tokens preserved for next session)");
+
+    } catch (error) {
+      console.error('Sign out error:', error);
+      // Still clear local state even if API call fails
+      setUser(null);
+      setAuthMethod(null);
+      setShowSessionWarning(false);
+      setGoogleAccessToken(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Legacy compatibility methods for smooth transition
+  // In src/contexts/AuthContext.tsx - Update refreshAuth method
+  const refreshAuth = async (): Promise<void> => {
+    console.log('🔄 Refreshing auth state...');
+
+    // Don't set loading if we already have a valid session
+    if (!authService.getSessionToken()) {
+      setIsLoading(true);
+    }
+
+    try {
+      const credentialUser = await authService.getCurrentUser();
+      if (credentialUser) {
+        setUser(credentialUser);
+        setAuthMethod('credentials');
+        await updateGoogleAccessToken();
+      } else {
+        setUser(null);
+        setAuthMethod(null);
+        setGoogleAccessToken(null);
+      }
+    } catch (error) {
+      console.error('❌ Error refreshing auth:', error);
+      // Only clear state if there's really no session
+      if (!authService.getSessionToken()) {
+        setUser(null);
+        setAuthMethod(null);
+        setGoogleAccessToken(null);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const forceRefresh = async (): Promise<void> => {
+    console.log('⚡ Force refreshing auth state...');
+    await refreshAuth();
+  };
+
+  const dismissSessionWarning = () => {
+    setShowSessionWarning(false);
+  };
+
+  // Computed properties
+  const isAuthenticated = !!user && !!authService.getSessionToken();
+  const hasValidTokens = checkTokensValidity(user, googleAccessToken);
+
+  const clearLoginError = () => {
+    setLoginError(null);
+  };
+
   const contextValue: AuthContextType = {
-    ...authState,
-    refreshAuth,
-    forceRefresh, // Add the new method
+    // User state
+    user,
+    authMethod,
+    isLoading,
+    isAuthenticated,
+    hasValidTokens,
+    googleAccessToken,
+
+    // Credential methods
+    login: handleLogin,
+    register: handleRegister,
+    forgotPassword: handleForgotPassword,
+    resetPassword: handleResetPassword,
+    extendSession: handleExtendSession,
     signOut: handleSignOut,
+
+    // Session management
+    showSessionWarning,
+    dismissSessionWarning,
+
+    // Legacy compatibility
+    refreshAuth,
+    forceRefresh,
+
+    loginError,
+    clearLoginError,
   };
 
   console.log("🎨 AuthProvider rendering with state:", {
-    isLoading: authState.isLoading,
-    isAuthenticated: authState.isAuthenticated,
-    hasValidTokens: authState.hasValidTokens,
-    userEmail: authState.user?.email
+    isLoading,
+    isAuthenticated,
+    hasValidTokens,
+    userEmail: user?.email,
+    authMethod
   });
 
   return (
@@ -166,7 +342,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   );
 };
 
-// Custom hook to use auth context
 export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (context === undefined) {

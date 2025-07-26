@@ -163,7 +163,8 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
     console.log("🚪 Sign out button clicked");
 
     // Use browser confirm dialog instead of Alert.alert
-    const confirmed = window.confirm("Tem certeza que deseja sair? Você precisará fazer login novamente.");
+    // const confirmed = window.confirm("Tem certeza que deseja sair? Você precisará fazer login novamente.");
+    const confirmed = true;
 
     if (confirmed) {
       console.log("✅ User confirmed logout");
@@ -175,17 +176,32 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
 
   const performSignOut = async () => {
     console.log("🔄 Performing sign out...");
+
+    // DEBUG: Log what's in localStorage BEFORE sign out
+    console.log("=== BEFORE SIGN OUT ===");
+    console.log("google_access_token:", localStorage.getItem("google_access_token"));
+    console.log("calendar_permission_granted:", localStorage.getItem("calendar_permission_granted"));
+    console.log("All localStorage keys:", Object.keys(localStorage));
+
     setIsSigningOut(true);
 
     try {
-      // Use the AuthContext signOut method
       await signOut(); // This comes from useAuth()
+
+      // DEBUG: Log what's in localStorage AFTER sign out
+      console.log("=== AFTER SIGN OUT ===");
+      console.log("google_access_token:", localStorage.getItem("google_access_token"));
+      console.log("calendar_permission_granted:", localStorage.getItem("calendar_permission_granted"));
+      console.log("All localStorage keys:", Object.keys(localStorage));
+
       console.log("✅ Sign out completed");
 
-      // Call the parent logout handler
-      console.log("🔄 Calling onLogout...");
+      // Navigate back to root domain
+      console.log("🔄 Navigating to root domain...");
+      window.location.href = '/';
+
+      // Call onLogout as backup (in case navigation doesn't work)
       onLogout();
-      console.log("✅ onLogout called successfully");
     } catch (error) {
       console.error("❌ Error signing out:", error);
       window.alert("Erro ao sair. Tente novamente.");
@@ -390,12 +406,14 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
         )}
       </View>
 
+      {/* LEGACY SETTINGS - COMMENTED OUT FOR FUTURE REFERENCE
+      
       {/* NEW: App Preferences Section */}
-      <View style={styles.section}>
+      {/* <View style={styles.section}>
         <Text style={styles.sectionTitle}>🎨 Preferências de Interface</Text>
 
         {/* Payment Mode Setting */}
-        <View style={styles.settingItem}>
+      {/* <View style={styles.settingItem}>
           <View style={styles.settingHeader}>
             <Text style={styles.settingLabel}>Modo de Pagamento</Text>
             <Text style={styles.settingDescription}>
@@ -414,10 +432,10 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
               : '• Avançado: 4 status granulares - "Não Cobrado", "Aguardando", "Pendente", "Pago"'
             }
           </Text>
-        </View>
+        </View> */}
 
-        {/* View Mode Setting */}
-        <View style={styles.settingItem}>
+      {/* View Mode Setting */}
+      {/* <View style={styles.settingItem}>
           <View style={styles.settingHeader}>
             <Text style={styles.settingLabel}>Tipo de Visualização</Text>
             <Text style={styles.settingDescription}>
@@ -437,14 +455,14 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
             }
           </Text>
         </View>
-      </View>
+      </View> */}
 
       {/* NEW: Workflow Automation Section */}
-      <View style={styles.section}>
+      {/* <View style={styles.section}>
         <Text style={styles.sectionTitle}>⚡ Automação de Workflow</Text>
 
         {/* Auto Check-in Setting */}
-        <View style={styles.settingItem}>
+      {/* <View style={styles.settingItem}>
           <View style={styles.settingHeader}>
             <Text style={styles.settingLabel}>Check-in de Sessões</Text>
             <Text style={styles.settingDescription}>
@@ -464,7 +482,25 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
             }
           </Text>
         </View>
-      </View>
+      </View> */}
+
+      {/* ALSO COMMENT OUT THE CURRENT SETTINGS SUMMARY */}
+      {/* <View style={styles.section}>
+        <Text style={styles.sectionTitle}>📋 Configuração Atual</Text>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryText}>
+            Modo de Pagamento: <Text style={styles.summaryValue}>{getCurrentModeLabel()}</Text>
+          </Text>
+          <Text style={styles.summaryText}>
+            Visualização: <Text style={styles.summaryValue}>{getCurrentViewLabel()}</Text>
+          </Text>
+          <Text style={styles.summaryText}>
+            Check-in: <Text style={styles.summaryValue}>{autoCheckInMode ? 'Automático' : 'Manual'}</Text>
+          </Text>
+        </View>
+      </View> */}
+
+      {/*END LEGACY SETTINGS */}
 
       {/* Calendar Integration Section */}
       <View style={styles.section}>
@@ -546,7 +582,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
       </View>
 
       {/* NEW: Current Settings Summary */}
-      <View style={styles.section}>
+      {/* <View style={styles.section}>
         <Text style={styles.sectionTitle}>📋 Configuração Atual</Text>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryText}>
@@ -559,7 +595,8 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
             Check-in: <Text style={styles.summaryValue}>{autoCheckInMode ? 'Automático' : 'Manual'}</Text>
           </Text>
         </View>
-      </View>
+      </View> */}
+
 
       {/* Account Actions Section */}
       <View style={styles.section}>
