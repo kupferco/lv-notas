@@ -11,7 +11,7 @@ import { PatientManagement } from './PatientManagement';
 import { PaymentSystemNavigator } from './payments/PaymentSystemNavigator';
 import { Settings } from './Settings';
 import { Dashboard } from './dashboard/Dashboard';
-import AuthDebug from '../components/AuthDebug';
+import { AuthDebug } from './auth/AuthDebug';
 
 // Simple URL-based routing
 export const getCurrentPath = (): string => {

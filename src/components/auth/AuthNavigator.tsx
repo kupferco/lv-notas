@@ -8,6 +8,7 @@ import { RegisterForm } from './RegisterForm';
 import { ForgotPasswordForm } from './ForgotPasswordForm';
 import { SessionTimeoutModal } from '../common/SessionTimeoutModal';
 import { useAuth } from '../../contexts/AuthContext';
+import { activityMonitor } from '../../utils/activityMonitor'; // Import the activity monitor
 
 type AuthScreen = 'login' | 'register' | 'forgotPassword';
 
@@ -37,8 +38,25 @@ export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
         user: !!user,
         isLoading,
         currentScreen,
-        userEmail: user?.email
+        userEmail: user?.email,
+        showSessionWarning // Add this to track warning state
     });
+
+    // CRITICAL: Control activity monitor based on warning state
+    useEffect(() => {
+        if (showSessionWarning) {
+            console.log('🚨 Session warning modal appeared - pausing activity monitoring');
+            activityMonitor.setWarningActive(true);
+        } else {
+            console.log('✅ Session warning modal closed - resuming activity monitoring');
+            activityMonitor.setWarningActive(false);
+        }
+        
+        // Cleanup: ensure activity monitoring is resumed if component unmounts
+        return () => {
+            activityMonitor.setWarningActive(false);
+        };
+    }, [showSessionWarning]);
 
     // Update the useEffect with more logging
     useEffect(() => {
@@ -62,13 +80,6 @@ export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
         }
     }, [invitationToken, currentScreen]);
 
-    // const handleAuthSuccess = () => {
-    //     console.log('🎉 Authentication successful');
-    //     if (onAuthSuccess) {
-    //         onAuthSuccess();
-    //     }
-    // };
-
     const handleShowLogin = () => {
         setCurrentScreen('login');
     };
@@ -82,25 +93,35 @@ export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
     };
 
     const handleExtendSession = async () => {
+        console.log('👤 User clicked "Continue Session" - extending session');
+        
+        // IMPORTANT: Re-enable activity monitoring BEFORE extending session
+        activityMonitor.setWarningActive(false);
+        
         const success = await extendSession();
         if (!success) {
-            // If extend failed, user will be logged out automatically
-            console.log('❌ Failed to extend session');
+            console.log('❌ Failed to extend session - user will be logged out');
+        } else {
+            console.log('✅ Session extended successfully by user choice');
         }
     };
 
     const handleSessionTimeout = async () => {
-        console.log('🕐 Session timeout - logging out');
+        console.log('🕐 Session timeout - user chose to logout or timer expired');
+        
+        // Disable activity monitoring completely
+        activityMonitor.setWarningActive(false);
+        activityMonitor.stopMonitoring();
+        
         await signOut();
     };
 
     const renderCurrentScreen = () => {
-        console.log(4555555, currentScreen)
+        console.log('🔄 Rendering screen:', currentScreen);
         switch (currentScreen) {
             case 'login':
                 return (
                     <LoginForm
-                        // onSuccess={handleAuthSuccess}
                         onShowRegister={handleShowRegister}
                         onShowForgotPassword={handleShowForgotPassword}
                     />
@@ -126,7 +147,6 @@ export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
             default:
                 return (
                     <LoginForm
-                        // onSuccess={handleAuthSuccess}
                         onShowRegister={handleShowRegister}
                         onShowForgotPassword={handleShowForgotPassword}
                     />

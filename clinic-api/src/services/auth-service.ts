@@ -6,24 +6,6 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 
-// Session timeout configuration (in minutes) - Simple constants approach
-const SESSION_TIMEOUTS = {
-    development: 5,    // 5 minutes for development
-    production: 30,    // 30 minutes for production  
-    default: 15        // 15 minutes fallback
-};
-
-// Get current session timeout based on environment
-const getSessionTimeout = (): number => {
-    const env = process.env.NODE_ENV || 'development';
-    return SESSION_TIMEOUTS[env as keyof typeof SESSION_TIMEOUTS] || SESSION_TIMEOUTS.default;
-};
-
-// Warning timeout (1 minute before session expires)
-const getWarningTimeout = (): number => {
-    return 1; // Always 1 minute warning
-};
-
 // Max session duration (8 hours regardless of environment)
 const getMaxSessionHours = (): number => {
     return 8;
@@ -57,15 +39,57 @@ export interface UserInfo {
 }
 
 /**
- * Get authentication configuration using simple constants
+ * Get authentication configuration from database defaults (not hardcoded)
  */
 export async function getAuthConfig(): Promise<SessionConfig> {
-    return {
-        inactiveTimeoutMinutes: getSessionTimeout(),
-        warningTimeoutMinutes: getWarningTimeout(),
-        maxSessionHours: getMaxSessionHours(),
-        tokenRefreshMinutes: 55  // Keep existing token refresh timing
-    };
+    try {
+        // Get defaults from database column defaults (what session-config.sh sets)
+        const defaultConfigQuery = await pool.query(`
+            SELECT 
+                column_default as timeout_default
+            FROM information_schema.columns 
+            WHERE table_name = 'user_sessions' 
+            AND column_name = 'inactive_timeout_minutes'
+        `);
+
+        const defaultWarningQuery = await pool.query(`
+            SELECT 
+                column_default as warning_default
+            FROM information_schema.columns 
+            WHERE table_name = 'user_sessions' 
+            AND column_name = 'warning_timeout_minutes'
+        `);
+
+        // Parse the database defaults
+        const inactiveTimeoutMinutes = parseInt(
+            (defaultConfigQuery.rows[0]?.timeout_default || '30').toString()
+        );
+        const warningTimeoutMinutes = parseInt(
+            (defaultWarningQuery.rows[0]?.warning_default || '2').toString()
+        );
+
+        console.log('📊 Reading session config from database:', {
+            inactiveTimeoutMinutes,
+            warningTimeoutMinutes,
+            source: 'database_column_defaults'
+        });
+
+        return {
+            inactiveTimeoutMinutes: inactiveTimeoutMinutes,
+            warningTimeoutMinutes: warningTimeoutMinutes,
+            maxSessionHours: 8, // Keep this hardcoded - it's reasonable
+            tokenRefreshMinutes: 55
+        };
+    } catch (error) {
+        console.error('Error reading session config from database, using fallback:', error);
+        // Fallback to reasonable defaults if database read fails
+        return {
+            inactiveTimeoutMinutes: 30,
+            warningTimeoutMinutes: 2,
+            maxSessionHours: 8,
+            tokenRefreshMinutes: 55
+        };
+    }
 }
 
 /**
@@ -219,6 +243,9 @@ export async function updateSessionActivity(sessionId: number, endpoint?: string
  * Validate session
  */
 export async function validateSession(sessionId: number): Promise<boolean> {
+    // First, mark any expired sessions
+    await markExpiredSessions();
+
     const result = await pool.query(`
         SELECT 
             id, expires_at, last_activity_at, 
@@ -451,35 +478,71 @@ export async function resetPassword(token: string, newPassword: string): Promise
 }
 
 /**
- * Terminate session
+ * Terminate session - IMPROVED with proper cleanup
  */
 export async function terminateSession(sessionId: number, reason: string = 'logout'): Promise<boolean> {
     try {
+        // First, mark session as terminated
         const result = await pool.query(`
             UPDATE user_sessions 
             SET status = 'terminated', terminated_at = CURRENT_TIMESTAMP, termination_reason = $1
             WHERE id = $2 AND status = 'active'
         `, [reason, sessionId]);
 
+        // Log the termination
         await pool.query(`
             INSERT INTO session_activity_log (session_id, activity_type, metadata)
             VALUES ($1, 'logout', $2)
         `, [sessionId, JSON.stringify({ reason, terminated_at: new Date() })]);
 
-        return (result.rowCount ?? 0) > 0;
+        const wasTerminated = (result.rowCount ?? 0) > 0;
+
+        if (wasTerminated) {
+            console.log(`✅ Session ${sessionId} terminated: ${reason}`);
+        } else {
+            console.log(`⚠️ Session ${sessionId} was already terminated or not found`);
+        }
+
+        return wasTerminated;
     } catch (error) {
         console.error('Error terminating session:', error);
         return false;
     }
 }
 
-/**
- * Extend session
- */
 export async function extendSession(sessionToken: string): Promise<boolean> {
     try {
-        const result = await pool.query('SELECT extend_user_session($1)', [sessionToken]);
-        return result.rows[0].extend_user_session;
+        // Verify token first
+        const decoded = verifyJWTToken(sessionToken);
+        if (!decoded) {
+            console.log('❌ Invalid token for session extension');
+            return false;
+        }
+
+        // Check if session exists and is active
+        const sessionCheck = await pool.query(`
+            SELECT status FROM user_sessions WHERE id = $1
+        `, [decoded.sessionId]);
+
+        if (sessionCheck.rows.length === 0 || sessionCheck.rows[0].status !== 'active') {
+            console.log(`❌ Session ${decoded.sessionId} not found or not active`);
+            return false;
+        }
+
+        // Extend the session
+        const result = await pool.query(`
+            UPDATE user_sessions 
+            SET last_activity_at = CURRENT_TIMESTAMP
+            WHERE id = $1 AND status = 'active'
+        `, [decoded.sessionId]);
+
+        const wasExtended = (result.rowCount ?? 0) > 0;
+
+        if (wasExtended) {
+            console.log(`✅ Session ${decoded.sessionId} extended successfully`);
+        }
+
+        return wasExtended;
     } catch (error) {
         console.error('Error extending session:', error);
         return false;
@@ -492,6 +555,9 @@ export async function extendSession(sessionToken: string): Promise<boolean> {
 export async function getUserByToken(token: string): Promise<UserInfo | null> {
     const decoded = verifyJWTToken(token);
     if (!decoded) return null;
+
+    // Mark expired sessions before validation
+    await markExpiredSessions();
 
     const isValid = await validateSession(decoded.sessionId);
     if (!isValid) return null;
@@ -513,6 +579,105 @@ export async function getUserByToken(token: string): Promise<UserInfo | null> {
         sessionId: decoded.sessionId,
         permissions
     };
+}
+
+/**
+ * Clean up old terminated sessions (optional - run periodically)
+ */
+export async function cleanupOldSessions(olderThanDays: number = 7): Promise<number> {
+    try {
+        const result = await pool.query(`
+            DELETE FROM user_sessions 
+            WHERE status IN ('terminated', 'expired') 
+            AND terminated_at < CURRENT_TIMESTAMP - INTERVAL '${olderThanDays} days'
+        `);
+
+        const deletedCount = result.rowCount || 0;
+        console.log(`🧹 Cleaned up ${deletedCount} old sessions older than ${olderThanDays} days`);
+        return deletedCount;
+    } catch (error) {
+        console.error('Error cleaning up old sessions:', error);
+        return 0;
+    }
+}
+
+export async function cleanupExpiredSessions(): Promise<number> {
+    try {
+        // Mark expired sessions as terminated
+        const expiredResult = await pool.query(`
+            UPDATE user_sessions 
+            SET status = 'expired', 
+                terminated_at = CURRENT_TIMESTAMP,
+                termination_reason = 'automatic_cleanup'
+            WHERE status = 'active' 
+            AND (
+                expires_at < CURRENT_TIMESTAMP OR
+                last_activity_at + (inactive_timeout_minutes * INTERVAL '1 minute') < CURRENT_TIMESTAMP
+            )
+        `);
+
+        const expiredCount = expiredResult.rowCount || 0;
+
+        if (expiredCount > 0) {
+            console.log(`🧹 Automatically expired ${expiredCount} sessions during cleanup`);
+        }
+
+        return expiredCount;
+    } catch (error) {
+        console.error('Error cleaning up expired sessions:', error);
+        return 0;
+    }
+}
+
+// Optional: Add this to your server startup to clean up old sessions
+export async function startupSessionMaintenance(): Promise<void> {
+    console.log('🔧 Running startup session maintenance...');
+
+    // Clean up old terminated sessions
+    await cleanupOldSessions(7);
+
+    // Mark very old active sessions as expired (safety cleanup)
+    const expiredResult = await pool.query(`
+        UPDATE user_sessions 
+        SET status = 'expired', 
+            terminated_at = CURRENT_TIMESTAMP,
+            termination_reason = 'startup_cleanup'
+        WHERE status = 'active' 
+        AND created_at < CURRENT_TIMESTAMP - INTERVAL '24 hours'
+    `);
+
+    const expiredCount = expiredResult.rowCount || 0;
+    if (expiredCount > 0) {
+        console.log(`🧹 Expired ${expiredCount} very old active sessions during startup`);
+    }
+}
+
+/**
+ * Mark expired sessions as expired (don't delete them - preserve audit trail)
+ */
+export async function markExpiredSessions(): Promise<number> {
+    try {
+        const result = await pool.query(`
+            UPDATE user_sessions 
+            SET 
+                status = 'expired', 
+                terminated_at = CURRENT_TIMESTAMP,
+                termination_reason = 'automatic_expiry'
+            WHERE status = 'active' 
+            AND last_activity_at + (inactive_timeout_minutes * INTERVAL '1 minute') < NOW()
+        `);
+
+        const expiredCount = result.rowCount || 0;
+
+        if (expiredCount > 0) {
+            console.log(`⏰ Marked ${expiredCount} sessions as expired`);
+        }
+
+        return expiredCount;
+    } catch (error) {
+        console.error('Error marking expired sessions:', error);
+        return 0;
+    }
 }
 
 // =============================================================================
@@ -664,12 +829,5 @@ export async function testSessionConfig(): Promise<void> {
         warningTimeoutMinutes: config.warningTimeoutMinutes,
         maxSessionHours: config.maxSessionHours,
         tokenRefreshMinutes: config.tokenRefreshMinutes
-    });
-
-    // Test the individual functions
-    console.log('🔧 Direct function calls:', {
-        sessionTimeout: getSessionTimeout(),
-        warningTimeout: getWarningTimeout(),
-        maxSessionHours: getMaxSessionHours()
     });
 }

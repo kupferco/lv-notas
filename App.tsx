@@ -13,6 +13,8 @@ import { ensureCalendarPermissions, checkCalendarPermissionStatus } from "./src/
 
 import { initializeGoogleOAuth } from './src/config/firebase';
 
+import { useActivityMonitor } from './src/utils/activityMonitor';
+
 type AppState = "loading" | "login" | "onboarding" | "authenticated" | "calendar_permissions";
 
 // Main App component that uses AuthContext
@@ -142,6 +144,9 @@ const AppContent: React.FC = () => {
           }
 
           console.log("✅ Calendar permissions granted successfully");
+
+          await forceRefresh();
+          console.log("🔄 Forced auth refresh after Google re-authentication");
         } catch (error) {
           console.error("❌ Error getting calendar permissions:", error);
           setCalendarPermissionMessage("Erro ao solicitar permissões do calendário. Tente novamente.");
@@ -436,6 +441,14 @@ const AppContent: React.FC = () => {
 
 // Root App component with AuthProvider AND SettingsProvider
 export default function App() {
+
+  const { startMonitoring, stopMonitoring } = useActivityMonitor();
+
+  useEffect(() => {
+    startMonitoring();
+    return stopMonitoring;
+  }, []);
+
   return (
     <AuthProvider>
       <SettingsProvider>
