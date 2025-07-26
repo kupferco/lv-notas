@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, Modal } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
+import { authService } from '../../services/authService';
 
 interface SessionTimeoutModalProps {
   visible: boolean;
@@ -16,19 +17,75 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
   onExtend,
   onLogout,
 }) => {
-  const [countdown, setCountdown] = useState(60); // 60 seconds countdown
+  const [countdown, setCountdown] = useState(60);
   const [isExtending, setIsExtending] = useState(false);
+  const [sessionConfig, setSessionConfig] = useState<{
+    warningMinutes: number;
+    extendDuration: string;
+  }>({
+    warningMinutes: 1,
+    extendDuration: '1 hora'
+  });
+
+  // Get session configuration from backend when modal opens
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+
+    const fetchSessionConfig = async () => {
+      try {
+        const status = await authService.checkSessionStatus();
+        if (status) {
+          // Convert backend config to readable format
+          const warningMinutes = status.warningTimeoutMinutes || 1;
+          const warningSeconds = Math.max(warningMinutes * 60, 10); // Minimum 10 seconds
+          
+          // Try to infer extend duration from backend data
+          // This is a reasonable assumption - most systems extend by the same duration as the original session
+          let extendDuration = '1 hora'; // Default fallback
+          
+          if (status.inactiveTimeoutMinutes) {
+            const minutes = status.inactiveTimeoutMinutes;
+            if (minutes >= 60) {
+              const hours = Math.round(minutes / 60);
+              extendDuration = hours === 1 ? '1 hora' : `${hours} horas`;
+            } else {
+              extendDuration = minutes === 1 ? '1 minuto' : `${minutes} minutos`;
+            }
+          }
+
+          setSessionConfig({
+            warningMinutes,
+            extendDuration
+          });
+          
+          setCountdown(warningSeconds);
+          
+          console.log('📊 Session config from backend:', {
+            warningMinutes,
+            extendDuration,
+            initialCountdown: warningSeconds
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching session config:', error);
+        // Use defaults if backend call fails
+        setCountdown(60);
+      }
+    };
+
+    fetchSessionConfig();
+  }, [visible]);
 
   useEffect(() => {
     if (!visible) {
-      setCountdown(60); // Reset countdown when modal closes
       return;
     }
 
     const interval = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          // Auto-logout when countdown reaches 0
           onLogout();
           return 0;
         }
@@ -50,52 +107,62 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
     }
   };
 
+  // Format countdown for display
+  const formatCountdown = (seconds: number): string => {
+    if (seconds >= 60) {
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = seconds % 60;
+      return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+    return seconds.toString();
+  };
+
   if (!visible) {
     return null;
   }
+
+  const initialCountdown = sessionConfig.warningMinutes * 60;
+  const progressPercent = (countdown / Math.max(initialCountdown, 60)) * 100;
 
   return (
     <Modal
       visible={visible}
       transparent={true}
       animationType="fade"
-      onRequestClose={() => {}} // Prevent closing by pressing back/escape
+      onRequestClose={() => {}}
     >
       <View style={styles.overlay}>
         <View style={styles.modal}>
-          {/* Warning Icon */}
           <View style={styles.iconContainer}>
             <Text style={styles.warningIcon}>⚠️</Text>
           </View>
 
-          {/* Title */}
           <Text style={styles.title}>Sessão Expirando</Text>
 
-          {/* Message */}
           <Text style={styles.message}>
             Sua sessão expirará em{' '}
-            <Text style={styles.countdown}>{countdown}</Text>{' '}
-            segundos devido à inatividade.
+            <Text style={styles.countdown}>{formatCountdown(countdown)}</Text>{' '}
+            {countdown >= 60 ? 'minutos' : 'segundos'} devido à inatividade.
           </Text>
 
           <Text style={styles.submessage}>
             Deseja continuar trabalhando ou fazer logout?
           </Text>
 
-          {/* Countdown Progress Bar */}
           <View style={styles.progressContainer}>
             <View 
               style={[
                 styles.progressBar, 
                 { 
-                  width: `${(countdown / 60) * 100}%`,
-                  backgroundColor: countdown > 20 ? '#28a745' : countdown > 10 ? '#ffc107' : '#dc3545'
+                  width: `${progressPercent}%`,
+                  backgroundColor: progressPercent > 33 ? '#28a745' 
+                                 : progressPercent > 17 ? '#ffc107' 
+                                 : '#dc3545'
                 }
               ]} 
             />
           </View>
 
-          {/* Action Buttons */}
           <View style={styles.buttonContainer}>
             <Pressable
               style={[styles.button, styles.logoutButton]}
@@ -116,10 +183,17 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
             </Pressable>
           </View>
 
-          {/* Help Text */}
+          {/* Dynamic help text based on backend configuration */}
           <Text style={styles.helpText}>
-            A sessão será estendida por mais 1 hora se você escolher continuar.
+            A sessão será estendida por mais {sessionConfig.extendDuration} se você escolher continuar.
           </Text>
+
+          {/* Debug info in development */}
+          {process.env.NODE_ENV === 'development' && (
+            <Text style={styles.debugText}>
+              Backend config: aviso={sessionConfig.warningMinutes}min, extensão={sessionConfig.extendDuration}
+            </Text>
+          )}
         </View>
       </View>
     </Modal>
@@ -241,6 +315,14 @@ const styles = StyleSheet.create({
     color: '#6c757d',
     textAlign: 'center',
     lineHeight: 16,
+    fontStyle: 'italic',
+  },
+  debugText: {
+    fontSize: 10,
+    color: '#6c757d',
+    textAlign: 'center',
+    marginTop: 8,
+    fontFamily: 'monospace',
     fontStyle: 'italic',
   },
 });
