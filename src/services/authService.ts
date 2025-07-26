@@ -27,11 +27,13 @@ export interface SessionStatus {
   shouldShowWarning: boolean;
 }
 
+export type LogoutReason = 'manual' | 'session_timeout' | 'token_expired' | 'forced';
+
 export class AuthService {
   private sessionToken: string | null = null;
   private sessionCheckInterval: NodeJS.Timeout | null = null;
   private warningCallback: (() => void) | null = null;
-  private expiredCallback: (() => void) | null = null;
+  private expiredCallback: ((reason: LogoutReason) => void) | null = null;
 
   constructor() {
     // Load existing session token from localStorage
@@ -175,8 +177,10 @@ export class AuthService {
 
       if (!response.ok) {
         if (response.status === 401) {
-          // Session expired
-          this.clearSession();
+          // Session expired - delegate to AuthContext for unified handling
+          if (this.expiredCallback) {
+            this.expiredCallback('token_expired');
+          }
           return null;
         }
         throw new Error('Failed to get current user');
@@ -187,14 +191,17 @@ export class AuthService {
     } catch (error: any) {
       console.error('Get current user error:', error);
       if (error.message.includes('SESSION_EXPIRED')) {
-        this.clearSession();
+        // Delegate to AuthContext for unified handling
+        if (this.expiredCallback) {
+          this.expiredCallback('token_expired');
+        }
       }
       return null;
     }
   }
 
   /**
-   * Logout user
+   * Logout user - ONLY handles the API call, cleanup is delegated to AuthContext
    */
   async logout(): Promise<void> {
     try {
@@ -208,10 +215,9 @@ export class AuthService {
         });
       }
     } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      this.clearSession();
+      console.error('Logout API call error:', error);
     }
+    // NOTE: We don't call clearSession() here anymore - that's handled by AuthContext
   }
 
   /**
@@ -235,9 +241,9 @@ export class AuthService {
       if (!response.ok) {
         const error = await response.json();
         if (error.code === 'SESSION_EXPIRED') {
-          this.clearSession();
+          // Delegate to AuthContext for unified handling
           if (this.expiredCallback) {
-            this.expiredCallback();
+            this.expiredCallback('session_timeout');
           }
         }
         return false;
@@ -271,9 +277,9 @@ export class AuthService {
       if (!response.ok) {
         const error = await response.json();
         if (error.code === 'SESSION_EXPIRED') {
-          this.clearSession();
+          // Delegate to AuthContext for unified handling
           if (this.expiredCallback) {
-            this.expiredCallback();
+            this.expiredCallback('session_timeout');
           }
         }
         return null;
@@ -311,10 +317,10 @@ export class AuthService {
 
       // Handle session expiry
       if (status.timeUntilExpiryMs <= 0) {
-        console.log('🕐 Session expired');
-        this.clearSession();
+        console.log('🕐 Session expired in monitoring loop');
+        // Delegate to AuthContext for unified handling
         if (this.expiredCallback) {
-          this.expiredCallback();
+          this.expiredCallback('session_timeout');
         }
       }
     }, 30000); // Check every 30 seconds
@@ -331,9 +337,10 @@ export class AuthService {
   }
 
   /**
-   * Clear session data
+   * Clear session data - ONLY called by AuthContext after unified logout
    */
-  private clearSession(): void {
+  clearSessionData(): void {
+    console.log('🧹 AuthService clearing session data only (called from AuthContext)');
     this.sessionToken = null;
     localStorage.removeItem('session_token');
     localStorage.removeItem('user_data');
@@ -348,9 +355,9 @@ export class AuthService {
   }
 
   /**
-   * Set callback for session expiry
+   * Set callback for session expiry - NOW includes logout reason
    */
-  setExpiredCallback(callback: () => void): void {
+  setExpiredCallback(callback: (reason: LogoutReason) => void): void {
     this.expiredCallback = callback;
   }
 

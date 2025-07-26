@@ -135,11 +135,11 @@ export const apiService = {
     return makeApiCall(`/api/patients?therapistEmail=${encodeURIComponent(email)}`);
   },
 
-  async createPatient(patient: { 
-    nome: string; 
-    email: string; 
-    telefone: string; 
-    therapistEmail: string 
+  async createPatient(patient: {
+    nome: string;
+    email: string;
+    telefone: string;
+    therapistEmail: string
   }): Promise<Patient> {
     if (!canMakeAuthenticatedCall()) {
       throw new Error("Authentication required for API calls");
@@ -275,10 +275,10 @@ export const apiService = {
     }
   },
 
-  async createTherapist(therapist: { 
-    name: string; 
-    email: string; 
-    googleCalendarId: string 
+  async createTherapist(therapist: {
+    name: string;
+    email: string;
+    googleCalendarId: string
   }): Promise<Therapist> {
     if (!canMakeAuthenticatedCall()) {
       throw new Error("Authentication required for API calls");
@@ -520,7 +520,7 @@ export const apiService = {
     }
 
     console.log("🗑️ deleteBillingPeriodPayment API call:", paymentId);
-    return makeApiCall(`/api/monthly-billing/payment/${paymentId}`, {
+    return makeApiCall(`/api/monthly-billing/payments/${paymentId}`, {  // Fixed: added 's' to make it 'payments'
       method: "DELETE",
     });
   },
@@ -537,7 +537,7 @@ export const apiService = {
     });
 
     console.log("📊 exportMonthlyBillingCSV API call");
-    
+
     const headers = await getAuthHeaders();
     const response = await fetch(`${API_URL}/api/monthly-billing/export-csv?${params}`, {
       method: "GET",

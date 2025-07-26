@@ -214,34 +214,52 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const handleSignOut = async (): Promise<void> => {
     try {
       setIsLoading(true);
+      console.log("🚪 Starting unified logout process...");
 
-      // Logout from credential system
-      await authService.logout();
+      // Step 1: Call the backend logout API if we have a session
+      if (authService.getSessionToken()) {
+        try {
+          await authService.logout();
+          console.log("✅ Backend logout completed");
+        } catch (error) {
+          console.warn("⚠️ Backend logout failed, continuing with local cleanup:", error);
+        }
+      }
 
-      // Clear all state
+      // Step 2: Clear all session data through authService
+      authService.clearSessionData();
+      console.log("✅ Session data cleared");
+
+      // Step 3: Clear all React state
       setUser(null);
       setAuthMethod(null);
       setShowSessionWarning(false);
       setGoogleAccessToken(null);
+      setLoginError(null);
+      console.log("✅ React state cleared");
 
-      // Clear app-specific cached data but PRESERVE Google tokens for persistence
+      // Step 4: Clear app-specific cached data but PRESERVE Google tokens for persistence
       localStorage.removeItem("therapist_email");
       localStorage.removeItem("therapist_calendar_id");
       localStorage.removeItem("currentTherapist");
 
       // DO NOT remove these - we want to keep Google permissions across sessions:
-      // localStorage.removeItem("google_access_token");
+      // localStorage.removeItem("google_token_data");
       // localStorage.removeItem("calendar_permission_granted");
 
-      console.log("✅ Sign out completed (Google tokens preserved for next session)");
+      console.log("✅ Unified logout completed (Google tokens preserved for next session)");
 
     } catch (error) {
-      console.error('Sign out error:', error);
-      // Still clear local state even if API call fails
+      console.error("❌ Error during unified logout:", error);
+      // Still clear local state even if something fails
       setUser(null);
       setAuthMethod(null);
       setShowSessionWarning(false);
       setGoogleAccessToken(null);
+      setLoginError(null);
+
+      // Force clear session data
+      authService.clearSessionData();
     } finally {
       setIsLoading(false);
     }

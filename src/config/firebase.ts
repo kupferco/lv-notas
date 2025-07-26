@@ -13,36 +13,13 @@ import {
 } from "firebase/auth";
 import type { Auth } from "firebase/auth";
 import { config } from "./config";
+import { googleOAuthService } from "../services/googleOAuthService";
 
 // Global variables
 let auth: Auth | null = null;
 let app: FirebaseApp | null = null;
 let isInitialized = false;
 let isSigningIn = false;
-
-// Test if we have calendar access
-const testCalendarAccess = async (accessToken: string): Promise<boolean> => {
-  try {
-    console.log("🧪 Testing calendar access...");
-    const response = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (response.ok) {
-      console.log("✅ Calendar access confirmed");
-      return true;
-    } else {
-      console.log("❌ Calendar access denied:", response.status);
-      return false;
-    }
-  } catch (error) {
-    console.log("❌ Calendar access test failed:", error);
-    return false;
-  }
-};
 
 // Get current user
 export const getCurrentUser = (): User | null => {
@@ -104,12 +81,13 @@ export const signInWithGoogle = async (forceConsent: boolean = false): Promise<U
 
     const provider = new GoogleAuthProvider();
 
-    // Add calendar scopes (read-only for now)
+    // Add calendar scopes
     provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+    provider.addScope('https://www.googleapis.com/auth/calendar.events');
     provider.addScope('email');
     provider.addScope('profile');
 
-    // Smart consent logic - only force consent if needed
+    // CRITICAL: Always request offline access to get refresh tokens
     if (forceConsent) {
       provider.setCustomParameters({
         'prompt': 'consent',
@@ -123,29 +101,35 @@ export const signInWithGoogle = async (forceConsent: boolean = false): Promise<U
         'access_type': 'offline',
         'include_granted_scopes': 'true'
       });
-      console.log("🔐 Requesting Google sign-in with existing permissions...");
+      console.log("🔐 Requesting Google sign-in with offline access...");
     }
 
     const result = await signInWithPopup(auth, provider);
     console.log("✅ Google sign-in completed:", result.user.email);
 
-    // Store the Google access token
+    // Get the credential and store tokens using our service
     const credential = GoogleAuthProvider.credentialFromResult(result);
+    
     if (credential?.accessToken) {
-      localStorage.setItem("google_access_token", credential.accessToken);
-      localStorage.setItem("calendar_permission_granted", "true");
-      console.log("✅ Google access token stored");
+      // Store tokens using our dedicated service
+      // Note: Firebase doesn't reliably provide refresh tokens through this method
+      googleOAuthService.storeTokens(
+        credential.accessToken,
+        undefined, // Firebase OAuthCredential doesn't include refreshToken
+        3600 // Google access tokens typically last 1 hour
+      );
+
+      console.log("⚠️ Refresh token not available through Firebase credential - user will need to re-authenticate when token expires");
 
       // Test if we actually have calendar permissions
-      const hasCalendarAccess = await testCalendarAccess(credential.accessToken);
+      const hasCalendarAccess = await googleOAuthService.testCalendarAccess(credential.accessToken);
       if (!hasCalendarAccess && !forceConsent) {
         console.log("⚠️ Calendar access not available, retrying with consent...");
-        // Retry with forced consent
         return await signInWithGoogle(true);
       }
     } else {
       console.warn("⚠️ No Google access token received");
-      localStorage.setItem("calendar_permission_granted", "false");
+      googleOAuthService.clearTokens();
       
       if (!forceConsent) {
         console.log("⚠️ No access token, retrying with consent...");
@@ -167,16 +151,14 @@ export const signInWithGoogle = async (forceConsent: boolean = false): Promise<U
     }
     
     // Clean up on error
-    localStorage.removeItem("google_access_token");
-    localStorage.removeItem("calendar_permission_granted");
-    
+    googleOAuthService.clearTokens();
     throw error;
   } finally {
     isSigningIn = false;
   }
 };
 
-// Sign out
+// Sign out (preserves Google tokens)
 export const signOutUser = async (): Promise<void> => {
   try {
     console.log("🚪 Signing out...");
@@ -195,9 +177,8 @@ export const signOutUser = async (): Promise<void> => {
     localStorage.removeItem("therapist_name");
     localStorage.removeItem("currentTherapist");
 
-    // DO NOT remove these - we want to keep Google permissions:
-    // localStorage.removeItem("google_access_token");
-    // localStorage.removeItem("calendar_permission_granted");
+    // DO NOT clear Google tokens here - we want to preserve them
+    // googleOAuthService.clearTokens();
 
     console.log("✅ Sign out completed (Google tokens preserved)");
 
@@ -207,11 +188,7 @@ export const signOutUser = async (): Promise<void> => {
   }
 };
 
-// Environment detection
-export const isDevelopment = window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1';
-
-// Sign out and clear all data (for complete reset)
+// Complete sign out that clears everything including Google tokens
 export const signOutAndClearAll = async (): Promise<void> => {
   try {
     console.log("🚪 Signing out and clearing all data...");
@@ -225,8 +202,7 @@ export const signOutAndClearAll = async (): Promise<void> => {
     }
 
     // Clear ALL data including Google tokens
-    localStorage.removeItem("google_access_token");
-    localStorage.removeItem("calendar_permission_granted");
+    googleOAuthService.clearTokens();
     localStorage.removeItem("therapist_calendar_id");
     localStorage.removeItem("therapist_email");
     localStorage.removeItem("therapist_name");
@@ -239,58 +215,31 @@ export const signOutAndClearAll = async (): Promise<void> => {
     throw error;
   }
 };
+
+// Environment detection
+export const isDevelopment = window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1';
+
+// Get valid Google access token (delegates to service)
 export const getGoogleAccessToken = async (): Promise<string | null> => {
-  try {
-    const storedToken = localStorage.getItem("google_access_token");
-    
-    if (!storedToken) {
-      console.log("❌ No stored Google access token");
-      return null;
-    }
-
-    // Test if current token is valid
-    const isValid = await testCalendarAccess(storedToken);
-    if (isValid) {
-      console.log("✅ Stored Google token is valid");
-      return storedToken;
-    }
-
-    console.log("⚠️ Stored Google token is invalid, attempting silent refresh...");
-    
-    // Try to get a fresh token by refreshing the Firebase user
-    const user = getCurrentUser();
-    if (user) {
-      try {
-        // Force refresh the Firebase token (this sometimes refreshes Google tokens too)
-        await user.getIdToken(true);
-        
-        // Check if we magically got a new token
-        const newStoredToken = localStorage.getItem("google_access_token");
-        if (newStoredToken && newStoredToken !== storedToken) {
-          const isNewValid = await testCalendarAccess(newStoredToken);
-          if (isNewValid) {
-            console.log("✅ Google token silently refreshed");
-            return newStoredToken;
-          }
-        }
-      } catch (error) {
-        console.log("⚠️ Silent refresh failed:", error);
-      }
-    }
-
-    console.log("❌ Silent refresh failed, user needs to re-authenticate");
-    return null;
-  } catch (error) {
-    console.error("❌ Error getting Google access token:", error);
-    return null;
-  }
+  return await googleOAuthService.getValidAccessToken();
 };
 
-// Check if user has calendar permissions
+// Check if user has calendar permissions (delegates to service)
 export const checkCalendarPermissions = (): boolean => {
-  const googleToken = localStorage.getItem("google_access_token");
-  const calendarPermissionGranted = localStorage.getItem("calendar_permission_granted");
-  return !!(googleToken && calendarPermissionGranted === "true");
+  return googleOAuthService.hasCalendarPermissions();
+};
+
+// Initialize Google OAuth service (call this during app initialization)
+export const initializeGoogleOAuth = (): void => {
+  console.log("🔄 Initializing Google OAuth service...");
+  
+  // Migrate from old token format if needed
+  googleOAuthService.migrateFromOldFormat();
+  
+  // Log current token status
+  const tokenInfo = googleOAuthService.getTokenInfo();
+  console.log("📊 Google OAuth status:", tokenInfo);
 };
 
 // Listen for auth state changes
@@ -363,10 +312,12 @@ export default {
   getCurrentUser,
   signInWithGoogle,
   signOutUser,
+  signOutAndClearAll,
   onAuthStateChange,
   checkAuthState,
   getGoogleAccessToken,
   checkCalendarPermissions,
+  initializeGoogleOAuth,
   refreshAuthToken,
   isDevelopment
 };

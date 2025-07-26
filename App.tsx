@@ -11,6 +11,8 @@ import { isDevelopment } from "./src/config/firebase";
 import { apiService } from "./src/services/api";
 import { ensureCalendarPermissions, checkCalendarPermissionStatus } from "./src/services/calendarPermissions";
 
+import { initializeGoogleOAuth } from './src/config/firebase';
+
 type AppState = "loading" | "login" | "onboarding" | "authenticated" | "calendar_permissions";
 
 // Main App component that uses AuthContext
@@ -57,7 +59,7 @@ const AppContent: React.FC = () => {
       appState,
       userEmail: user?.email
     });
-    
+
     if (!authLoading) {
       if (isAuthenticated) {
         setRetryCount(0);
@@ -74,7 +76,7 @@ const AppContent: React.FC = () => {
       hasValidTokens,
       userEmail: user?.email
     });
-    
+
     // Prevent duplicate initialization calls
     if (isInitializing) {
       console.log("⏸️ Already initializing, skipping duplicate call");
@@ -83,7 +85,7 @@ const AppContent: React.FC = () => {
 
     setIsInitializing(true);
     console.log("🔥 setIsInitializing(true) - Starting initialization");
-    
+
     try {
       console.log("🚀 Initializing LV Notas App with new auth system");
       console.log("Auth state:", { isAuthenticated, hasValidTokens, userEmail: user?.email });
@@ -94,6 +96,9 @@ const AppContent: React.FC = () => {
       console.log("- user_data:", !!localStorage.getItem("user_data"));
       console.log("- google_access_token:", !!localStorage.getItem("google_access_token"));
       console.log("- calendar_permission_granted:", localStorage.getItem("calendar_permission_granted"));
+
+      // Initialize Google OAuth service
+      initializeGoogleOAuth();
 
       // If not authenticated, show login
       if (!isAuthenticated) {
