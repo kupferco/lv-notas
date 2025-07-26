@@ -224,22 +224,24 @@ export const TherapistOnboarding: React.FC<TherapistOnboardingProps> = ({
 
   const handleSignOut = async () => {
     try {
-      await signOutUser();
+      await signOutUser(); // This will preserve Google tokens
 
-      // Clear ALL localStorage data for clean testing
+      // Clear only app-specific localStorage data
       localStorage.removeItem("therapist_email");
       localStorage.removeItem("therapist_calendar_id");
       localStorage.removeItem("currentTherapist");
-      localStorage.removeItem("google_access_token");
 
-      // Clear any other cached data
-      localStorage.clear(); // This clears everything - use with caution
+      // DON'T clear Google tokens:
+      // localStorage.removeItem("google_access_token");
+      // localStorage.removeItem("calendar_permission_granted");
+
+      // DON'T use localStorage.clear() as it removes everything
 
       setCurrentUser(null);
-      setSelectedCalendarId(""); // Also clear the state
+      setSelectedCalendarId("");
       setState({ step: "welcome" });
 
-      console.log("🚪 All cache cleared, starting fresh");
+      console.log("🚪 Signed out but preserved Google permissions");
     } catch (error) {
       console.error("Sign out error:", error);
     }
