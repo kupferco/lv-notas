@@ -523,6 +523,442 @@ pg_dump -h localhost -p 5433 -U postgres -d clinic_db > production_backup_$(date
 The new monthly billing and calendar-only features are now production-ready! 🚀
 
 
+
+## 🔐 **Production-Grade Session Management System (NEW!)**
+
+### 🏗️ **Enterprise Session Architecture**
+- **Database-Controlled Timing** - Session timeouts configured via PostgreSQL with live updates
+- **JWT-Based Authentication** - Secure token system with configurable expiration
+- **Activity Tracking** - Automatic session extension on user interaction
+- **Multi-User Isolation** - Complete session separation between therapists
+- **Audit Trail** - Comprehensive session activity logging for security
+
+### ⚙️ **Flexible Session Configuration**
+```bash
+# Quick session timing configuration
+cd db
+./session-config.sh
+
+# Available modes:
+# 1. ⚡ Rapid Testing (2 minutes) - Development testing
+# 2. 🛠️ Development (30 minutes) - Daily development work  
+# 3. 🚀 Production (1 hour) - Standard production timeout
+# 4. ⏰ Extended (2 hours) - Long admin sessions
+# 5. 🎛️ Custom - Any custom timing
+```
+
+### 🚨 **Smart Session Monitoring**
+- **Read-Only Status Checks** - Session polling never accidentally extends sessions
+- **Mathematical Optimization** - Frontend checks at 90% of remaining warning time
+- **Cross-Tab Session Sync** - Session extensions detected across browser tabs
+- **Clean Lifecycle Management** - Proper cleanup on logout with zero memory leaks
+
+### 🗄️ **Session Database Schema**
+
+#### **Core Session Tables**
+```sql
+-- User credentials and authentication
+CREATE TABLE user_credentials (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    display_name VARCHAR(255),
+    is_active BOOLEAN DEFAULT true,
+    email_verified BOOLEAN DEFAULT false,
+    last_login_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Active user sessions with configurable timing
+CREATE TABLE user_sessions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES user_credentials(id),
+    session_token TEXT NOT NULL UNIQUE,
+    
+    -- Configurable session timing (set via session-config.sh)
+    inactive_timeout_minutes INTEGER DEFAULT 30,
+    warning_timeout_minutes INTEGER DEFAULT 2,
+    max_session_hours INTEGER DEFAULT 8,
+    
+    -- Session lifecycle tracking
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_activity_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    terminated_at TIMESTAMP WITH TIME ZONE,
+    
+    -- Session metadata
+    status VARCHAR(20) DEFAULT 'active', -- 'active', 'expired', 'terminated'
+    termination_reason VARCHAR(50),      -- 'logout', 'inactivity_timeout', 'manual'
+    ip_address INET,
+    user_agent TEXT
+);
+
+-- Session activity audit trail
+CREATE TABLE session_activity_log (
+    id SERIAL PRIMARY KEY,
+    session_id INTEGER REFERENCES user_sessions(id),
+    user_id INTEGER,
+    activity_type VARCHAR(50),    -- 'login', 'activity', 'logout', 'extend'
+    endpoint VARCHAR(255),        -- API endpoint accessed
+    ip_address INET,
+    user_agent TEXT,
+    metadata JSONB,               -- Additional activity data
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- User permissions for multi-tenant access
+CREATE TABLE user_permissions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES user_credentials(id),
+    therapist_id INTEGER REFERENCES therapists(id),
+    role VARCHAR(20) DEFAULT 'viewer', -- 'viewer', 'manager', 'owner', 'super_admin'
+    granted_by INTEGER REFERENCES user_credentials(id),
+    granted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    is_active BOOLEAN DEFAULT true,
+    notes TEXT
+);
+```
+
+#### **Session Configuration Management**
+```sql
+-- App-wide configuration (includes session settings)
+CREATE TABLE app_configuration (
+    key VARCHAR(255) PRIMARY KEY,
+    value TEXT,
+    description TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Example session configuration entries:
+INSERT INTO app_configuration (key, value, description) VALUES
+('auth_require_email_verification', 'false', 'Require email verification for new users'),
+('session_default_timeout_minutes', '30', 'Default session timeout in minutes'),
+('session_default_warning_minutes', '2', 'Default warning time before session expires');
+```
+
+### 🔧 **Session Management API Endpoints**
+
+#### **Authentication & Session Creation**
+```bash
+# User login (creates session)
+POST /api/auth/login
+Content-Type: application/json
+X-API-Key: your_api_key
+
+{
+  "email": "therapist@example.com",
+  "password": "secure_password"
+}
+
+# Response includes session token
+{
+  "message": "Login successful",
+  "user": {
+    "id": 4,
+    "email": "therapist@example.com", 
+    "displayName": "Dr. Silva"
+  },
+  "sessionToken": "eyJhbGciOiJIUzI1NiIs...",
+  "sessionId": 135,
+  "permissions": [...],
+  "expiresIn": "1h"
+}
+```
+
+#### **Session Status & Management**
+```bash
+# Check session status (read-only, no activity update)
+GET /api/auth/session-status
+Authorization: Bearer your_session_token
+X-API-Key: your_api_key
+
+# Response with real-time timing
+{
+  "status": "active",
+  "timeUntilWarningMs": 45000,      # 45 seconds until warning
+  "timeUntilExpiryMs": 105000,      # 1:45 until session expires
+  "warningTimeoutMinutes": 1,       # Warning shows 1 min before expiry
+  "inactiveTimeoutMinutes": 2,      # Session expires after 2 min inactivity
+  "shouldShowWarning": false,       # Frontend should show warning modal
+  "readOnly": true                  # Confirms no activity was updated
+}
+
+# Extend session (resets activity timer)
+POST /api/auth/extend-session
+Content-Type: application/json
+X-API-Key: your_api_key
+
+{
+  "sessionToken": "eyJhbGciOiJIUzI1NiIs..."
+}
+
+# Session configuration (for frontend adaptation)
+GET /api/auth/session-config
+Authorization: Bearer your_session_token  # or localhost bypass
+X-API-Key: your_api_key
+
+# Response with current database configuration
+{
+  "defaultInactiveTimeoutMinutes": 30,
+  "defaultWarningTimeoutMinutes": 2, 
+  "activeSessionCount": 3,
+  "currentSessionInactiveTimeout": 30,
+  "currentSessionWarningTimeout": 2
+}
+```
+
+#### **User Management**
+```bash
+# Get current user info (validates session)
+GET /api/auth/me
+Authorization: Bearer your_session_token
+X-API-Key: your_api_key
+
+# User registration
+POST /api/auth/register
+Content-Type: application/json
+X-API-Key: your_api_key
+
+{
+  "email": "new@example.com",
+  "password": "secure_password",
+  "displayName": "New User",
+  "invitationToken": "optional_invite_token"
+}
+
+# Password reset request
+POST /api/auth/forgot-password
+Content-Type: application/json
+X-API-Key: your_api_key
+
+{
+  "email": "user@example.com"
+}
+
+# Password reset with token
+POST /api/auth/reset-password
+Content-Type: application/json
+X-API-Key: your_api_key
+
+{
+  "token": "reset_token_from_email",
+  "newPassword": "new_secure_password"
+}
+
+# Logout (terminates session)
+POST /api/auth/logout
+Authorization: Bearer your_session_token
+X-API-Key: your_api_key
+```
+
+### 🛡️ **Session Security Features**
+
+#### **Authentication Middleware**
+```typescript
+// All protected endpoints use session validation
+import { authenticateCredentials } from '../services/auth-service.js';
+
+// Validates JWT token and updates activity
+router.use('/protected-endpoint', authenticateCredentials);
+
+// Permission-based access control
+router.use('/admin-endpoint', authenticateCredentials, requirePermission('manager'));
+```
+
+#### **Session Security Measures**
+- **bcrypt Password Hashing** - Salt rounds 12+ for secure password storage
+- **JWT Secret Rotation** - Configurable JWT secret with strong entropy requirements
+- **IP Address Logging** - Track session creation and activity by IP
+- **User Agent Tracking** - Detect potential session hijacking attempts
+- **Automatic Session Cleanup** - Expired sessions marked and cleaned automatically
+- **Concurrent Session Limits** - Optional limits on simultaneous sessions per user
+
+#### **Activity Tracking & Audit**
+```sql
+-- Example session activity queries
+-- View active sessions
+SELECT 
+    s.id, s.user_id, s.created_at, s.last_activity_at,
+    s.inactive_timeout_minutes, s.status,
+    c.email, c.display_name
+FROM user_sessions s
+JOIN user_credentials c ON s.user_id = c.id 
+WHERE s.status = 'active'
+ORDER BY s.last_activity_at DESC;
+
+-- Session activity audit
+SELECT 
+    sal.timestamp, sal.activity_type, sal.endpoint,
+    sal.ip_address, c.email
+FROM session_activity_log sal
+JOIN user_credentials c ON sal.user_id = c.id
+WHERE sal.session_id = 135
+ORDER BY sal.timestamp DESC;
+
+-- Session security analysis
+SELECT 
+    DATE(created_at) as date,
+    COUNT(*) as total_logins,
+    COUNT(DISTINCT user_id) as unique_users,
+    COUNT(DISTINCT ip_address) as unique_ips
+FROM user_sessions 
+WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY DATE(created_at)
+ORDER BY date DESC;
+```
+
+### 🔧 **Session Configuration Examples**
+
+#### **Development Configuration**
+```bash
+# Set 30-minute sessions for development
+cd db && ./session-config.sh
+# Choose option 2 (Development)
+
+# Verify configuration
+psql -d clinic_db -c "
+SELECT column_default as timeout
+FROM information_schema.columns 
+WHERE table_name = 'user_sessions' 
+AND column_name = 'inactive_timeout_minutes';
+"
+```
+
+#### **Production Configuration**  
+```bash
+# Set 1-hour sessions for production
+cd db && ./session-config.sh
+# Choose option 3 (Production)
+
+# Production environment variables
+NODE_ENV=production
+JWT_SECRET=your-super-secret-jwt-key-min-32-chars
+SESSION_TIMEOUT_MINUTES=60
+SESSION_WARNING_MINUTES=5
+```
+
+#### **Custom Configuration**
+```sql
+-- Manual database configuration for custom timing
+ALTER TABLE user_sessions 
+ALTER COLUMN inactive_timeout_minutes SET DEFAULT 45,
+ALTER COLUMN warning_timeout_minutes SET DEFAULT 3;
+
+-- Update existing active sessions (optional)
+UPDATE user_sessions 
+SET 
+  inactive_timeout_minutes = 45,
+  warning_timeout_minutes = 3,
+  expires_at = last_activity_at + INTERVAL '45 minutes'
+WHERE status = 'active';
+```
+
+### 📊 **Session Monitoring & Analytics**
+
+#### **Real-Time Session Monitoring**
+```bash
+# Monitor active sessions
+curl -X GET "http://localhost:3000/api/auth/session-config" \
+  -H "X-API-Key: your_api_key"
+
+# Session activity logs
+psql -d clinic_db -c "
+SELECT 
+    activity_type, COUNT(*) as count,
+    DATE_TRUNC('hour', timestamp) as hour
+FROM session_activity_log 
+WHERE timestamp >= NOW() - INTERVAL '24 hours'
+GROUP BY activity_type, hour
+ORDER BY hour DESC, activity_type;
+"
+```
+
+#### **Session Performance Metrics**
+```sql
+-- Average session duration
+SELECT 
+    AVG(EXTRACT(EPOCH FROM (terminated_at - created_at))/60) as avg_minutes
+FROM user_sessions 
+WHERE status = 'terminated' 
+AND terminated_at >= CURRENT_DATE - INTERVAL '7 days';
+
+-- Session termination reasons
+SELECT 
+    termination_reason, 
+    COUNT(*) as count,
+    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
+FROM user_sessions 
+WHERE terminated_at >= CURRENT_DATE - INTERVAL '30 days'
+GROUP BY termination_reason
+ORDER BY count DESC;
+
+-- Peak usage hours
+SELECT 
+    EXTRACT(HOUR FROM created_at) as hour,
+    COUNT(*) as login_count
+FROM user_sessions 
+WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY hour
+ORDER BY hour;
+```
+
+### 🚀 **Production Deployment**
+
+#### **Session Management Environment Variables**
+```yaml
+# env.yaml (for Google Cloud Run)
+NODE_ENV: production
+JWT_SECRET: your-production-jwt-secret-min-32-characters
+SESSION_CLEANUP_INTERVAL: 3600000  # Clean expired sessions every hour
+PASSWORD_SALT_ROUNDS: 12
+EMAIL_VERIFICATION_REQUIRED: false
+SESSION_MAX_CONCURRENT: 5  # Optional: limit concurrent sessions per user
+```
+
+#### **Database Migration for Session Management**
+```bash
+# Deploy session management schema to production
+cd clinic-api/db
+
+# Start Cloud SQL Proxy
+./cloud_sql_proxy -instances=lv-notas:us-central1:clinic-db=tcp:5433
+
+# Deploy session management tables
+POSTGRES_HOST=localhost POSTGRES_PORT=5433 \
+POSTGRES_USER=postgres POSTGRES_DB=clinic_db \
+psql -f session_management_schema.sql
+
+# Set production session timing (1 hour sessions)
+POSTGRES_HOST=localhost POSTGRES_PORT=5433 \
+POSTGRES_USER=postgres POSTGRES_DB=clinic_db \
+./session-config.sh
+# Choose option 3 (Production)
+```
+
+#### **Production Validation**
+```bash
+# Test session creation
+curl -X POST "https://clinic-api-141687742631.us-central1.run.app/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_production_api_key" \
+  -d '{"email":"test@example.com","password":"test123"}'
+
+# Test session status (should return read-only timing)
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-API-Key: your_production_api_key" \
+  "https://clinic-api-141687742631.us-central1.run.app/api/auth/session-status"
+
+# Verify session configuration
+curl -H "X-API-Key: your_production_api_key" \
+  "https://clinic-api-141687742631.us-central1.run.app/api/auth/session-config"
+```
+
+---
+
+*The session management system provides enterprise-grade security with intelligent user experience - keeping users logged in while active, providing fair warning before timeout, and enabling seamless session extensions when needed.* 🔐⚡
+
+
 ### **Calendar-Only Development**
 - **No database sync complexity** - Calendar changes don't break existing billing
 - **Real-time testing** - Changes in Google Calendar immediately visible

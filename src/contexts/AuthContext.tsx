@@ -1,7 +1,7 @@
 // src/contexts/AuthContext.tsx
 // Credential-based authentication context replacing Firebase auth
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { authService, User as CredentialUser, LoginResponse } from '../services/authService';
 import { getGoogleAccessToken, isDevelopment } from '../config/firebase';
 
@@ -49,6 +49,126 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [showSessionWarning, setShowSessionWarning] = useState(false);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [sessionMonitoringActive, setSessionMonitoringActive] = useState(false);
+  const [sessionMonitoringCleanup, setSessionMonitoringCleanup] = useState<(() => void) | null>(null);
+  const showSessionWarningRef = useRef(showSessionWarning);
+
+  // Update the ref whenever showSessionWarning changes
+  useEffect(() => {
+    showSessionWarningRef.current = showSessionWarning;
+  }, [showSessionWarning]);
+
+  useEffect(() => {
+    initializeAuth();
+
+    // Set up session warning callback
+    authService.setWarningCallback(() => {
+      setShowSessionWarning(true);
+    });
+
+    // Set up session expired callback
+    authService.setExpiredCallback(() => {
+      console.log('🕐 Session expired - logging out user');
+      handleSessionExpired();
+    });
+
+    // Don't start session monitoring here - do it manually after login
+  }, []); // Empty dependency array
+
+  // Create separate functions to control session monitoring
+  const startSessionMonitoring = () => {
+    if (sessionMonitoringActive) {
+      console.log('⚠️ Session monitoring already active');
+      return;
+    }
+
+    console.log('🔄 Starting session monitoring');
+    setSessionMonitoringActive(true);
+
+    let timeoutId: NodeJS.Timeout;
+    let isActive = true; // Local variable to track active state immediately
+
+    const scheduleNextCheck = (delayMs: number) => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(checkSession, Math.max(delayMs, 1000));
+    };
+
+    const checkSession = async () => {
+      console.log(5555, 'CHECK SESSION!!!', !!authService.getSessionToken(), isActive);
+
+      if (authService.getSessionToken() && isActive) {
+        try {
+          const status = await authService.checkSessionStatus();
+
+          if (status) {
+            if (status.shouldShowWarning && !showSessionWarningRef.current) {
+              console.log('⚠️ AuthContext (555): Session warning triggered');
+              setShowSessionWarning(true);
+            }
+
+            const timeUntilExpiry = status.timeUntilExpiryMs ?? 0;
+            if (timeUntilExpiry <= 0) {
+              console.log('🕐 AuthContext: Session expired');
+              isActive = false;
+              handleSessionExpired();
+              return;
+            }
+
+            const timeUntilWarning = status.timeUntilWarningMs ?? 0;
+            let nextCheckDelay: number;
+
+            console.log('timeUntilWarning:', timeUntilWarning);
+            console.log('showSessionWarning current value:', showSessionWarningRef.current);
+
+            if (timeUntilWarning > 0) {
+              nextCheckDelay = Math.floor(timeUntilWarning * 0.9);
+              console.log(`📊 AuthContext (555): ${Math.round(timeUntilWarning / 1000)}s until warning, next check in ${Math.round(nextCheckDelay / 1000)}s (90% rule)`);
+
+              if (showSessionWarningRef.current) {
+                console.log('✅ Session extended detected - dismissing warning modal');
+                setShowSessionWarning(false);
+              }
+            } else {
+              nextCheckDelay = 5000;
+              console.log(`🚨 AuthContext: Warning period active, next check in 5s`);
+            }
+
+            scheduleNextCheck(nextCheckDelay);
+          }
+        } catch (error) {
+          console.error('AuthContext session monitoring error:', error);
+          scheduleNextCheck(10000);
+        }
+      }
+    };
+
+    // Create cleanup function
+    const cleanup = () => {
+      console.log('🧹 Cleaning up session monitoring');
+      clearTimeout(timeoutId);
+      isActive = false;
+      setSessionMonitoringActive(false);
+      setSessionMonitoringCleanup(null);
+    };
+
+    // Store cleanup function
+    setSessionMonitoringCleanup(() => cleanup);
+
+    // Start first check
+    checkSession();
+  };
+
+  const stopSessionMonitoring = () => {
+    console.log('⏹️ Stopping session monitoring');
+
+    // Call the cleanup function if it exists
+    if (sessionMonitoringCleanup) {
+      sessionMonitoringCleanup();
+    } else {
+      // Fallback - just update state
+      setSessionMonitoringActive(false);
+    }
+  };
 
   // Check if user has valid tokens (session + Google calendar access)
   const checkTokensValidity = (user: CredentialUser | null, googleToken: string | null): boolean => {
@@ -75,21 +195,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  useEffect(() => {
-    initializeAuth();
-
-    // Set up session warning callback
-    authService.setWarningCallback(() => {
-      setShowSessionWarning(true);
-    });
-
-    // Set up session expired callback
-    authService.setExpiredCallback(() => {
-      console.log('🕐 Session expired - logging out user');
-      handleSessionExpired();
-    });
-  }, []);
-
   const initializeAuth = async () => {
     try {
       console.log('🔄 Initializing credential authentication...');
@@ -110,6 +215,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
           // Also get Google access token for calendar operations
           await updateGoogleAccessToken();
+
+          // START session monitoring for restored session
+          console.log('🔄 Starting session monitoring for restored session');
+          startSessionMonitoring();
 
           setIsLoading(false);
           return;
@@ -139,6 +248,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const handleSessionExpired = async () => {
     console.log('🕐 Handling session expiration...');
+
+    // STOP session monitoring first
+    stopSessionMonitoring();
+
+    // STOP activity monitor
+    try {
+      const { activityMonitor } = await import('../utils/activityMonitor');
+      activityMonitor.stopMonitoring();
+      console.log('⏹️ Activity monitor stopped due to session expiration');
+    } catch (error) {
+      console.warn('Could not stop activity monitor:', error);
+    }
+
+    // Clear all session state
     setShowSessionWarning(false);
     setUser(null);
     setAuthMethod(null);
@@ -163,6 +286,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       // Also get Google access token for calendar operations
       await updateGoogleAccessToken();
+
+      // START session monitoring after successful login
+      console.log('🔄 Starting session monitoring after successful login');
+      startSessionMonitoring();
 
       return loginResponse;
     } catch (error: any) {

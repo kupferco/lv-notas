@@ -11,7 +11,8 @@ import {
     terminateSession,
     extendSession,
     getUserByToken,
-    updateSessionActivity
+    updateSessionActivity,
+    verifyJWTToken
 } from "../services/auth-service.js";
 import pool from "../config/database.js";
 
@@ -305,10 +306,13 @@ router.get("/me", asyncHandler(async (req, res) => {
 }));
 
 /**
- * GET /api/auth/session-status
- * Check session status for frontend session management
+ * REPLACE the current session-status section (lines ~278-350) with this single read-only version:
  */
 
+/**
+ * GET /api/auth/session-status
+ * Check session status for frontend session management - READ ONLY, NO ACTIVITY UPDATE
+ */
 router.get("/session-status", asyncHandler(async (req, res) => {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
@@ -317,26 +321,28 @@ router.get("/session-status", asyncHandler(async (req, res) => {
         return res.status(401).json({ error: 'Access token required' });
     }
 
-    const user = await getUserByToken(token);
-    if (!user) {
+    // CRITICAL FIX: Verify token WITHOUT updating activity
+    const decoded = verifyJWTToken(token);
+    if (!decoded) {
         return res.status(401).json({
-            error: 'Session expired',
+            error: 'Invalid token',
             code: 'SESSION_EXPIRED'
         });
     }
 
+    // Get session data WITHOUT calling updateSessionActivity
     const sessionResult = await pool.query(`
         SELECT 
             last_activity_at, expires_at, 
             inactive_timeout_minutes, warning_timeout_minutes,
-            status, created_at
+            status, created_at, user_id
         FROM user_sessions 
-        WHERE id = $1
-    `, [user.sessionId]);
+        WHERE id = $1 AND status = 'active'
+    `, [decoded.sessionId]);
 
     if (sessionResult.rows.length === 0) {
         return res.status(401).json({
-            error: 'Session not found',
+            error: 'Session not found or expired',
             code: 'SESSION_EXPIRED'
         });
     }
@@ -344,32 +350,19 @@ router.get("/session-status", asyncHandler(async (req, res) => {
     const session = sessionResult.rows[0];
     const now = new Date();
 
-    // IMPROVED timing calculations
+    // Check if session is actually expired (but don't update it yet)
     const lastActivity = new Date(session.last_activity_at);
     const sessionDurationMs = session.inactive_timeout_minutes * 60 * 1000;
-    const warningDurationMs = session.warning_timeout_minutes * 60 * 1000;
-
-    // Session expires at: last_activity + session_duration
     const sessionExpiresAt = new Date(lastActivity.getTime() + sessionDurationMs);
 
-    // Warning should start at: session_expires - warning_duration
-    const warningStartsAt = new Date(sessionExpiresAt.getTime() - warningDurationMs);
-
-    const timeUntilExpiry = Math.max(0, sessionExpiresAt.getTime() - now.getTime());
-    const timeUntilWarning = Math.max(0, warningStartsAt.getTime() - now.getTime());
-
-    // Improved warning logic
-    const warningActive = now >= warningStartsAt && now < sessionExpiresAt;
-    const sessionExpired = now >= sessionExpiresAt;
-
-    // If session is actually expired, mark it as such
-    if (sessionExpired) {
+    if (now >= sessionExpiresAt) {
+        // Mark as expired but don't update activity
         await pool.query(`
             UPDATE user_sessions 
             SET status = 'expired', terminated_at = CURRENT_TIMESTAMP,
                 termination_reason = 'inactivity_timeout'
             WHERE id = $1
-        `, [user.sessionId]);
+        `, [decoded.sessionId]);
 
         return res.status(401).json({
             error: 'Session expired due to inactivity',
@@ -377,8 +370,17 @@ router.get("/session-status", asyncHandler(async (req, res) => {
         });
     }
 
-    console.log('⏱️ Session timing:', {
-        sessionId: user.sessionId,
+    // Calculate timing WITHOUT updating last_activity_at
+    const warningDurationMs = session.warning_timeout_minutes * 60 * 1000;
+    const warningStartsAt = new Date(sessionExpiresAt.getTime() - warningDurationMs);
+
+    const timeUntilExpiry = Math.max(0, sessionExpiresAt.getTime() - now.getTime());
+    const timeUntilWarning = Math.max(0, warningStartsAt.getTime() - now.getTime());
+
+    const warningActive = now >= warningStartsAt && now < sessionExpiresAt;
+
+    console.log('⏱️ Session timing (READ-ONLY):', {
+        sessionId: decoded.sessionId,
         now: now.toISOString(),
         lastActivity: lastActivity.toISOString(),
         sessionExpiresAt: sessionExpiresAt.toISOString(),
@@ -386,7 +388,8 @@ router.get("/session-status", asyncHandler(async (req, res) => {
         timeUntilExpiry: Math.round(timeUntilExpiry / 1000),
         timeUntilWarning: Math.round(timeUntilWarning / 1000),
         warningActive,
-        sessionExpired
+        // IMPORTANT: No activity update performed
+        activityUpdated: false
     });
 
     res.json({
@@ -399,10 +402,11 @@ router.get("/session-status", asyncHandler(async (req, res) => {
         sessionCreatedAt: session.created_at,
         lastActivityAt: session.last_activity_at,
         warningStartsAt: warningStartsAt.toISOString(),
-        sessionExpiresAt: sessionExpiresAt.toISOString()
+        sessionExpiresAt: sessionExpiresAt.toISOString(),
+        // Debug info
+        readOnly: true // Confirms this endpoint doesn't update activity
     });
 }));
-
 
 /**
  * GET /api/auth/session-config
