@@ -8,7 +8,7 @@ import { RegisterForm } from './RegisterForm';
 import { ForgotPasswordForm } from './ForgotPasswordForm';
 import { SessionTimeoutModal } from '../common/SessionTimeoutModal';
 import { useAuth } from '../../contexts/AuthContext';
-import { activityMonitor } from '../../utils/activityMonitor'; // Import the activity monitor
+// import { activityMonitor } from '../../utils/activityMonitor';
 
 type AuthScreen = 'login' | 'register' | 'forgotPassword';
 
@@ -42,21 +42,36 @@ export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
         showSessionWarning // Add this to track warning state
     });
 
-    // CRITICAL: Control activity monitor based on warning state
-    useEffect(() => {
-        if (showSessionWarning) {
-            console.log('🚨 Session warning modal appeared - pausing activity monitoring');
-            activityMonitor.setWarningActive(true);
-        } else {
-            console.log('✅ Session warning modal closed - resuming activity monitoring');
-            activityMonitor.setWarningActive(false);
-        }
-        
-        // Cleanup: ensure activity monitoring is resumed if component unmounts
-        return () => {
-            activityMonitor.setWarningActive(false);
-        };
-    }, [showSessionWarning]);
+    // TEMPORARILY DISABLED - will replace with proper activity monitoring
+    /*
+    // CRITICAL: Control activity monitor based on warning state */
+    // useEffect(() => {
+    //     const setupActivityMonitor = async () => {
+    //         if (showSessionWarning) {
+    //             console.log('7777 🚨 Session warning modal appeared - pausing activity monitoring');
+    //             try {
+    //                 const { activityMonitor } = await import('../../utils/activityMonitor');
+    //                 activityMonitor.setWarningActive(true);
+    //                 console.log('✅ Activity monitor pause set to TRUE');
+    //                 console.log('🔍 Activity monitor status:', activityMonitor.getStatus());
+    //             } catch (error) {
+    //                 console.error('❌ Failed to pause activity monitor:', error);
+    //             }
+    //         } else {
+    //             console.log('✅ Session warning modal closed - resuming activity monitoring');
+    //             try {
+    //                 const { activityMonitor } = await import('../../utils/activityMonitor');
+    //                 activityMonitor.setWarningActive(false);
+    //                 console.log('✅ Activity monitor pause set to FALSE');
+    //                 console.log('🔍 Activity monitor status:', activityMonitor.getStatus());
+    //             } catch (error) {
+    //                 console.error('❌ Failed to resume activity monitor:', error);
+    //             }
+    //         }
+    //     };
+
+    //     setupActivityMonitor();
+    // }, [showSessionWarning]);
 
     // Update the useEffect with more logging
     useEffect(() => {
@@ -94,10 +109,7 @@ export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
 
     const handleExtendSession = async () => {
         console.log('👤 User clicked "Continue Session" - extending session');
-        
-        // IMPORTANT: Re-enable activity monitoring BEFORE extending session
-        activityMonitor.setWarningActive(false);
-        
+
         const success = await extendSession();
         if (!success) {
             console.log('❌ Failed to extend session - user will be logged out');
@@ -108,11 +120,6 @@ export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
 
     const handleSessionTimeout = async () => {
         console.log('🕐 Session timeout - user chose to logout or timer expired');
-        
-        // Disable activity monitoring completely
-        activityMonitor.setWarningActive(false);
-        activityMonitor.stopMonitoring();
-        
         await signOut();
     };
 

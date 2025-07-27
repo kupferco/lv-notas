@@ -11,7 +11,6 @@ export const AuthDebug = () => {
   const [googleTokenInfo, setGoogleTokenInfo] = useState<any>(null);
   const [firebaseTokenInfo, setFirebaseTokenInfo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(true); // Start with auto-refresh enabled
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
   const { user } = useAuth();
 
@@ -97,10 +96,10 @@ export const AuthDebug = () => {
     try {
       // Always try to get session configuration first
       try {
-        console.log('🔍 AuthDebug: Fetching session configuration...');
+        // console.log('🔍 AuthDebug: Fetching session configuration...');
         const config = await authService.getSessionConfiguration();
-        setSessionConfig(config);
-        console.log('⚙️ Session Configuration:', config);
+        // setSessionConfig(config);
+        // console.log('⚙️ Session Configuration:', config);
       } catch (configError: any) {
         console.warn('⚠️ AuthDebug: Could not fetch session configuration:', configError);
         setSessionConfig({ error: configError?.message || 'Could not fetch configuration' });
@@ -109,10 +108,10 @@ export const AuthDebug = () => {
       // Only check session status if we have a session token
       if (authService.getSessionToken()) {
         try {
-          console.log('🔍 AuthDebug: Checking session status...');
+          // console.log('🔍 AuthDebug: Checking session status...');
           const status = await authService.checkSessionStatus();
           setSessionStatus(status);
-          console.log('📊 Session Status:', status);
+          // console.log('📊 Session Status:', status);
         } catch (sessionError: any) {
           console.warn('⚠️ AuthDebug: Session status check failed:', sessionError);
           setSessionStatus({ error: sessionError?.message || 'Session check failed' });
@@ -136,7 +135,7 @@ export const AuthDebug = () => {
     }
   };
 
-  // Auto-refresh and initial load
+  // PASSIVE: Auto-refresh every second to get updated session status from server
   useEffect(() => {
     // Load token info immediately
     const tokenInfo = googleOAuthService.getTokenInfo();
@@ -149,16 +148,14 @@ export const AuthDebug = () => {
     // Do initial refresh
     refreshStatus();
     
-    // Set up auto-refresh if enabled - EVERY SECOND for real-time countdown
-    if (autoRefresh) {
-      console.log('🔄 AuthDebug: Auto-refresh enabled, starting session monitoring every second...');
-      const interval = setInterval(refreshStatus, 1000); // Changed from 10000 to 1000
-      return () => {
-        console.log('⏸️ AuthDebug: Auto-refresh disabled, stopping session monitoring');
-        clearInterval(interval);
-      };
-    }
-  }, [autoRefresh]);
+    // Always auto-refresh every second (passive monitoring)
+    console.log('🔄 AuthDebug: Starting passive monitoring every second...');
+    const interval = setInterval(refreshStatus, 1000);
+    return () => {
+      console.log('⏸️ AuthDebug: Stopping passive monitoring');
+      clearInterval(interval);
+    };
+  }, []);
 
   const formatTimeRemaining = (milliseconds: number): string => {
     if (milliseconds <= 0) return '⚠️ EXPIRED';
@@ -189,7 +186,7 @@ export const AuthDebug = () => {
     if (sessionMinutes === 2 && warningMinutes === 1) {
       return '⚡ RAPID TESTING MODE';
     } else if (sessionMinutes === 1 && warningMinutes === 1) {
-      return '⚡ RAPID TESTING MODE (1min)'; // Legacy support
+      return '⚡ RAPID TESTING MODE (1min)';
     } else if (sessionMinutes === 30 && warningMinutes === 2) {
       return '🛠️ DEVELOPMENT MODE';
     } else if (sessionMinutes === 60 && warningMinutes === 5) {
@@ -216,24 +213,17 @@ export const AuthDebug = () => {
   const getAccurateTimingInfo = () => {
     if (!sessionStatus || sessionStatus.error) return null;
     
+    // Use the static timestamps from the server, not current time calculations
+    const lastActivityTime = new Date(sessionStatus.lastActivityAt);
+    const warningStartTime = new Date(sessionStatus.warningStartsAt);
+    const sessionExpireTime = new Date(sessionStatus.sessionExpiresAt);
+    
     const now = currentTime;
-    const sessionDurationMs = sessionStatus.inactiveTimeoutMinutes * 60 * 1000;
-    const timeRemainingMs = sessionStatus.timeUntilExpiryMs;
-    
-    // Calculate when session actually started
-    const sessionStartTime = new Date(now.getTime() - sessionDurationMs + timeRemainingMs);
-    
-    // Calculate when warning should have started
-    const warningDurationMs = sessionStatus.warningTimeoutMinutes * 60 * 1000;
-    const warningStartTime = new Date(sessionStartTime.getTime() + sessionDurationMs - warningDurationMs);
-    
-    // Calculate when session will expire
-    const sessionExpireTime = new Date(sessionStartTime.getTime() + sessionDurationMs);
     
     return {
-      sessionStartTime,
-      warningStartTime,
-      sessionExpireTime,
+      sessionStartTime: lastActivityTime, // When session last activity occurred
+      warningStartTime: warningStartTime, // From server calculation
+      sessionExpireTime: sessionExpireTime, // From server calculation
       warningActive: now >= warningStartTime && now < sessionExpireTime,
       sessionExpired: now >= sessionExpireTime
     };
@@ -266,34 +256,16 @@ export const AuthDebug = () => {
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>🔧 Session Debug</Text>
+      <Text style={styles.title}>🔧 Session Debug (Passive Mode)</Text>
       
-      {/* Control Buttons - MOVED TO TOP */}
+      {/* Control Buttons - Just the essential actions */}
       <View style={styles.buttonContainer}>
-        <Pressable 
-          style={[styles.button, autoRefresh ? styles.warningButton : styles.primaryButton]} 
-          onPress={() => setAutoRefresh(!autoRefresh)}
-          disabled={isLoading}
-        >
-          <Text style={styles.buttonText}>
-            {autoRefresh ? '⏸️ Stop Monitoring' : '▶️ Start Monitoring'}
-          </Text>
-        </Pressable>
-
-        <Pressable 
-          style={[styles.button, styles.primaryButton]} 
-          onPress={refreshStatus}
-          disabled={isLoading}
-        >
-          <Text style={styles.buttonText}>📊 Refresh Status</Text>
-        </Pressable>
-
         <Pressable 
           style={[styles.button, styles.successButton]} 
           onPress={resetSessionTimer}
           disabled={isLoading}
         >
-          <Text style={styles.buttonText}>⏰ Reset Timer</Text>
+          <Text style={styles.buttonText}>⏰ Extend Session</Text>
         </Pressable>
 
         <Pressable 
@@ -301,18 +273,29 @@ export const AuthDebug = () => {
           onPress={expireSessionNow}
           disabled={isLoading}
         >
-          <Text style={styles.buttonText}>💥 Expire Session</Text>
+          <Text style={styles.buttonText}>💥 Force Logout</Text>
         </Pressable>
       </View>
       
+      {/* Debug Mode Alert */}
+      <View style={styles.alertCard}>
+        <Text style={styles.alertTitle}>🔍 PASSIVE DEBUG MODE</Text>
+        <Text style={styles.alertText}>
+          Automatically refreshing session data every second (passive monitoring).
+        </Text>
+        <Text style={styles.alertText}>
+          Live countdown updates every second without affecting session timing.
+        </Text>
+        <Text style={styles.alertText}>
+          Current Time: {currentTime.toLocaleTimeString()}
+        </Text>
+      </View>
+
       {/* Safe Mode Status */}
       <View style={styles.statusCard}>
         <Text style={styles.cardTitle}>🛡️ Debug Status</Text>
         <Text style={styles.statusText}>
-          Auto-refresh: {autoRefresh ? '✅ ENABLED (monitoring every second)' : '❌ DISABLED'}
-        </Text>
-        <Text style={styles.statusText}>
-          Current Time: {currentTime.toLocaleTimeString()}
+          Mode: Passive monitoring (updates every 1s)
         </Text>
         <Text style={styles.statusText}>
           User: {user?.email || 'Not logged in'}
@@ -322,12 +305,9 @@ export const AuthDebug = () => {
         </Text>
         {lastRefreshTime && (
           <Text style={styles.statusText}>
-            Last Refresh: {lastRefreshTime.toLocaleTimeString()}
+            Last Server Update: {lastRefreshTime.toLocaleTimeString()}
           </Text>
         )}
-        <Text style={styles.statusText}>
-          Activity Monitor: Check console for activity logs
-        </Text>
       </View>
 
       {/* Session Token Status - Most Important */}
@@ -392,8 +372,6 @@ export const AuthDebug = () => {
         )}
       </View>
 
-      {/* Control Buttons - REMOVED FROM HERE, MOVED TO TOP */}
-
       {/* Database Session Configuration */}
       {sessionConfig && !sessionConfig.error && (
         <View style={styles.statusCard}>
@@ -410,9 +388,8 @@ export const AuthDebug = () => {
           <Text style={styles.configText}>
             Active Sessions: {sessionConfig.activeSessionCount}
           </Text>
-          {/* Remove confusing "Most Common Session Config" display */}
           <Text style={styles.configText}>
-            Check Interval: 1 second (real-time)
+            Debug Check: Passive monitoring every 10s
           </Text>
           
           {/* Configuration Explanation */}
@@ -434,12 +411,6 @@ export const AuthDebug = () => {
           <Text style={styles.expiredText}>
             {sessionConfig.error}
           </Text>
-          <Text style={styles.statusText}>
-            This usually means the session configuration endpoint is not working.
-          </Text>
-          <Text style={styles.statusText}>
-            Check that the backend /api/auth/session-config endpoint is implemented.
-          </Text>
         </View>
       )}
 
@@ -457,7 +428,7 @@ export const AuthDebug = () => {
             Session Expires: {timingInfo.sessionExpireTime.toLocaleTimeString()}
           </Text>
           <Text style={styles.statusText}>
-            Last Activity: Updated on each API call
+            Last Activity: {timingInfo.sessionStartTime.toLocaleTimeString()} (from server)
           </Text>
           <Text style={[
             styles.statusText,
@@ -552,8 +523,6 @@ export const AuthDebug = () => {
         </View>
       )}
 
-      {/* Action Buttons - REMOVED FROM HERE, MOVED TO TOP */}
-
       {/* Session Configuration Instructions */}
       <View style={styles.instructionCard}>
         <Text style={styles.cardTitle}>💡 Change Session Configuration</Text>
@@ -564,30 +533,11 @@ export const AuthDebug = () => {
           ./db/session-config.sh
         </Text>
         <Text style={styles.instructionText}>
-          Available modes: Rapid Testing (1min), Development (30min), Production (1hr), Extended (2hr), Custom
+          Available modes: Rapid Testing (2min), Development (30min), Production (1hr), Extended (2hr), Custom
         </Text>
         <Text style={styles.instructionText}>
           Note: Changes only apply to NEW sessions. Current sessions keep their original timeouts.
         </Text>
-      </View>
-
-      {/* Debug Info */}
-      <View style={styles.debugCard}>
-        <Text style={styles.cardTitle}>🐛 Debug Info</Text>
-        <ScrollView style={styles.debugScroll}>
-          <Text style={styles.debugText}>
-            Session Status: {sessionStatus ? JSON.stringify(sessionStatus, null, 2) : 'Not loaded'}
-          </Text>
-          <Text style={styles.debugText}>
-            Session Config: {sessionConfig ? JSON.stringify(sessionConfig, null, 2) : 'Not loaded'}
-          </Text>
-          <Text style={styles.debugText}>
-            Firebase Token: {firebaseTokenInfo ? JSON.stringify(firebaseTokenInfo, null, 2) : 'Not loaded'}
-          </Text>
-          <Text style={styles.debugText}>
-            Google Token: {googleTokenInfo ? JSON.stringify(googleTokenInfo, null, 2) : 'Loading...'}
-          </Text>
-        </ScrollView>
       </View>
 
       {isLoading && (
@@ -632,13 +582,14 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: '#007AFF',
   },
-  debugCard: {
-    backgroundColor: '#1a1a1a',
+  alertCard: {
+    backgroundColor: '#E3F2FD',
     borderRadius: 8,
     padding: 16,
     marginHorizontal: 16,
-    marginBottom: 16,
-    minHeight: 200,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#2196F3',
   },
   cardTitle: {
     fontSize: 16,
@@ -646,10 +597,21 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: '#333',
   },
+  alertTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    color: '#1976D2',
+  },
   statusText: {
     fontSize: 14,
     marginBottom: 4,
     color: '#666',
+  },
+  alertText: {
+    fontSize: 14,
+    marginBottom: 4,
+    color: '#1976D2',
   },
   configText: {
     fontSize: 14,
@@ -698,25 +660,15 @@ const styles = StyleSheet.create({
   expiredText: {
     color: '#FF3B30',
   },
-  alertText: {
-    fontSize: 14,
-    color: '#FF3B30',
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginTop: 8,
-    padding: 8,
-    backgroundColor: '#FFE5E5',
-    borderRadius: 4,
-  },
   buttonContainer: {
     flexDirection: 'row',
     marginHorizontal: 16,
     marginBottom: 12,
-    gap: 6, // Reduced gap for 4 buttons
+    gap: 8,
   },
   button: {
     flex: 1,
-    padding: 10, // Reduced padding for 4 buttons
+    padding: 12,
     borderRadius: 8,
     alignItems: 'center',
   },
@@ -736,15 +688,6 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 14,
     fontWeight: '600',
-  },
-  debugScroll: {
-    maxHeight: 150,
-  },
-  debugText: {
-    color: '#00FF00',
-    fontFamily: 'monospace',
-    fontSize: 10,
-    lineHeight: 14,
   },
   loadingOverlay: {
     position: 'absolute',

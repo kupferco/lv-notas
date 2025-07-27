@@ -48,10 +48,13 @@ export class AuthService {
         // Load existing session token from localStorage
         this.sessionToken = localStorage.getItem('session_token');
 
+        // TEMPORARILY DISABLED AUTO-MONITORING - we'll implement controlled polling instead
+        /*
         // Start session monitoring if we have a token
         if (this.sessionToken) {
             this.startSessionMonitoring();
         }
+        */
     }
 
     /**
@@ -80,8 +83,11 @@ export class AuthService {
             localStorage.setItem('session_token', loginData.sessionToken);
             localStorage.setItem('user_data', JSON.stringify(loginData.user));
 
+            // TEMPORARILY DISABLED - we'll use controlled polling instead
+            /*
             // Start session monitoring
             this.startSessionMonitoring();
+            */
 
             return loginData;
         } catch (error: any) {
@@ -302,9 +308,13 @@ export class AuthService {
     }
 
     /**
-     * Start monitoring session status
+     * TEMPORARILY DISABLED - Start monitoring session status
      */
     private startSessionMonitoring(): void {
+        console.log('🚫 Session monitoring temporarily disabled for debugging');
+        return;
+        
+        /*
         // Clear any existing interval
         if (this.sessionCheckInterval) {
             clearInterval(this.sessionCheckInterval);
@@ -333,6 +343,7 @@ export class AuthService {
                 }
             }
         }, 30000); // Check every 30 seconds
+        */
     }
 
     /**
