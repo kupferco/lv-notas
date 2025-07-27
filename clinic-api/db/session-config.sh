@@ -9,14 +9,57 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Database connection settings
-DB_HOST=${POSTGRES_HOST:-localhost}
-DB_PORT=${POSTGRES_PORT:-5432}
-DB_USER=${POSTGRES_USER:-dankupfer}
-DB_NAME=${POSTGRES_DB:-clinic_db}
+# Function to select environment
+select_environment() {
+    echo -e "${BLUE}🕐 Session Timeout Configuration Tool${NC}"
+    echo "======================================"
+    echo ""
+    
+    # Ask for environment
+    echo -e "${BLUE}🌍 Select Environment:${NC}"
+    echo "1. 🛠️  Development (Local Database)"
+    echo "2. 🚀 Production (Cloud SQL via Proxy)"
+    echo ""
+    read -p "Choose environment (1-2): " env_choice
 
-echo -e "${BLUE}🕐 Session Timeout Configuration Tool${NC}"
-echo "======================================"
+    case $env_choice in
+        1)
+            echo -e "${BLUE}🛠️ DEVELOPMENT MODE SELECTED${NC}"
+            DB_HOST=${POSTGRES_HOST:-localhost}
+            DB_PORT=${POSTGRES_PORT:-5432}
+            DB_USER=${POSTGRES_USER:-dankupfer}
+            DB_NAME=${POSTGRES_DB:-clinic_db}
+            PROD_MODE=false
+            ;;
+        2)
+            echo -e "${BLUE}🚀 PRODUCTION MODE SELECTED${NC}"
+            DB_HOST="localhost"
+            DB_PORT="5433"  # Cloud SQL Proxy port
+            DB_USER="postgres"
+            DB_NAME="clinic_db"
+            PROD_MODE=true
+            
+            # Check if Cloud SQL Proxy is running
+            if ! nc -z localhost 5433 2>/dev/null; then
+                echo -e "${RED}❌ Cloud SQL Proxy not detected on port 5433${NC}"
+                echo -e "${YELLOW}Please start it first:${NC}"
+                echo -e "${YELLOW}./cloud_sql_proxy -instances=lv-notas:us-central1:clinic-db=tcp:5433${NC}"
+                exit 1
+            fi
+            echo -e "${GREEN}✅ Cloud SQL Proxy detected${NC}"
+            ;;
+        *)
+            echo -e "${RED}❌ Invalid choice${NC}"
+            exit 1
+            ;;
+    esac
+
+    echo ""
+    echo -e "Environment: ${YELLOW}$([ "$PROD_MODE" = true ] && echo "PRODUCTION" || echo "DEVELOPMENT")${NC}"
+    echo -e "Host: ${YELLOW}$DB_HOST:$DB_PORT${NC}"
+    echo -e "Database: ${YELLOW}$DB_NAME${NC}"
+    echo ""
+}
 
 # Function to execute SQL
 execute_sql() {
@@ -105,6 +148,16 @@ set_development() {
 
 set_production() {
     echo -e "${YELLOW}🚀 Setting PRODUCTION mode (1 hour)${NC}"
+    
+    if [ "$PROD_MODE" = true ]; then
+        echo -e "${RED}⚠️  WARNING: This will affect PRODUCTION users!${NC}"
+        read -p "Are you sure you want to change production session timing? (yes/no): " confirm
+        if [ "$confirm" != "yes" ]; then
+            echo -e "${YELLOW}❌ Production timing change cancelled${NC}"
+            return
+        fi
+    fi
+    
     execute_sql "
     ALTER TABLE user_sessions 
     ALTER COLUMN inactive_timeout_minutes SET DEFAULT 60,
@@ -176,7 +229,7 @@ set_custom() {
 # Main menu
 main_menu() {
     echo -e "${BLUE}Choose a session configuration:${NC}"
-    echo "1. ⚡ Rapid Testing (2 minutes) - Quick modal testing"  # Updated description
+    echo "1. ⚡ Rapid Testing (2 minutes) - Quick modal testing"
     echo "2. 🛠️ Development (30 minutes) - Regular development"  
     echo "3. 🚀 Production (1 hour) - Standard production"
     echo "4. ⏰ Extended (2 hours) - Long sessions"
@@ -199,6 +252,9 @@ main_menu() {
     esac
 }
 
+# MAIN EXECUTION
+select_environment
+
 # Check if database connection is available
 echo -e "${YELLOW}🔍 Checking database connection...${NC}"
 PGPASSWORD=$POSTGRES_PASSWORD psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1
@@ -211,7 +267,11 @@ if [ $? -ne 0 ]; then
     echo "  User: $DB_USER"
     echo "  Database: $DB_NAME"
     echo ""
-    echo "Make sure POSTGRES_PASSWORD environment variable is set."
+    if [ "$PROD_MODE" = true ]; then
+        echo "Make sure Cloud SQL Proxy is running and POSTGRES_PASSWORD is set."
+    else
+        echo "Make sure POSTGRES_PASSWORD environment variable is set."
+    fi
     exit 1
 fi
 

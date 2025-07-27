@@ -18,16 +18,16 @@ class ActivityMonitor {
 
       // Only reset if we have a valid session token
       if (authService.getSessionToken()) {
-        console.log('🔄 User activity detected - extending session timer');
+        // console.log('🔄 User activity detected - extending session timer');
         const success = await authService.extendSession();
         if (success) {
           this.lastActivityTime = Date.now();
-          console.log('✅ Session timer extended successfully');
+          // console.log('✅ Session timer extended successfully');
         } else {
           console.log('❌ Failed to extend session timer');
         }
       } else {
-        console.log('⚠️ No session token - skipping activity reset');
+        // console.log('⚠️ No session token - skipping activity reset');
       }
     } catch (error) {
       console.error('Error resetting session activity:', error);
@@ -49,13 +49,13 @@ class ActivityMonitor {
     const shouldLog = meaningfulEvents.includes(event.type);
     
     if (shouldLog) {
-      console.log(`🎯 Meaningful activity detected: ${event.type}`);
+      // console.log(`🎯 Meaningful activity detected: ${event.type}`);
     }
     
     // Throttle to avoid too many API calls
     if (timeSinceLastActivity < this.resetThrottleMs) {
       if (shouldLog) {
-        console.log(`⏳ Throttled: Last reset was ${Math.round(timeSinceLastActivity/1000)}s ago (min ${this.resetThrottleMs/1000}s)`);
+        // console.log(`⏳ Throttled: Last reset was ${Math.round(timeSinceLastActivity/1000)}s ago (min ${this.resetThrottleMs/1000}s)`);
       }
       return;
     }

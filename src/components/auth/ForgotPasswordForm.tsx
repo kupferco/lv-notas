@@ -75,22 +75,58 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
     setIsLoading(true);
 
     try {
-      const token = await forgotPassword(email.trim().toLowerCase());
-      
-      console.log('✅ Password reset requested successfully');
-      
-      // In development, show the token (remove in production)
-      if (process.env.NODE_ENV === 'development') {
-        setResetToken(token);
-        setSuccess('Código de redefinição gerado! (Em produção, seria enviado por email)');
+      console.log('🔍 DEBUG: Requesting password reset for:', email.trim().toLowerCase());
+
+      const response = await forgotPassword(email.trim().toLowerCase());
+
+      console.log('🔍 DEBUG: Full forgotPassword response:', response);
+      console.log('🔍 DEBUG: Response type:', typeof response);
+
+      // Handle different response formats safely
+      let token: string;
+      if (typeof response === 'string') {
+        // If response is just the token string
+        token = response;
+        console.log('🔍 DEBUG: Response is string token');
+      } else if (response && typeof response === 'object') {
+        // If response is an object, try to extract token
+        const responseObj = response as any; // Type assertion for debugging
+        console.log('🔍 DEBUG: Response keys:', Object.keys(responseObj));
+        token = responseObj.resetToken || responseObj.token || String(response);
+        console.log('🔍 DEBUG: Extracted from object');
       } else {
-        setSuccess('Se existe uma conta com este email, você receberá um código de redefinição.');
+        token = String(response);
+        console.log('🔍 DEBUG: Converted to string');
       }
-      
+
+      console.log('🔍 DEBUG: Extracted token:', token);
+      console.log('🔍 DEBUG: Token type:', typeof token);
+      console.log('🔍 DEBUG: Token length:', token?.length);
+
+      if (!token) {
+        console.log('❌ DEBUG: No token found in response!');
+        setError('Erro: Código de redefinição não recebido do servidor.');
+        return;
+      }
+
+      console.log('✅ DEBUG: Password reset requested successfully with token:', token.substring(0, 10) + '...');
+
+      // TEMPORARY: Always show the token for debugging (restore dev check later)
+      // if (process.env.NODE_ENV === 'development') {
+      setResetToken(token);
+      setSuccess(`Código de redefinição gerado! Token: ${token.substring(0, 8)}... (${token.length} chars)`);
+      // } else {
+      //   setSuccess('Se existe uma conta com este email, você receberá um código de redefinição.');
+      // }
+
       setStep('reset');
     } catch (error: any) {
-      console.error('❌ Password reset request failed:', error);
-      setError('Erro ao solicitar redefinição de senha. Tente novamente.');
+      console.error('❌ DEBUG: Password reset request failed:', error);
+      console.error('❌ DEBUG: Error type:', typeof error);
+      console.error('❌ DEBUG: Error message:', error.message);
+      console.error('❌ DEBUG: Full error:', error);
+
+      setError(`Erro ao solicitar redefinição de senha: ${error.message || 'Erro desconhecido'}`);
     } finally {
       setIsLoading(false);
     }
@@ -109,15 +145,15 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
 
     try {
       await resetPassword(resetToken.trim(), newPassword);
-      
+
       console.log('✅ Password reset successfully');
       setSuccess('Senha redefinida com sucesso! Você já pode fazer login com a nova senha.');
-      
+
       // Clear sensitive data
       setResetToken('');
       setNewPassword('');
       setConfirmPassword('');
-      
+
       if (onSuccess) {
         setTimeout(() => {
           onSuccess();
@@ -125,7 +161,7 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
       }
     } catch (error: any) {
       console.error('❌ Password reset failed:', error);
-      
+
       if (error.message.includes('Invalid or expired')) {
         setError('Código de redefinição inválido ou expirado. Solicite um novo código.');
       } else {
@@ -147,7 +183,7 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
 
   const getPasswordStrength = (): { score: number; label: string; color: string } => {
     if (newPassword.length === 0) return { score: 0, label: '', color: '#e9ecef' };
-    
+
     let score = 0;
     if (newPassword.length >= 8) score++;
     if (/[a-z]/.test(newPassword)) score++;
@@ -171,7 +207,7 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
           {step === 'request' ? 'Esqueceu sua Senha?' : 'Redefinir Senha'}
         </Text>
         <Text style={styles.subtitle}>
-          {step === 'request' 
+          {step === 'request'
             ? 'Digite seu email para receber um código de redefinição'
             : 'Digite o código recebido e sua nova senha'
           }
@@ -230,7 +266,8 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
       {step === 'reset' && (
         <View style={styles.form}>
           {/* Development Token Display */}
-          {process.env.NODE_ENV === 'development' && resetToken && (
+          {/* {process.env.NODE_ENV === 'development' && resetToken && ( */}
+          {resetToken && (
             <View style={styles.devTokenContainer}>
               <Text style={styles.devTokenLabel}>Código (Desenvolvimento):</Text>
               <Text style={styles.devTokenText}>{resetToken}</Text>
@@ -273,19 +310,19 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
                 </Text>
               </Pressable>
             </View>
-            
+
             {/* Password Strength Indicator */}
             {newPassword.length > 0 && (
               <View style={styles.passwordStrength}>
                 <View style={styles.strengthBar}>
-                  <View 
+                  <View
                     style={[
-                      styles.strengthFill, 
-                      { 
+                      styles.strengthFill,
+                      {
                         width: `${(passwordStrength.score / 5) * 100}%`,
-                        backgroundColor: passwordStrength.color 
+                        backgroundColor: passwordStrength.color
                       }
-                    ]} 
+                    ]}
                   />
                 </View>
                 <Text style={[styles.strengthLabel, { color: passwordStrength.color }]}>
