@@ -492,7 +492,75 @@ router.get("/session-config", asyncHandler(async (req, res) => {
         return res.status(401).json({ error: 'Access token required' });
     }
 
-    return res.status(401).json({ error: 'Authentication required' });
+    // Actually validate the token (like the other endpoints do)
+    try {
+        const user = await getUserByToken(token);
+        if (!user) {
+            return res.status(401).json({
+                error: 'Invalid or expired session',
+                code: 'SESSION_EXPIRED'
+            });
+        }
+
+        // Now return the same config logic as localhost
+        const { markExpiredSessions } = await import('../services/auth-service.js');
+        await markExpiredSessions();
+
+        // Get database defaults (same code as localhost section)
+        const defaultConfigQuery = await pool.query(`
+            SELECT column_default as timeout_default
+            FROM information_schema.columns 
+            WHERE table_name = 'user_sessions' 
+            AND column_name = 'inactive_timeout_minutes'
+        `);
+
+        const defaultWarningQuery = await pool.query(`
+            SELECT column_default as warning_default
+            FROM information_schema.columns 
+            WHERE table_name = 'user_sessions' 
+            AND column_name = 'warning_timeout_minutes'
+        `);
+
+        const activeSessionsQuery = await pool.query(`
+            SELECT 
+                COUNT(*) as active_count,
+                inactive_timeout_minutes,
+                warning_timeout_minutes
+            FROM user_sessions 
+            WHERE status = 'active'
+            GROUP BY inactive_timeout_minutes, warning_timeout_minutes
+        `);
+
+        const defaultInactiveTimeout = parseInt(
+            (defaultConfigQuery.rows[0]?.timeout_default || '10').toString()
+        );
+        const defaultWarningTimeout = parseInt(
+            (defaultWarningQuery.rows[0]?.warning_default || '1').toString()
+        );
+
+        const activeSessionCount = activeSessionsQuery.rows.reduce(
+            (total, row) => total + parseInt(row.active_count), 0
+        );
+
+        const currentSession = activeSessionsQuery.rows[0];
+
+        const config = {
+            defaultInactiveTimeoutMinutes: defaultInactiveTimeout,
+            defaultWarningTimeoutMinutes: defaultWarningTimeout,
+            activeSessionCount: activeSessionCount,
+            currentSessionInactiveTimeout: currentSession?.inactive_timeout_minutes || null,
+            currentSessionWarningTimeout: currentSession?.warning_timeout_minutes || null
+        };
+
+        return res.json(config);
+
+    } catch (error) {
+        console.error('Error validating token or fetching config:', error);
+        return res.status(401).json({
+            error: 'Authentication failed',
+            code: 'SESSION_EXPIRED'
+        });
+    }
 }));
 
 export default router;

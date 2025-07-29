@@ -12,6 +12,8 @@ export const AuthDebug = () => {
   const [firebaseTokenInfo, setFirebaseTokenInfo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
   const { user } = useAuth();
 
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -96,10 +98,10 @@ export const AuthDebug = () => {
     try {
       // Always try to get session configuration first
       try {
-        // console.log('🔍 AuthDebug: Fetching session configuration...');
+        console.log('🔍 AuthDebug: Fetching session configuration...');
         const config = await authService.getSessionConfiguration();
-        // setSessionConfig(config);
-        // console.log('⚙️ Session Configuration:', config);
+        setSessionConfig(config);
+        console.log('⚙️ Session Configuration:', config);
       } catch (configError: any) {
         console.warn('⚠️ AuthDebug: Could not fetch session configuration:', configError);
         setSessionConfig({ error: configError?.message || 'Could not fetch configuration' });
@@ -108,10 +110,10 @@ export const AuthDebug = () => {
       // Only check session status if we have a session token
       if (authService.getSessionToken()) {
         try {
-          // console.log('🔍 AuthDebug: Checking session status...');
+          console.log('🔍 AuthDebug: Checking session status...');
           const status = await authService.checkSessionStatus();
           setSessionStatus(status);
-          // console.log('📊 Session Status:', status);
+          console.log('📊 Session Status:', status);
         } catch (sessionError: any) {
           console.warn('⚠️ AuthDebug: Session status check failed:', sessionError);
           setSessionStatus({ error: sessionError?.message || 'Session check failed' });
@@ -135,7 +137,7 @@ export const AuthDebug = () => {
     }
   };
 
-  // PASSIVE: Auto-refresh every second to get updated session status from server
+  // Auto-refresh control
   useEffect(() => {
     // Load token info immediately
     const tokenInfo = googleOAuthService.getTokenInfo();
@@ -148,14 +150,64 @@ export const AuthDebug = () => {
     // Do initial refresh
     refreshStatus();
     
-    // Always auto-refresh every second (passive monitoring)
-    console.log('🔄 AuthDebug: Starting passive monitoring every second...');
-    const interval = setInterval(refreshStatus, 1000);
+    // DON'T start auto-refresh here - let the second useEffect handle it
+    
     return () => {
-      console.log('⏸️ AuthDebug: Stopping passive monitoring');
-      clearInterval(interval);
+      stopAutoRefresh();
     };
-  }, []);
+  }, []); // Remove startAutoRefresh from here
+
+  // Auto-refresh control - this is the ONLY place that should start/stop intervals
+  useEffect(() => {
+    console.log(`🔄 AuthDebug: useEffect triggered, autoRefreshEnabled: ${autoRefreshEnabled}`);
+    
+    // Always stop first to prevent multiple intervals
+    stopAutoRefresh();
+    
+    // Only start if enabled
+    if (autoRefreshEnabled) {
+      console.log('🔄 AuthDebug: Starting auto-refresh every second...');
+      const interval = setInterval(() => {
+        console.log('🔄 Auto-refresh tick');
+        refreshStatus();
+      }, 1000);
+      setRefreshInterval(interval);
+    } else {
+      console.log('⏸️ AuthDebug: Auto-refresh disabled');
+    }
+    
+    // Cleanup function
+    return () => {
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+      }
+    };
+  }, [autoRefreshEnabled]); // Only depend on autoRefreshEnabled
+
+  const startAutoRefresh = () => {
+    // This function is now only used by the manual refresh logic
+    // The useEffect handles the actual interval management
+    console.log('🔄 startAutoRefresh called (should only be used internally)');
+  };
+
+  const stopAutoRefresh = () => {
+    if (refreshInterval) {
+      console.log('⏸️ AuthDebug: Stopping auto-refresh, clearing interval');
+      clearInterval(refreshInterval);
+      setRefreshInterval(null);
+    }
+  };
+
+  const toggleAutoRefresh = () => {
+    const newState = !autoRefreshEnabled;
+    console.log(`🔄 AuthDebug: Toggling auto-refresh to ${newState ? 'ENABLED' : 'DISABLED'}`);
+    setAutoRefreshEnabled(newState);
+  };
+
+  const manualRefresh = async () => {
+    console.log('🔄 Manual refresh triggered');
+    await refreshStatus();
+  };
 
   const formatTimeRemaining = (milliseconds: number): string => {
     if (milliseconds <= 0) return '⚠️ EXPIRED';
@@ -256,9 +308,9 @@ export const AuthDebug = () => {
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>🔧 Session Debug (Passive Mode)</Text>
+      <Text style={styles.title}>🔧 Session Debug (Manual Controls)</Text>
       
-      {/* Control Buttons - Just the essential actions */}
+      {/* Session Control Buttons */}
       <View style={styles.buttonContainer}>
         <Pressable 
           style={[styles.button, styles.successButton]} 
@@ -276,12 +328,33 @@ export const AuthDebug = () => {
           <Text style={styles.buttonText}>💥 Force Logout</Text>
         </Pressable>
       </View>
+
+      {/* Manual Control Buttons */}
+      <View style={styles.buttonContainer}>
+        <Pressable 
+          style={[styles.button, autoRefreshEnabled ? styles.dangerButton : styles.successButton]} 
+          onPress={toggleAutoRefresh}
+          disabled={isLoading}
+        >
+          <Text style={styles.buttonText}>
+            {autoRefreshEnabled ? '⏸️ Stop Auto-Refresh' : '▶️ Start Auto-Refresh'}
+          </Text>
+        </Pressable>
+
+        <Pressable 
+          style={[styles.button, styles.primaryButton]} 
+          onPress={manualRefresh}
+          disabled={isLoading}
+        >
+          <Text style={styles.buttonText}>🔄 Manual Refresh</Text>
+        </Pressable>
+      </View>
       
       {/* Debug Mode Alert */}
       <View style={styles.alertCard}>
-        <Text style={styles.alertTitle}>🔍 PASSIVE DEBUG MODE</Text>
+        <Text style={styles.alertTitle}>🔍 DEBUG MODE</Text>
         <Text style={styles.alertText}>
-          Automatically refreshing session data every second (passive monitoring).
+          Auto-refresh: {autoRefreshEnabled ? '✅ ENABLED (every 1s)' : '❌ DISABLED (manual only)'}
         </Text>
         <Text style={styles.alertText}>
           Live countdown updates every second without affecting session timing.
@@ -295,7 +368,7 @@ export const AuthDebug = () => {
       <View style={styles.statusCard}>
         <Text style={styles.cardTitle}>🛡️ Debug Status</Text>
         <Text style={styles.statusText}>
-          Mode: Passive monitoring (updates every 1s)
+          Mode: {autoRefreshEnabled ? 'Auto-refresh (every 1s)' : 'Manual refresh only'}
         </Text>
         <Text style={styles.statusText}>
           User: {user?.email || 'Not logged in'}
@@ -389,7 +462,7 @@ export const AuthDebug = () => {
             Active Sessions: {sessionConfig.activeSessionCount}
           </Text>
           <Text style={styles.configText}>
-            Debug Check: Passive monitoring every 10s
+            Manual Control: Auto-refresh {autoRefreshEnabled ? 'enabled' : 'disabled'}
           </Text>
           
           {/* Configuration Explanation */}

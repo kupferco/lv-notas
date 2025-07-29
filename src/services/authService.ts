@@ -1,6 +1,8 @@
 // src/services/authService.ts
 // Enhanced authentication service supporting both Firebase and credential auth
 
+import { config } from '../config/config';
+
 export interface User {
     uid: any;
     id: string;
@@ -62,7 +64,7 @@ export class AuthService {
      */
     async login(email: string, password: string): Promise<LoginResponse> {
         try {
-            const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'}/api/auth/login`, {
+            const response = await fetch(`${config.apiUrl}/api/auth/login`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -101,7 +103,7 @@ export class AuthService {
      */
     async register(email: string, password: string, displayName: string, invitationToken?: string): Promise<any> {
         try {
-            const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'}/api/auth/register`, {
+            const response = await fetch(`${config.apiUrl}/api/auth/register`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -127,7 +129,7 @@ export class AuthService {
      */
     async forgotPassword(email: string): Promise<string> {
         try {
-            const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'}/api/auth/forgot-password`, {
+            const response = await fetch(`${config.apiUrl}/api/auth/forgot-password`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -154,7 +156,7 @@ export class AuthService {
      */
     async resetPassword(token: string, newPassword: string): Promise<void> {
         try {
-            const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'}/api/auth/reset-password`, {
+            const response = await fetch(`${config.apiUrl}/api/auth/reset-password`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -182,7 +184,7 @@ export class AuthService {
         }
 
         try {
-            const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'}/api/auth/me`, {
+            const response = await fetch(`${config.apiUrl}/api/auth/me`, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${this.sessionToken}`,
@@ -221,7 +223,7 @@ export class AuthService {
     async logout(): Promise<void> {
         try {
             if (this.sessionToken) {
-                await fetch(`${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'}/api/auth/logout`, {
+                await fetch(`${config.apiUrl}/api/auth/logout`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${this.sessionToken}`,
@@ -244,7 +246,7 @@ export class AuthService {
         }
 
         try {
-            const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'}/api/auth/extend-session`, {
+            const response = await fetch(`${config.apiUrl}/api/auth/extend-session`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -281,7 +283,7 @@ export class AuthService {
         }
 
         try {
-            const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'}/api/auth/session-status`, {
+            const response = await fetch(`${config.apiUrl}/api/auth/session-status`, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${this.sessionToken}`,
@@ -416,7 +418,7 @@ export class AuthService {
    */
     async getSessionConfiguration(): Promise<SessionConfiguration> {
         try {
-            const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'}/api/auth/session-config`, {
+            const response = await fetch(`${config.apiUrl}/api/auth/session-config`, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${this.sessionToken}`,
