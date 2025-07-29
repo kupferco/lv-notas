@@ -39,6 +39,15 @@
 \echo '💰 Installing monthly billing system...'
 \i schemas/10_monthly_billing.sql
 
+\echo '💰 Installing authentication system...'
+\i schemas/11_authentication_system.sql
+
+\echo '💰 Installing authentication config...'
+\i schemas/12_authentication_config.sql
+
+\echo '🧾 Installing NFS-e integration system...'
+\i schemas/13_nfse_integration.sql
+
 \echo ''
 \echo '✅ Complete schema installation finished!'
 \echo '🎉 LV Notas database is ready for use!'
