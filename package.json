@@ -16,6 +16,8 @@
     "@react-oauth/google": "^0.12.1",
     "expo": "^52.0.35",
     "expo-constants": "^17.0.5",
+    "expo-document-picker": "~13.0.3",
+    "expo-file-system": "~18.0.12",
     "expo-status-bar": "~2.0.1",
     "firebase": "^11.3.1",
     "react": "18.3.1",
