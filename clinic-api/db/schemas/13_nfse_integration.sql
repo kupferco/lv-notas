@@ -55,10 +55,7 @@ CREATE TABLE therapist_nfse_config (
     -- Status and tracking
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Ensure one config per therapist
-    UNIQUE(therapist_id)
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- NFS-e invoice tracking
