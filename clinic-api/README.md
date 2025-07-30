@@ -100,6 +100,28 @@ PORT=3000
 
 ## 🗄️ Database Management
 
+
+```bash
+### **Environment-Aware Database Operations (NEW!)**
+
+All database operations now support environment targeting for safe production management:
+
+```bash
+# Environment Options
+./manage_db.sh [command] --env=local      # Local development (default)
+./manage_db.sh [command] --env=production # Production via Cloud SQL Proxy  
+./manage_db.sh [command] --env=staging    # Staging environment
+
+# Production Examples
+./manage_db.sh list-users --env=production           # List production users
+./manage_db.sh backup "Pre-deployment" --env=production  # Production backup
+./manage_db.sh add-nfse --env=production             # Add NFS-e to production
+./manage_db.sh cleanup-user email@test.com --env=production  # Clean production user
+
+# Environment-specific backups
+# Backups include environment in filename: manual_production_20250730_143022.sql.gz
+./manage_db.sh cleanup-backups --env=production      # Clean production backups only
+
 ### **Local Development Database**
 
 #### **Quick Start with Monthly Billing**
@@ -124,6 +146,18 @@ The database now includes:
 ```bash
 # Clean up specific user data for fresh onboarding testing
 ./manage_db.sh cleanup-user your-email@example.com
+
+# Test monthly billing workflow
+./manage_db.sh comprehensive
+
+# List registered users (local)
+./manage_db.sh list-users
+
+# List registered users in production
+./manage_db.sh list-users --env=production
+
+# Clean up specific user data for fresh onboarding testing
+./manage_db.sh cleanup-user your-email@example.com --env=production
 
 # Test monthly billing workflow
 ./manage_db.sh comprehensive
@@ -346,6 +380,406 @@ curl -X GET "/api/calendar-only/debug?therapistEmail=therapist@example.com"
   "calendarWritesEnabled": false
 }
 ```
+
+## 🧾 **NFS-e Electronic Invoice Integration (NEW!)**
+
+### 🏗️ **Provider-Agnostic NFS-e Architecture**
+- **🔌 Multiple Provider Support** - PlugNotas, Focus NFe, NFe.io, or direct municipal integration
+- **🔐 Secure Certificate Management** - Encrypted storage of digital certificates (.p12/.pfx)
+- **📊 Complete Invoice Tracking** - Full audit trail from generation to payment
+- **⚡ Automatic Invoice Generation** - Optional auto-generation after payment confirmation
+- **🛡️ Production-Safe Implementation** - NFS-e tables separate from core data
+
+### 💼 **Brazilian Tax Compliance**
+- **📋 São Paulo Municipal Integration** - Service code 14.01 for therapy services
+- **💰 ISS Tax Calculation** - Configurable tax rates (typically 2-5% for therapy)
+- **🏢 Company Information Management** - CNPJ, municipal registration, full address
+- **📄 Official Invoice Generation** - Municipal verification codes and official numbering
+- **📧 Patient Communication** - Email delivery of PDF invoices
+
+### 🗄️ **NFS-e Database Schema**
+
+#### **Therapist NFS-e Configuration**
+```sql
+-- Separate NFS-e configuration (optional per therapist)
+CREATE TABLE therapist_nfse_config (
+    id SERIAL PRIMARY KEY,
+    therapist_id INTEGER REFERENCES therapists(id),
+    
+    -- Provider settings (agnostic)
+    nfse_provider VARCHAR(50) DEFAULT 'plugnotas', -- plugnotas, focus_nfe, nfe_io
+    provider_company_id VARCHAR(100),              -- Provider-specific company ID
+    provider_api_key_encrypted TEXT,               -- Encrypted API key
+    
+    -- Certificate management
+    certificate_file_path VARCHAR(255),            -- Encrypted certificate storage
+    certificate_password_encrypted TEXT,           -- Encrypted certificate password
+    certificate_expires_at TIMESTAMP,              -- Certificate expiration tracking
+    certificate_status VARCHAR(20) DEFAULT 'pending', -- pending, active, expired
+    
+    -- Company details for invoices
+    company_cnpj VARCHAR(18) NOT NULL,             -- Brazilian CNPJ
+    company_name VARCHAR(255) NOT NULL,            -- Company legal name
+    company_address JSONB DEFAULT '{}',            -- Complete address
+    
+    -- Tax configuration
+    default_service_code VARCHAR(20) DEFAULT '14.01', -- Therapy service code
+    default_tax_rate DECIMAL(5,2) DEFAULT 5.0,        -- ISS rate
+    auto_generate_invoices BOOLEAN DEFAULT false,      -- Auto-generate after payment
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(therapist_id) -- One configuration per therapist
+);
+
+-- NFS-e invoice tracking
+CREATE TABLE nfse_invoices (
+    id SERIAL PRIMARY KEY,
+    therapist_id INTEGER REFERENCES therapists(id),
+    nfse_config_id INTEGER REFERENCES therapist_nfse_config(id),
+    session_id INTEGER REFERENCES sessions(id),
+    
+    -- Provider integration
+    nfse_provider VARCHAR(50) NOT NULL,            -- Which provider was used
+    provider_invoice_id VARCHAR(100),              -- Provider-specific invoice ID
+    provider_response JSONB DEFAULT '{}',          -- Full API response for debugging
+    
+    -- Invoice details
+    invoice_number VARCHAR(50),                    -- Sequential invoice number
+    invoice_verification_code VARCHAR(50),        -- Municipal verification code
+    invoice_amount DECIMAL(10,2) NOT NULL,        -- Invoice amount in cents
+    service_description TEXT NOT NULL,            -- Service description
+    tax_amount DECIMAL(10,2),                     -- Calculated ISS tax
+    
+    -- Patient information (snapshot)
+    recipient_name VARCHAR(255) NOT NULL,         -- Patient name at invoice time
+    recipient_cpf VARCHAR(14),                    -- Patient CPF if available
+    recipient_email VARCHAR(255),                 -- For invoice delivery
+    
+    -- Status and files
+    invoice_status VARCHAR(20) DEFAULT 'pending', -- pending, issued, cancelled, error
+    pdf_url TEXT,                                 -- Invoice PDF URL
+    xml_url TEXT,                                 -- Invoice XML URL
+    
+    -- Timestamps
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    issued_at TIMESTAMP,                          -- When invoice was successfully issued
+    cancelled_at TIMESTAMP,                      -- If invoice was cancelled
+    
+    -- Error handling
+    error_message TEXT,                           -- Error details if generation failed
+    retry_count INTEGER DEFAULT 0,               -- Number of retry attempts
+    last_retry_at TIMESTAMP                      -- Last retry timestamp
+);
+```
+
+### 🚀 **NFS-e API Endpoints**
+
+#### **Certificate Management**
+```bash
+# Upload digital certificate
+POST /api/nfse/certificate
+Content-Type: multipart/form-data
+Authorization: Bearer your_session_token
+X-API-Key: your_api_key
+
+# Form data:
+# certificate: [.p12/.pfx file]
+# password: "certificate_password"
+# therapistEmail: "therapist@example.com"
+
+# Response
+{
+  "message": "Certificate uploaded and validated successfully",
+  "certificateStatus": "active",
+  "expiresAt": "2025-12-31T23:59:59.000Z",
+  "validFor": "365 days"
+}
+
+# Check certificate status
+GET /api/nfse/certificate/status?therapistEmail=therapist@example.com
+Authorization: Bearer your_session_token
+X-API-Key: your_api_key
+
+# Response
+{
+  "status": "active",
+  "expiresAt": "2025-12-31T23:59:59.000Z",
+  "daysUntilExpiry": 180,
+  "provider": "plugnotas",
+  "companyRegistered": true
+}
+```
+
+#### **Company Registration**
+```bash
+# Register company with NFS-e provider (automatic)
+POST /api/nfse/company/register
+Content-Type: application/json
+Authorization: Bearer your_session_token
+X-API-Key: your_api_key
+
+{
+  "therapistEmail": "therapist@example.com",
+  "companyData": {
+    "cnpj": "12.345.678/0001-99",
+    "companyName": "Clínica Terapia Ltda",
+    "municipalRegistration": "123456789",
+    "address": {
+      "street": "Rua das Flores, 123",
+      "neighborhood": "Vila Nova",
+      "city": "São Paulo",
+      "state": "SP",
+      "zipCode": "01234-567"
+    },
+    "email": "contato@clinica.com.br",
+    "phone": "(11) 99999-9999"
+  },
+  "taxSettings": {
+    "serviceCode": "14.01",
+    "taxRate": 5.0,
+    "defaultServiceDescription": "Serviços de psicoterapia"
+  }
+}
+
+# Response
+{
+  "message": "Company registered successfully with provider",
+  "provider": "plugnotas",
+  "providerCompanyId": "PLUG123456",
+  "status": "active"
+}
+```
+
+#### **Invoice Generation**
+```bash
+# Generate test invoice (sandbox)
+POST /api/nfse/invoice/test
+Content-Type: application/json
+Authorization: Bearer your_session_token
+X-API-Key: your_api_key
+
+{
+  "therapistEmail": "therapist@example.com",
+  "testData": {
+    "patientName": "João Silva",
+    "patientEmail": "joao@email.com",
+    "sessionDate": "2025-01-15",
+    "amount": 15000,  // R$ 150.00 in cents
+    "serviceDescription": "Sessão de psicoterapia individual"
+  }
+}
+
+# Generate production invoice
+POST /api/nfse/invoice/generate
+Content-Type: application/json
+Authorization: Bearer your_session_token
+X-API-Key: your_api_key
+
+{
+  "therapistEmail": "therapist@example.com",
+  "sessionId": 123,
+  "billingPeriodId": 456  // Optional: link to monthly billing period
+}
+
+# Response
+{
+  "message": "Invoice generated successfully",
+  "invoice": {
+    "id": 789,
+    "invoiceNumber": "00000001",
+    "verificationCode": "ABC123XYZ",
+    "amount": 15000,
+    "taxAmount": 750,  // 5% ISS
+    "status": "issued",
+    "pdfUrl": "https://provider.com/invoices/123.pdf",
+    "issuedAt": "2025-01-15T14:30:00.000Z"
+  }
+}
+```
+
+#### **Invoice Management**
+```bash
+# List therapist's invoices
+GET /api/nfse/invoices?therapistEmail=therapist@example.com&startDate=2025-01-01&endDate=2025-01-31
+Authorization: Bearer your_session_token
+X-API-Key: your_api_key
+
+# Response
+{
+  "invoices": [
+    {
+      "id": 789,
+      "invoiceNumber": "00000001",
+      "recipientName": "João Silva",
+      "amount": 15000,
+      "status": "issued",
+      "issuedAt": "2025-01-15T14:30:00.000Z",
+      "pdfUrl": "https://provider.com/invoices/123.pdf"
+    }
+  ],
+  "summary": {
+    "totalInvoices": 1,
+    "totalAmount": 15000,
+    "issuedCount": 1,
+    "pendingCount": 0,
+    "errorCount": 0
+  }
+}
+
+# Download invoice PDF
+GET /api/nfse/invoice/:id/pdf?therapistEmail=therapist@example.com
+Authorization: Bearer your_session_token
+X-API-Key: your_api_key
+
+# Response: PDF file download
+
+# Cancel invoice
+PUT /api/nfse/invoice/:id/cancel
+Content-Type: application/json
+Authorization: Bearer your_session_token
+X-API-Key: your_api_key
+
+{
+  "therapistEmail": "therapist@example.com",
+  "reason": "Patient cancellation"
+}
+```
+
+### 💰 **Integration with Payment System**
+
+#### **Automatic Invoice Generation**
+```bash
+# When payment is confirmed, automatically generate invoice
+# This is triggered internally after payment confirmation
+
+POST /api/monthly-billing/:id/payments
+# After successful payment recording, if auto_generate_invoices=true:
+# 1. Generate NFS-e invoice automatically
+# 2. Send PDF to patient via email
+# 3. Store invoice reference in billing period
+```
+
+#### **Manual Invoice Generation from Billing Periods**
+```bash
+# Generate invoice for paid billing period
+POST /api/nfse/invoice/from-billing-period
+Content-Type: application/json
+Authorization: Bearer your_session_token
+X-API-Key: your_api_key
+
+{
+  "therapistEmail": "therapist@example.com",
+  "billingPeriodId": 456,
+  "invoiceOptions": {
+    "serviceDescription": "Sessões de psicoterapia - Janeiro 2025",
+    "consolidateMultipleSessions": true  // Single invoice for multiple sessions
+  }
+}
+```
+
+### 🔧 **NFS-e Configuration**
+
+#### **Provider-Specific Settings**
+```bash
+# App configuration includes provider settings
+INSERT INTO app_configuration (key, value, description) VALUES
+('nfse_default_provider', 'plugnotas', 'Default NFS-e provider'),
+('nfse_sandbox_mode', 'true', 'Use sandbox/test mode'),
+('nfse_auto_retry_failed', 'true', 'Auto-retry failed invoice generation'),
+('nfse_max_retry_attempts', '3', 'Maximum retry attempts'),
+
+-- Provider-specific API URLs
+('nfse_provider_plugnotas_api_url', 'https://api.plugnotas.com.br', 'PlugNotas API'),
+('nfse_provider_focus_nfe_api_url', 'https://api.focusnfe.com.br', 'Focus NFe API'),
+('nfse_provider_nfe_io_api_url', 'https://api.nfe.io', 'NFe.io API');
+```
+
+#### **Certificate Management**
+- **Encrypted Storage** - Certificates stored with AES-256 encryption
+- **Expiration Monitoring** - Automatic alerts before certificate expiry
+- **Validation** - Certificate validation before storage and use
+- **Backup Support** - Certificate backup and restore functionality
+
+### 🛡️ **NFS-e Security Features**
+
+#### **Data Protection**
+- **Certificate Encryption** - Digital certificates encrypted at rest
+- **API Key Security** - Provider API keys encrypted with separate keys
+- **Audit Logging** - Complete invoice generation audit trail
+- **Error Handling** - Secure error logging without exposing sensitive data
+
+#### **Provider Isolation**
+- **Multi-Provider Support** - Each therapist can use different providers
+- **Provider Failover** - Automatic retry with different provider if configured
+- **Sandox/Production Toggle** - Safe testing environment
+- **Rate Limiting** - Prevent API abuse and respect provider limits
+
+### 🚀 **NFS-e Production Deployment**
+
+#### **Environment Configuration**
+```yaml
+# env.yaml (NFS-e specific variables)
+# NFS-e Integration
+NFSE_ENABLED: true
+NFSE_DEFAULT_PROVIDER: plugnotas
+NFSE_SANDBOX_MODE: false  # Set to true for testing
+NFSE_CERTIFICATE_STORAGE_PATH: /secure/certificates/
+NFSE_ENCRYPTION_KEY: your-certificate-encryption-key-32-chars
+
+# Provider API Keys (encrypted in database, these are for initial setup)
+PLUGNOTAS_API_KEY: your-plugnotas-api-key
+FOCUS_NFE_API_KEY: your-focus-nfe-api-key
+NFE_IO_API_KEY: your-nfe-io-api-key
+```
+
+#### **Database Deployment**
+```bash
+# Add NFS-e support to existing production database (SAFE)
+cd clinic-api/db
+
+# Make sure Cloud SQL Proxy is running first
+./cloud_sql_proxy -instances=lv-notas:us-central1:clinic-db=tcp:5433 &
+
+# Deploy to production with environment flag
+./manage_db.sh add-nfse --env=production
+
+# This safely adds NFS-e tables without affecting existing data
+```
+
+
+#### **Production Testing**
+```bash
+# Test NFS-e endpoints in production
+curl -X GET "https://clinic-api-141687742631.us-central1.run.app/api/nfse/certificate/status?therapistEmail=test@example.com" \
+  -H "Authorization: Bearer production_session_token" \
+  -H "X-API-Key: production_api_key"
+
+# Test invoice generation in sandbox mode
+curl -X POST "https://clinic-api-141687742631.us-central1.run.app/api/nfse/invoice/test" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer production_session_token" \
+  -H "X-API-Key: production_api_key" \
+  -d '{"therapistEmail":"test@example.com","testData":{"patientName":"Test Patient","amount":15000}}'
+```
+
+### 🎯 **NFS-e Development Workflow**
+
+#### **Setup for Development**
+1. **Get Provider Credentials** - Sign up with PlugNotas/Focus NFe/NFe.io
+2. **Add NFS-e Schema** - Run `./manage_db.sh add-nfse`
+3. **Configure Environment** - Set provider API keys and sandbox mode
+4. **Upload Test Certificate** - Use development certificate for testing
+5. **Test Invoice Generation** - Generate test invoices in sandbox
+
+#### **Integration with Existing System**
+- **Monthly Billing Integration** - Generate invoices for billing periods
+- **Payment Workflow** - Optional automatic invoice generation after payment
+- **Patient Communication** - Email invoice PDFs to patients
+- **Audit Trail** - Complete invoice history linked to sessions and payments
+
+---
+
+*The NFS-e integration provides complete Brazilian tax compliance with provider flexibility - start with PlugNotas for simplicity, scale with Focus NFe or NFe.io, or integrate directly with municipal systems when needed.* 🧾⚡
 
 ## 🔐 Security Features
 
@@ -970,6 +1404,7 @@ curl -H "X-API-Key: your_production_api_key" \
 ### ✅ **Completed Features (July 2025)**
 - **Complete calendar-only session management** with read-only Google Calendar integration
 - **Monthly billing period system** with immutable session snapshots
+- **🧾 NFS-e electronic invoice integration** with provider-agnostic architecture
 - **Payment protection workflow** (void only if no payments)
 - **Brazilian phone number integration** for WhatsApp automation
 - **Dual-mode system support** for Simple/Advanced frontend modes

@@ -2,13 +2,12 @@
 // Main authentication navigator managing login, register, and forgot password flows
 
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, SafeAreaView } from 'react-native';
+import { View, StyleSheet, SafeAreaView, Alert } from 'react-native';
 import { LoginForm } from './LoginForm';
 import { RegisterForm } from './RegisterForm';
 import { ForgotPasswordForm } from './ForgotPasswordForm';
 import { SessionTimeoutModal } from '../common/SessionTimeoutModal';
 import { useAuth } from '../../contexts/AuthContext';
-// import { activityMonitor } from '../../utils/activityMonitor';
 
 type AuthScreen = 'login' | 'register' | 'forgotPassword';
 
@@ -24,6 +23,7 @@ export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
     invitationToken,
 }) => {
     const [currentScreen, setCurrentScreen] = useState<AuthScreen>(initialScreen);
+    const [registrationMessage, setRegistrationMessage] = useState<string>('');
     const {
         user,
         isLoading,
@@ -39,39 +39,8 @@ export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
         isLoading,
         currentScreen,
         userEmail: user?.email,
-        showSessionWarning // Add this to track warning state
+        showSessionWarning
     });
-
-    // TEMPORARILY DISABLED - will replace with proper activity monitoring
-    /*
-    // CRITICAL: Control activity monitor based on warning state */
-    // useEffect(() => {
-    //     const setupActivityMonitor = async () => {
-    //         if (showSessionWarning) {
-    //             console.log('7777 🚨 Session warning modal appeared - pausing activity monitoring');
-    //             try {
-    //                 const { activityMonitor } = await import('../../utils/activityMonitor');
-    //                 activityMonitor.setWarningActive(true);
-    //                 console.log('✅ Activity monitor pause set to TRUE');
-    //                 console.log('🔍 Activity monitor status:', activityMonitor.getStatus());
-    //             } catch (error) {
-    //                 console.error('❌ Failed to pause activity monitor:', error);
-    //             }
-    //         } else {
-    //             console.log('✅ Session warning modal closed - resuming activity monitoring');
-    //             try {
-    //                 const { activityMonitor } = await import('../../utils/activityMonitor');
-    //                 activityMonitor.setWarningActive(false);
-    //                 console.log('✅ Activity monitor pause set to FALSE');
-    //                 console.log('🔍 Activity monitor status:', activityMonitor.getStatus());
-    //             } catch (error) {
-    //                 console.error('❌ Failed to resume activity monitor:', error);
-    //             }
-    //         }
-    //     };
-
-    //     setupActivityMonitor();
-    // }, [showSessionWarning]);
 
     // Update the useEffect with more logging
     useEffect(() => {
@@ -97,14 +66,28 @@ export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
 
     const handleShowLogin = () => {
         setCurrentScreen('login');
+        setRegistrationMessage(''); // Clear any registration messages
     };
 
     const handleShowRegister = () => {
         setCurrentScreen('register');
+        setRegistrationMessage(''); // Clear any registration messages
     };
 
     const handleShowForgotPassword = () => {
         setCurrentScreen('forgotPassword');
+        setRegistrationMessage(''); // Clear any registration messages
+    };
+
+    const handleRegistrationSuccess = (message?: string) => {
+        console.log('✅ Registration successful:', message);
+
+        // Set success message
+        const successMessage = message || 'Account created successfully! You can now log in with your credentials.';
+        setRegistrationMessage(successMessage);
+
+        // Remove the Alert.alert call - just switch to login screen
+        setCurrentScreen('login');
     };
 
     const handleExtendSession = async () => {
@@ -131,13 +114,14 @@ export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
                     <LoginForm
                         onShowRegister={handleShowRegister}
                         onShowForgotPassword={handleShowForgotPassword}
+                        successMessage={registrationMessage} // Add this line back
                     />
                 );
 
             case 'register':
                 return (
                     <RegisterForm
-                        onSuccess={handleShowLogin}
+                        onSuccess={handleRegistrationSuccess}
                         onShowLogin={handleShowLogin}
                         invitationToken={invitationToken}
                     />
@@ -156,6 +140,7 @@ export const AuthNavigator: React.FC<AuthNavigatorProps> = ({
                     <LoginForm
                         onShowRegister={handleShowRegister}
                         onShowForgotPassword={handleShowForgotPassword}
+                        successMessage={registrationMessage} // Add this line back
                     />
                 );
         }

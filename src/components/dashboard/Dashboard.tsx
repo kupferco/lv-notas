@@ -2,6 +2,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 
+// import { NFSeTestingSection } from '../nfse/NFSeTestingSection';
+
 export const Dashboard: React.FC = () => {
   // Generate test content
   const testItems = Array.from({ length: 50 }, (_, index) => ({
@@ -32,10 +34,13 @@ export const Dashboard: React.FC = () => {
       </View> */}
 
       {/* Scrollable Dashboard Content */}
-      <ScrollView 
+      <ScrollView
         style={styles.scrollableContent}
         contentContainerStyle={styles.scrollContentContainer}
       >
+        {/* <View style={styles.section}>
+          <NFSeTestingSection />
+        </View> */}
         <Text style={styles.contentTitle}>Em breve</Text>
         {/* <Text style={styles.contentTitle}>Recent Activity</Text>
         <Text style={styles.instructions}>
@@ -65,6 +70,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
+  },
+  section: {
+    marginBottom: 20,
   },
   fixedDashboardHeader: {
     backgroundColor: '#fff',

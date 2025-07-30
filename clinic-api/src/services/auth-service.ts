@@ -6,6 +6,9 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 
+// Email verification configuration - set to false to skip email verification
+const REQUIRE_EMAIL_VERIFICATION = false; // TODO: Set to true when email service is ready
+
 // Max session duration (8 hours regardless of environment)
 const getMaxSessionHours = (): number => {
     return 8;
@@ -352,7 +355,7 @@ export async function createUser(
     password: string,
     displayName: string,
     invitationToken?: string
-): Promise<{ id: number; email: string; displayName: string }> {
+): Promise<{ id: number; email: string; displayName: string; emailVerificationToken?: string }> {
     // Validate input
     if (password.length < 8) {
         throw new Error('Password must be at least 8 characters long');
@@ -372,17 +375,21 @@ export async function createUser(
     const passwordHash = await hashPassword(password);
     const emailVerificationToken = generateSecureToken();
 
+    // Auto-verify email if verification is not required
+    const emailVerified = !REQUIRE_EMAIL_VERIFICATION;
+
     // Create user
     const userResult = await pool.query(`
         INSERT INTO user_credentials (
-            email, password_hash, display_name, email_verification_token, is_active
-        ) VALUES ($1, $2, $3, $4, true)
+            email, password_hash, display_name, email_verification_token, 
+            email_verified, is_active
+        ) VALUES ($1, $2, $3, $4, $5, true)
         RETURNING id, email, display_name
-    `, [email.toLowerCase(), passwordHash, displayName, emailVerificationToken]);
+    `, [email.toLowerCase(), passwordHash, displayName, emailVerificationToken, emailVerified]);
 
     const newUser = userResult.rows[0];
 
-    // Handle invitation if provided
+    // Handle invitation if provided (existing code...)
     if (invitationToken) {
         const invitationResult = await pool.query(`
             SELECT id, therapist_id, invited_role, invited_by
@@ -408,7 +415,21 @@ export async function createUser(
         }
     }
 
-    return newUser;
+    // Return verification token only if email verification is required
+    const result = {
+        id: newUser.id,
+        email: newUser.email,
+        displayName: newUser.display_name
+    };
+
+    if (REQUIRE_EMAIL_VERIFICATION) {
+        return {
+            ...result,
+            emailVerificationToken
+        };
+    }
+
+    return result;
 }
 
 /**

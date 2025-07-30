@@ -12,6 +12,7 @@ import { PaymentSystemNavigator } from './payments/PaymentSystemNavigator';
 import { Settings } from './Settings';
 import { Dashboard } from './dashboard/Dashboard';
 import { AuthDebug } from './auth/AuthDebug';
+import { NFSeTestingSection } from './nfse/NFSeTestingSection';
 
 // Simple URL-based routing
 export const getCurrentPath = (): string => {
@@ -83,8 +84,10 @@ export const Router: React.FC = () => {
             }}
           />
         );
-      case '/debug': // ADD THIS NEW CASE
+      case '/debug':
         return <AuthDebug />;
+      case '/nfse':
+        return <NFSeTestingSection />;
       default:
         return (
           <View style={styles.centerContainer}>

@@ -9,12 +9,14 @@ interface LoginFormProps {
     onSuccess?: () => void;
     onShowRegister?: () => void;
     onShowForgotPassword?: () => void;
+    successMessage?: string;
 }
 
 export const LoginForm: React.FC<LoginFormProps> = ({
     onSuccess,
     onShowRegister,
     onShowForgotPassword,
+    successMessage,
 }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -73,6 +75,13 @@ export const LoginForm: React.FC<LoginFormProps> = ({
                     Sistema de Gestão para Terapeutas
                 </Text>
             </View>
+
+            {/* Success Message */}
+            {successMessage && (
+                <View style={styles.successContainer}>
+                    <Text style={styles.successText}>✅ {successMessage}</Text>
+                </View>
+            )}
 
             {/* Login Method - Simplified to Credentials Only */}
             <View style={styles.methodInfo}>
@@ -367,5 +376,21 @@ const styles = StyleSheet.create({
         fontSize: 12,
         textAlign: 'center',
         fontStyle: 'italic',
+    },
+    successContainer: {
+        backgroundColor: '#d4edda',
+        borderWidth: 1,
+        borderColor: '#c3e6cb',
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 20,
+        width: '100%',
+    },
+    successText: {
+        color: '#155724',
+        fontSize: 14,
+        textAlign: 'center',
+        lineHeight: 20,
+        fontWeight: '500',
     },
 });

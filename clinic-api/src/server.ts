@@ -47,7 +47,8 @@ import monthlyBillingRoute from './routes/monthly-billing.js';
 import importRoute from './routes/import.js';
 import pool from './config/database.js';
 import authRoutes from './routes/auth.js';
-import { authenticateCredentials, getTherapistEmailFromAuth } from './services/auth-service.js';
+// import { authenticateCredentials, getTherapistEmailFromAuth } from './services/auth-service.js';
+import nfseRoute from './routes/nfse.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -115,6 +116,7 @@ const setupRoutes = () => {
     app.use('/api/calendar-only', authenticateRequest, calendarOnlySessionsRoute);
     app.use('/api/monthly-billing', authenticateRequest, monthlyBillingRoute);
     app.use('/api/import', authenticateRequest, importRoute);
+    app.use('/api/nfse', authenticateRequest, nfseRoute);
 
 
     // app.post('/api/setup-webhook', authenticateRequest, async (req: Request, res: Response) => {

@@ -5,13 +5,13 @@ export interface Patient {
   name: string;
   email: string;
   telefone: string;
-  // Add all the missing fields to match your enhanced form:
+  cpf: string;
   endereco?: string;
   dataNascimento?: string;
   genero?: string;
   contatoEmergencia?: string;
   telefoneEmergencia?: string;
-  sessionPrice?: number; // in cents - this fixes your error!
+  sessionPrice?: number;
   therapyStartDate?: string;
   lvNotasBillingStartDate?: string;
   observacoes?: string;
