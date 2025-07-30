@@ -13,6 +13,7 @@ import { Settings } from './Settings';
 import { Dashboard } from './dashboard/Dashboard';
 import { AuthDebug } from './auth/AuthDebug';
 import { NFSeTestingSection } from './nfse/NFSeTestingSection';
+import { NFSeConfigurationScreen } from './nfse/NFSeConfigurationScreen';
 
 // Simple URL-based routing
 export const getCurrentPath = (): string => {
@@ -87,6 +88,8 @@ export const Router: React.FC = () => {
       case '/debug':
         return <AuthDebug />;
       case '/nfse':
+        return <NFSeConfigurationScreen />;
+      case '/nfse-test':
         return <NFSeTestingSection />;
       default:
         return (

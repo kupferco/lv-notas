@@ -261,13 +261,8 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
     window.alert("Esta funcionalidade será implementada em breve. Você poderá exportar seus dados de pacientes e sessões.");
   };
 
-  // Add this function with your other handlers
   const handleImportPatients = () => {
-    if (!therapist?.googleCalendarId) {
-      window.alert("Você precisa conectar um calendário primeiro para importar pacientes.");
-      return;
-    }
-    setShowImportWizard(true);
+    window.alert("Esta funcionalidade ainda não foi implementada. Em breve você poderá importar pacientes e sessões automaticamente do seu Google Calendar.");
   };
 
   const handleImportComplete = () => {
@@ -579,6 +574,53 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
         <Text style={styles.helpText}>
           Exporte seus dados de pacientes e sessões para backup ou análise.
         </Text>
+      </View>
+
+      {/* NFS-e Integration Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>🧾 NFS-e (Nota Fiscal Eletrônica)</Text>
+
+        <View style={styles.infoRow}>
+          <Text style={styles.label}>Status:</Text>
+          <Text style={[styles.value, styles.statusDisconnected]}>
+            ❌ Não configurado
+          </Text>
+        </View>
+
+        <Text style={styles.helpText}>
+          Configure a emissão automática de notas fiscais para suas sessões de terapia.
+          Integração com PlugNotas para emissão simplificada de NFS-e.
+        </Text>
+
+        <Pressable
+          style={styles.secondaryButton}
+          onPress={() => {
+            window.location.href = '/nfse';
+          }}
+        >
+          <Text style={styles.secondaryButtonText}>
+            🧾 Configurar NFS-e
+          </Text>
+        </Pressable>
+
+        {/* Development/Testing Button - Remove in production */}
+        {isDevelopment && (
+          <>
+            <Pressable
+              style={[styles.secondaryButton, { marginTop: 10, borderColor: '#ff9800' }]}
+              onPress={() => {
+                window.location.href = '/nfse-test';
+              }}
+            >
+              <Text style={[styles.secondaryButtonText, { color: '#ff9800' }]}>
+                🔧 Tela de Testes NFS-e
+              </Text>
+            </Pressable>
+            <Text style={[styles.helpText, { color: '#ff9800', fontSize: 11 }]}>
+              Apenas em desenvolvimento - Para testes da integração
+            </Text>
+          </>
+        )}
       </View>
 
       {/* NEW: Current Settings Summary */}

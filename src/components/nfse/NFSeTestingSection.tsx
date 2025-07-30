@@ -1,4 +1,4 @@
-// src/components/dashboard/NFSeTestingSection.tsx
+// src/components/nfse/NFSeTestingSection.tsx
 
 import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert, ScrollView } from 'react-native';
@@ -51,18 +51,20 @@ export const NFSeTestingSection: React.FC = () => {
     defaultServiceDescription: 'Serviços de Psicologia',
     issWithholding: false
   });
-  
+
   const [uploadingCertificate, setUploadingCertificate] = useState(false);
   const [testingInvoice, setTestingInvoice] = useState(false);
   const [registeringCompany, setRegisteringCompany] = useState(false);
   const [lastTestResult, setLastTestResult] = useState<TestInvoiceResult | null>(null);
+  const [certificateUploadError, setCertificateUploadError] = useState<string>('');
 
   // Mock therapist ID - in real app, get from auth context
   const therapistId = "1"; // Replace with real therapist ID from context
 
   // Load initial data
   useEffect(() => {
-    loadInitialData();
+    // Only set loading to false, don't make API calls automatically
+    setIsLoading(false);
   }, []);
 
   const loadInitialData = async () => {
@@ -116,10 +118,11 @@ export const NFSeTestingSection: React.FC = () => {
   const handleCertificateUpload = async () => {
     try {
       setUploadingCertificate(true);
+      setCertificateUploadError(''); // Clear previous errors
 
       // Pick certificate file
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/x-pkcs12', 'application/x-pkcs12', '*.p12', '*.pfx'],
+        type: ['application/x-pkcs12', 'application/pkcs12', '*.p12', '*.pfx'],
         copyToCacheDirectory: true
       });
 
@@ -127,37 +130,60 @@ export const NFSeTestingSection: React.FC = () => {
         return;
       }
 
+      const file = result.assets[0];
+
+      if (!file) {
+        setCertificateUploadError('No file selected. Please choose a certificate file.');
+        return;
+      }
+
       // Get password from user
       const password = await new Promise<string>((resolve, reject) => {
-        Alert.prompt(
-          'Certificate Password',
-          'Enter the password for your digital certificate:',
-          [
-            { text: 'Cancel', style: 'cancel', onPress: () => reject(new Error('Cancelled')) },
-            { 
-              text: 'Upload', 
-              onPress: (password) => {
-                if (!password) {
-                  reject(new Error('Password is required'));
-                } else {
-                  resolve(password);
-                }
-              }
-            }
-          ],
-          'secure-text'
-        );
+        const userPassword = prompt('Enter the password for your digital certificate:');
+        if (userPassword === null) {
+          reject(new Error('Cancelled'));
+        } else if (!userPassword.trim()) {
+          reject(new Error('Password is required'));
+        } else {
+          resolve(userPassword.trim());
+        }
       });
 
       // Upload certificate
-      await api.nfse.uploadCertificate(therapistId, result.assets[0], password);
-      
-      Alert.alert('Success', 'Certificate uploaded and validated successfully!');
+      await api.nfse.uploadCertificate(therapistId, file, password);
+
+      // Success - clear error and reload status
+      setCertificateUploadError('');
       await loadCertificateStatus();
-      
+
     } catch (error) {
+      if (error instanceof Error && error.message === 'Cancelled') {
+        // User cancelled, don't show error
+        return;
+      }
+
       console.error('Certificate upload error:', error);
-      Alert.alert('Error', `Certificate upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+
+      // Set inline error message
+      if (error instanceof Error) {
+        const errorMsg = error.message.toLowerCase();
+
+        if (errorMsg.includes('invalid certificate password') ||
+          errorMsg.includes('invalid password') ||
+          errorMsg.includes('mac could not be verified')) {
+          setCertificateUploadError('Invalid certificate password. Please check your password and try again.');
+        } else if (errorMsg.includes('certificate file is required')) {
+          setCertificateUploadError('File processing error. Please try selecting the certificate file again.');
+        } else if (errorMsg.includes('expired')) {
+          setCertificateUploadError('This certificate has expired. Please use a valid certificate.');
+        } else if (errorMsg.includes('invalid') || errorMsg.includes('unsupported')) {
+          setCertificateUploadError('Invalid certificate format. Please use a valid .p12 or .pfx file.');
+        } else {
+          setCertificateUploadError(`Upload failed: ${error.message}`);
+        }
+      } else {
+        setCertificateUploadError('An unexpected error occurred during upload.');
+      }
     } finally {
       setUploadingCertificate(false);
     }
@@ -186,9 +212,9 @@ export const NFSeTestingSection: React.FC = () => {
       };
 
       await api.nfse.registerNFSeCompany(therapistId, companyData);
-      
+
       Alert.alert('Success', 'Company registered successfully with NFS-e provider!');
-      
+
     } catch (error) {
       console.error('Company registration error:', error);
       Alert.alert('Error', `Company registration failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -218,9 +244,9 @@ export const NFSeTestingSection: React.FC = () => {
 
       const result = await api.nfse.generateTestInvoice(therapistId, testData);
       setLastTestResult(result.invoice);
-      
+
       Alert.alert(
-        'Test Invoice Generated!', 
+        'Test Invoice Generated!',
         `Invoice ID: ${result.invoice.invoiceId}\nStatus: ${result.invoice.status}`,
         [
           { text: 'OK' },
@@ -233,7 +259,7 @@ export const NFSeTestingSection: React.FC = () => {
           }] : [])
         ]
       );
-      
+
     } catch (error) {
       console.error('Test invoice error:', error);
       Alert.alert('Error', `Test invoice failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -283,14 +309,18 @@ export const NFSeTestingSection: React.FC = () => {
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.sectionTitle}>🧾 NFS-e Integration Testing</Text>
-      
+
       {/* Connection Status */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Provider Connection</Text>
+        <Text style={styles.description}>
+          Test your connection to the PlugNotas NFS-e provider.
+        </Text>
+
         {connectionStatus && (
           <View style={styles.statusRow}>
             <View style={[
-              styles.statusIndicator, 
+              styles.statusIndicator,
               { backgroundColor: connectionStatus.connected ? '#4CAF50' : '#F44336' }
             ]} />
             <Text style={styles.statusText}>
@@ -299,8 +329,9 @@ export const NFSeTestingSection: React.FC = () => {
             </Text>
           </View>
         )}
-        <Pressable 
-          style={styles.button} 
+
+        <Pressable
+          style={styles.button}
           onPress={loadConnectionStatus}
           disabled={isLoading}
         >
@@ -315,14 +346,14 @@ export const NFSeTestingSection: React.FC = () => {
           <View>
             <View style={styles.statusRow}>
               <View style={[
-                styles.statusIndicator, 
+                styles.statusIndicator,
                 { backgroundColor: getStatusColor(certificateStatus.status) }
               ]} />
               <Text style={styles.statusText}>
                 Status: {getStatusText(certificateStatus.status)}
               </Text>
             </View>
-            
+
             {certificateStatus.certificateInfo && (
               <View style={styles.certificateInfo}>
                 <Text style={styles.infoText}>
@@ -344,9 +375,20 @@ export const NFSeTestingSection: React.FC = () => {
             )}
           </View>
         )}
-        
-        <Pressable 
-          style={[styles.button, uploadingCertificate && styles.buttonDisabled]} 
+
+        {/* ADD THE ERROR/WARNING MESSAGES HERE - RIGHT AFTER THE certificateStatus BLOCK */}
+        {certificateUploadError ? (
+          <Text style={[styles.warningText, { color: '#F44336' }]}>
+            ⚠️ {certificateUploadError}
+          </Text>
+        ) : !certificateStatus?.hasValidCertificate && (
+          <Text style={styles.warningText}>
+            ⚠️ Valid certificate required for NFS-e operations
+          </Text>
+        )}
+
+        <Pressable
+          style={[styles.button, uploadingCertificate && styles.buttonDisabled]}
           onPress={handleCertificateUpload}
           disabled={uploadingCertificate}
         >
@@ -362,9 +404,9 @@ export const NFSeTestingSection: React.FC = () => {
         <Text style={styles.description}>
           Register your practice with the NFS-e provider for invoice generation.
         </Text>
-        
-        <Pressable 
-          style={[styles.button, registeringCompany && styles.buttonDisabled]} 
+
+        <Pressable
+          style={[styles.button, registeringCompany && styles.buttonDisabled]}
           onPress={handleCompanyRegistration}
           disabled={registeringCompany || !certificateStatus?.hasValidCertificate}
         >
@@ -372,7 +414,7 @@ export const NFSeTestingSection: React.FC = () => {
             {registeringCompany ? 'Registering...' : 'Register Company'}
           </Text>
         </Pressable>
-        
+
         {!certificateStatus?.hasValidCertificate && (
           <Text style={styles.warningText}>
             ⚠️ Valid certificate required for company registration
@@ -383,11 +425,11 @@ export const NFSeTestingSection: React.FC = () => {
       {/* NFS-e Settings */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>NFS-e Settings</Text>
-        
+
         <Text style={styles.label}>Service Code</Text>
         <Picker
           selectedValue={nfseSettings.serviceCode}
-          onValueChange={(value) => setNFSeSettings({...nfseSettings, serviceCode: value})}
+          onValueChange={(value) => setNFSeSettings({ ...nfseSettings, serviceCode: value })}
           style={styles.picker}
         >
           <Picker.Item label="14.01 - Psicologia e Psicanálise" value="14.01" />
@@ -397,7 +439,7 @@ export const NFSeTestingSection: React.FC = () => {
         <Text style={styles.label}>Tax Rate (%)</Text>
         <Picker
           selectedValue={nfseSettings.taxRate.toString()}
-          onValueChange={(value) => setNFSeSettings({...nfseSettings, taxRate: parseFloat(value)})}
+          onValueChange={(value) => setNFSeSettings({ ...nfseSettings, taxRate: parseFloat(value) })}
           style={styles.picker}
         >
           <Picker.Item label="2%" value="2" />
@@ -422,9 +464,9 @@ export const NFSeTestingSection: React.FC = () => {
         <Text style={styles.description}>
           Generate a test invoice in sandbox mode to verify your configuration.
         </Text>
-        
-        <Pressable 
-          style={[styles.button, testingInvoice && styles.buttonDisabled]} 
+
+        <Pressable
+          style={[styles.button, testingInvoice && styles.buttonDisabled]}
           onPress={handleTestInvoice}
           disabled={testingInvoice || !certificateStatus?.hasValidCertificate}
         >
