@@ -102,7 +102,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
       );
 
       console.log('✅ Registration successful:', result);
-      
+
       if (result.requiresEmailVerification) {
         setSuccess('Conta criada com sucesso! Verifique seu email para ativar a conta.');
       } else {
@@ -125,7 +125,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
       }
     } catch (error: any) {
       console.error('❌ Registration failed:', error);
-      
+
       if (error.message.includes('already exists')) {
         setError('Já existe uma conta com este email. Tente fazer login ou use outro email.');
       } else {
@@ -139,7 +139,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
   const getPasswordStrength = (): { score: number; label: string; color: string } => {
     const password = formData.password;
     if (password.length === 0) return { score: 0, label: '', color: '#e9ecef' };
-    
+
     let score = 0;
     if (password.length >= 8) score++;
     if (/[a-z]/.test(password)) score++;
@@ -161,7 +161,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
       <View style={styles.header}>
         <Text style={styles.title}>Criar Nova Conta</Text>
         <Text style={styles.subtitle}>
-          {invitationToken 
+          {invitationToken
             ? 'Complete seu cadastro usando o convite recebido'
             : 'Junte-se ao LV Notas'
           }
@@ -242,19 +242,19 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
               </Text>
             </Pressable>
           </View>
-          
+
           {/* Password Strength Indicator */}
           {formData.password.length > 0 && (
             <View style={styles.passwordStrength}>
               <View style={styles.strengthBar}>
-                <View 
+                <View
                   style={[
-                    styles.strengthFill, 
-                    { 
+                    styles.strengthFill,
+                    {
                       width: `${(passwordStrength.score / 5) * 100}%`,
-                      backgroundColor: passwordStrength.color 
+                      backgroundColor: passwordStrength.color
                     }
-                  ]} 
+                  ]}
                 />
               </View>
               <Text style={[styles.strengthLabel, { color: passwordStrength.color }]}>

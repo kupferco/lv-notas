@@ -312,7 +312,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const handleRegister = async (email: string, password: string, displayName: string, invitationToken?: string): Promise<any> => {
     try {
-      setIsLoading(true);
+      // setIsLoading(true);
       return await authService.register(email, password, displayName, invitationToken);
     } catch (error: any) {
       console.error('Registration error:', error);
