@@ -462,7 +462,7 @@ export const NFSeConfigurationScreen: React.FC = () => {
         
         <Pressable 
           style={styles.backButton}
-          onPress={() => window.location.href = '/settings'}
+          onPress={() => window.location.href = '/configuracoes'}
         >
           <Text style={styles.backButtonText}>🏠 Voltar às Configurações</Text>
         </Pressable>

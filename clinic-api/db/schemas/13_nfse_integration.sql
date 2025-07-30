@@ -19,6 +19,7 @@ CREATE TABLE therapist_nfse_config (
     certificate_password_encrypted TEXT,
     certificate_expires_at TIMESTAMP WITH TIME ZONE,
     certificate_status VARCHAR(20) DEFAULT 'pending', -- pending, active, expired, invalid
+    certificate_info JSONB, -- Certificate details (common name, issuer, expiry, etc.)
     
     -- Provider integration (agnostic)
     nfse_provider VARCHAR(50) DEFAULT 'plugnotas', -- plugnotas, focus_nfe, nfe_io, direct_municipal
@@ -28,8 +29,8 @@ CREATE TABLE therapist_nfse_config (
     provider_settings JSONB DEFAULT '{}', -- Provider-specific configuration
     
     -- Company details for invoices
-    company_cnpj VARCHAR(18) NOT NULL, -- Format: XX.XXX.XXX/XXXX-XX
-    company_name VARCHAR(255) NOT NULL,
+    company_cnpj VARCHAR(18), -- Format: XX.XXX.XXX/XXXX-XX
+    company_name VARCHAR(255),
     company_municipal_registration VARCHAR(50),
     company_state_registration VARCHAR(50),
     company_email VARCHAR(255),
