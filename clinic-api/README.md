@@ -100,6 +100,28 @@ PORT=3000
 
 ## 🗄️ Database Management
 
+
+```bash
+### **Environment-Aware Database Operations (NEW!)**
+
+All database operations now support environment targeting for safe production management:
+
+```bash
+# Environment Options
+./manage_db.sh [command] --env=local      # Local development (default)
+./manage_db.sh [command] --env=production # Production via Cloud SQL Proxy  
+./manage_db.sh [command] --env=staging    # Staging environment
+
+# Production Examples
+./manage_db.sh list-users --env=production           # List production users
+./manage_db.sh backup "Pre-deployment" --env=production  # Production backup
+./manage_db.sh add-nfse --env=production             # Add NFS-e to production
+./manage_db.sh cleanup-user email@test.com --env=production  # Clean production user
+
+# Environment-specific backups
+# Backups include environment in filename: manual_production_20250730_143022.sql.gz
+./manage_db.sh cleanup-backups --env=production      # Clean production backups only
+
 ### **Local Development Database**
 
 #### **Quick Start with Monthly Billing**
@@ -124,6 +146,18 @@ The database now includes:
 ```bash
 # Clean up specific user data for fresh onboarding testing
 ./manage_db.sh cleanup-user your-email@example.com
+
+# Test monthly billing workflow
+./manage_db.sh comprehensive
+
+# List registered users (local)
+./manage_db.sh list-users
+
+# List registered users in production
+./manage_db.sh list-users --env=production
+
+# Clean up specific user data for fresh onboarding testing
+./manage_db.sh cleanup-user your-email@example.com --env=production
 
 # Test monthly billing workflow
 ./manage_db.sh comprehensive
@@ -702,10 +736,16 @@ NFE_IO_API_KEY: your-nfe-io-api-key
 ```bash
 # Add NFS-e support to existing production database (SAFE)
 cd clinic-api/db
-./manage_db.sh add-nfse
+
+# Make sure Cloud SQL Proxy is running first
+./cloud_sql_proxy -instances=lv-notas:us-central1:clinic-db=tcp:5433 &
+
+# Deploy to production with environment flag
+./manage_db.sh add-nfse --env=production
 
 # This safely adds NFS-e tables without affecting existing data
 ```
+
 
 #### **Production Testing**
 ```bash

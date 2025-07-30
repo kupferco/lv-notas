@@ -1,6 +1,6 @@
 #!/bin/bash
 # clinic-api/db/manage_db.sh
-# Enhanced database management for LV Notas with production safety
+# Enhanced database management for LV Notas with production safety and environment support
 
 # Colors for output
 GREEN="\033[0;32m"
@@ -10,27 +10,52 @@ BLUE="\033[0;34m"
 PURPLE="\033[0;35m"
 NC="\033[0m" # No Color
 
-# Load environment variables
-if [ -f ../.env ]; then
-    export $(cat ../.env | grep -v "#" | xargs)
+# Environment handling
+ENVIRONMENT="local"
+if [[ "$*" == *"--env=production"* ]]; then
+    ENVIRONMENT="production"
+    # Override database settings for production
+    DB_HOST="localhost"  # Cloud SQL Proxy
+    DB_USER="postgres"
+    DB_NAME="clinic_db"
+    DB_PORT="5433"  # Cloud SQL Proxy port
+    
+    echo -e "${BLUE}🌍 Using PRODUCTION environment${NC}"
+    echo -e "${YELLOW}⚠️  Make sure Cloud SQL Proxy is running on port 5433${NC}"
+    echo -e "${YELLOW}    ./cloud_sql_proxy -instances=lv-notas:us-central1:clinic-db=tcp:5433 &${NC}"
+    echo
+elif [[ "$*" == *"--env=staging"* ]]; then
+    ENVIRONMENT="staging"
+    # Add staging settings if needed
+    echo -e "${BLUE}🧪 Using STAGING environment${NC}"
 else
+    echo -e "${BLUE}🏠 Using LOCAL environment${NC}"
+fi
+
+# Load environment variables (for local environment)
+if [ "$ENVIRONMENT" = "local" ] && [ -f ../.env ]; then
+    export $(cat ../.env | grep -v "#" | xargs)
+elif [ "$ENVIRONMENT" = "local" ]; then
     echo -e "${RED}Error: .env file not found in parent directory${NC}"
     exit 1
 fi
 
-# Database connection details
-DB_HOST=${POSTGRES_HOST:-localhost}
-DB_USER=${POSTGRES_USER:-dankupfer}
-DB_NAME=${POSTGRES_DB:-clinic_db}
+# Database connection details (with environment override support)
+DB_HOST=${DB_HOST:-${POSTGRES_HOST:-localhost}}
+DB_USER=${DB_USER:-${POSTGRES_USER:-dankupfer}}
+DB_NAME=${DB_NAME:-${POSTGRES_DB:-clinic_db}}
+DB_PORT=${DB_PORT:-${POSTGRES_PORT:-5432}}
 
 echo -e "${BLUE}🏥 LV Notas Database Manager${NC}"
 echo -e "${BLUE}=============================${NC}"
+echo -e "${BLUE}Environment: ${ENVIRONMENT}${NC}"
+echo -e "${BLUE}Database: ${DB_HOST}:${DB_PORT}/${DB_NAME}${NC}"
 echo
 
 # Function to run SQL files
 run_sql() {
     echo -e "${YELLOW}🔄 Running $1...${NC}"
-    if psql -h $DB_HOST -U $DB_USER $DB_NAME < $1; then
+    if psql -h $DB_HOST -p $DB_PORT -U $DB_USER $DB_NAME < $1; then
         echo -e "${GREEN}✅ $1 completed successfully${NC}"
         echo
     else
@@ -41,7 +66,7 @@ run_sql() {
 
 # Function to check if database exists
 check_db_exists() {
-    if psql -h $DB_HOST -U $DB_USER -lqt | cut -d \| -f 1 | grep -qw $DB_NAME; then
+    if psql -h $DB_HOST -p $DB_PORT -U $DB_USER -lqt | cut -d \| -f 1 | grep -qw $DB_NAME; then
         return 0
     else
         return 1
@@ -58,14 +83,14 @@ create_backup() {
     
     # Generate backup filename with timestamp
     local timestamp=$(date +%Y%m%d_%H%M%S)
-    local backup_file="backups/${backup_type}_${timestamp}.sql"
+    local backup_file="backups/${backup_type}_${ENVIRONMENT}_${timestamp}.sql"
     local compressed_file="${backup_file}.gz"
     
-    echo -e "${YELLOW}💾 Creating ${backup_type} backup...${NC}"
+    echo -e "${YELLOW}💾 Creating ${backup_type} backup for ${ENVIRONMENT}...${NC}"
     echo -e "${BLUE}Description: ${description}${NC}"
     
     # Create the backup
-    if pg_dump -h $DB_HOST -U $DB_USER $DB_NAME > $backup_file; then
+    if pg_dump -h $DB_HOST -p $DB_PORT -U $DB_USER $DB_NAME > $backup_file; then
         # Compress the backup
         gzip $backup_file
         
@@ -77,12 +102,12 @@ create_backup() {
         echo -e "${GREEN}📏 Size: $file_size${NC}"
         
         # Count existing backups and show cleanup info
-        local backup_count=$(ls -1 backups/${backup_type}_*.sql.gz 2>/dev/null | wc -l)
-        echo -e "${BLUE}📊 Total ${backup_type} backups: $backup_count${NC}"
+        local backup_count=$(ls -1 backups/${backup_type}_${ENVIRONMENT}_*.sql.gz 2>/dev/null | wc -l)
+        echo -e "${BLUE}📊 Total ${backup_type} backups for ${ENVIRONMENT}: $backup_count${NC}"
         
         if [ $backup_count -gt 10 ]; then
             echo -e "${YELLOW}⚠️  You have more than 10 ${backup_type} backups. Consider cleanup.${NC}"
-            echo -e "${YELLOW}💡 Run: $0 cleanup-backups${NC}"
+            echo -e "${YELLOW}💡 Run: $0 cleanup-backups --env=${ENVIRONMENT}${NC}"
         fi
         
         return 0
@@ -97,8 +122,8 @@ restore_backup() {
     local backup_file="$1"
     
     if [ -z "$backup_file" ]; then
-        echo -e "${BLUE}📋 Available backups:${NC}"
-        ls -la backups/*.sql.gz 2>/dev/null | while read -r line; do
+        echo -e "${BLUE}📋 Available backups for ${ENVIRONMENT}:${NC}"
+        ls -la backups/*_${ENVIRONMENT}_*.sql.gz 2>/dev/null | while read -r line; do
             echo -e "${YELLOW}  $line${NC}"
         done
         echo
@@ -113,6 +138,7 @@ restore_backup() {
     
     echo ""
     echo -e "${RED}⚠️  WARNING: This will COMPLETELY REPLACE the current database!${NC}"
+    echo -e "${RED}🌍 Environment: $ENVIRONMENT${NC}"
     echo -e "${RED}📧 Database: $DB_NAME${NC}"
     echo -e "${RED}📁 Backup: $backup_file${NC}"
     echo ""
@@ -130,11 +156,11 @@ restore_backup() {
     echo -e "${YELLOW}🔄 Restoring database from backup...${NC}"
     
     # Drop and recreate database
-    psql -h $DB_HOST -U $DB_USER -c "DROP DATABASE IF EXISTS $DB_NAME;"
-    psql -h $DB_HOST -U $DB_USER -c "CREATE DATABASE $DB_NAME;"
+    psql -h $DB_HOST -p $DB_PORT -U $DB_USER -c "DROP DATABASE IF EXISTS $DB_NAME;"
+    psql -h $DB_HOST -p $DB_PORT -U $DB_USER -c "CREATE DATABASE $DB_NAME;"
     
     # Restore from backup
-    if gunzip -c $backup_file | psql -h $DB_HOST -U $DB_USER $DB_NAME; then
+    if gunzip -c $backup_file | psql -h $DB_HOST -p $DB_PORT -U $DB_USER $DB_NAME; then
         echo -e "${GREEN}✅ Database restored successfully!${NC}"
     else
         echo -e "${RED}❌ Restore failed!${NC}"
@@ -146,21 +172,22 @@ restore_backup() {
 add_nfse_support() {
     echo -e "${PURPLE}🧾 Adding NFS-e Support to Existing Database${NC}"
     echo -e "${PURPLE}=============================================${NC}"
+    echo -e "${BLUE}Environment: ${ENVIRONMENT}${NC}"
     echo ""
     
     if ! check_db_exists; then
-        echo -e "${RED}❌ Database doesn't exist. Run '$0 schema' first.${NC}"
+        echo -e "${RED}❌ Database doesn't exist. Run '$0 schema --env=${ENVIRONMENT}' first.${NC}"
         exit 1
     fi
     
     # Check if NFS-e tables already exist
-    local nfse_exists=$(psql -h $DB_HOST -U $DB_USER $DB_NAME -tAc "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'therapist_nfse_config');")
+    local nfse_exists=$(psql -h $DB_HOST -p $DB_PORT -U $DB_USER $DB_NAME -tAc "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'therapist_nfse_config');")
     
     if [ "$nfse_exists" = "t" ]; then
         echo -e "${YELLOW}⚠️  NFS-e tables already exist!${NC}"
         echo -e "${BLUE}📋 Checking NFS-e configuration...${NC}"
-        psql -h $DB_HOST -U $DB_USER $DB_NAME -c "SELECT COUNT(*) as nfse_configs FROM therapist_nfse_config;"
-        psql -h $DB_HOST -U $DB_USER $DB_NAME -c "SELECT COUNT(*) as nfse_invoices FROM nfse_invoices;"
+        psql -h $DB_HOST -p $DB_PORT -U $DB_USER $DB_NAME -c "SELECT COUNT(*) as nfse_configs FROM therapist_nfse_config;"
+        psql -h $DB_HOST -p $DB_PORT -U $DB_USER $DB_NAME -c "SELECT COUNT(*) as nfse_invoices FROM nfse_invoices;"
         return 0
     fi
     
@@ -201,7 +228,7 @@ add_nfse_support() {
     echo -e "${GREEN}🎉 NFS-e support added successfully!${NC}"
     echo ""
     echo -e "${BLUE}📊 NFS-e Status Summary:${NC}"
-    psql -h $DB_HOST -U $DB_USER $DB_NAME -c "
+    psql -h $DB_HOST -p $DB_PORT -U $DB_USER $DB_NAME -c "
         SELECT 
             'NFS-e Integration Status' as summary,
             (SELECT COUNT(*) FROM therapist_nfse_config) as nfse_configs,
@@ -220,7 +247,7 @@ add_nfse_support() {
 
 # Function to cleanup old backups
 cleanup_backups() {
-    echo -e "${YELLOW}🧹 Backup Cleanup${NC}"
+    echo -e "${YELLOW}🧹 Backup Cleanup for ${ENVIRONMENT}${NC}"
     echo -e "${YELLOW}=================${NC}"
     echo ""
     
@@ -229,20 +256,20 @@ cleanup_backups() {
         return 0
     fi
     
-    local total_backups=$(ls -1 backups/*.sql.gz 2>/dev/null | wc -l)
+    local total_backups=$(ls -1 backups/*_${ENVIRONMENT}_*.sql.gz 2>/dev/null | wc -l)
     
     if [ $total_backups -eq 0 ]; then
-        echo -e "${BLUE}📁 No backups found${NC}"
+        echo -e "${BLUE}📁 No backups found for ${ENVIRONMENT}${NC}"
         return 0
     fi
     
-    echo -e "${BLUE}📊 Found $total_backups backup files${NC}"
+    echo -e "${BLUE}📊 Found $total_backups backup files for ${ENVIRONMENT}${NC}"
     echo ""
     echo -e "${BLUE}📋 Backup breakdown:${NC}"
     
     # Show backup types and counts
     for backup_type in manual auto pre_restore pre_nfse fresh comprehensive; do
-        local count=$(ls -1 backups/${backup_type}_*.sql.gz 2>/dev/null | wc -l)
+        local count=$(ls -1 backups/${backup_type}_${ENVIRONMENT}_*.sql.gz 2>/dev/null | wc -l)
         if [ $count -gt 0 ]; then
             echo -e "  ${backup_type}: $count files"
         fi
@@ -263,8 +290,8 @@ cleanup_backups() {
         2) keep_count=10 ;;
         3) keep_count=3 ;;
         4) 
-            echo -e "${BLUE}📋 All backups:${NC}"
-            ls -la backups/*.sql.gz 2>/dev/null
+            echo -e "${BLUE}📋 All backups for ${ENVIRONMENT}:${NC}"
+            ls -la backups/*_${ENVIRONMENT}_*.sql.gz 2>/dev/null
             return 0
             ;;
         5) 
@@ -281,7 +308,7 @@ cleanup_backups() {
     
     # Cleanup each backup type
     for backup_type in manual auto pre_restore pre_nfse fresh comprehensive; do
-        local files_to_delete=$(ls -1t backups/${backup_type}_*.sql.gz 2>/dev/null | tail -n +$((keep_count + 1)))
+        local files_to_delete=$(ls -1t backups/${backup_type}_${ENVIRONMENT}_*.sql.gz 2>/dev/null | tail -n +$((keep_count + 1)))
         
         if [ -n "$files_to_delete" ]; then
             echo -e "${YELLOW}Removing old ${backup_type} backups...${NC}"
@@ -292,8 +319,8 @@ cleanup_backups() {
         fi
     done
     
-    local remaining_backups=$(ls -1 backups/*.sql.gz 2>/dev/null | wc -l)
-    echo -e "${GREEN}✅ Cleanup complete! Remaining backups: $remaining_backups${NC}"
+    local remaining_backups=$(ls -1 backups/*_${ENVIRONMENT}_*.sql.gz 2>/dev/null | wc -l)
+    echo -e "${GREEN}✅ Cleanup complete! Remaining backups for ${ENVIRONMENT}: $remaining_backups${NC}"
 }
 
 # Function to clean up specific user data (enhanced with backup)
@@ -317,6 +344,7 @@ cleanup_user() {
     echo ""
     echo -e "${RED}⚠️  WARNING: This will PERMANENTLY DELETE all data for:${NC}"
     echo -e "${RED}    📧 $target_email${NC}"
+    echo -e "${RED}    🌍 Environment: $ENVIRONMENT${NC}"
     echo ""
     echo -e "${RED}This includes:${NC}"
     echo -e "${RED}  • Therapist profile${NC}"
@@ -405,15 +433,15 @@ COMMIT;
 EOF
     
     # Execute the cleanup
-    if psql -h $DB_HOST -U $DB_USER $DB_NAME -f "$temp_sql_file"; then
+    if psql -h $DB_HOST -p $DB_PORT -U $DB_USER $DB_NAME -f "$temp_sql_file"; then
         echo ""
         echo -e "${GREEN}✅ Cleanup completed successfully!${NC}"
-        echo -e "${GREEN}📧 All data for $target_email has been removed${NC}"
+        echo -e "${GREEN}📧 All data for $target_email has been removed from ${ENVIRONMENT}${NC}"
         echo ""
         echo -e "${YELLOW}Next steps:${NC}"
         echo -e "${YELLOW}  1. Clear browser localStorage/cookies${NC}"
         echo -e "${YELLOW}  2. Test fresh onboarding process${NC}"
-        echo -e "${YELLOW}  3. Optionally run: $0 check${NC}"
+        echo -e "${YELLOW}  3. Optionally run: $0 check --env=${ENVIRONMENT}${NC}"
         echo ""
         echo -e "${GREEN}🎉 Ready for fresh testing!${NC}"
     else
@@ -429,12 +457,13 @@ EOF
 case "$1" in
     "fresh")
         echo -e "${YELLOW}🗑️  Creating fresh database (WARNING: This will delete all existing data!)${NC}"
+        echo -e "${BLUE}Environment: ${ENVIRONMENT}${NC}"
         read -p "Are you sure? Type 'yes' to continue: " confirm
         if [ "$confirm" = "yes" ]; then
             create_backup "fresh" "Backup before fresh database creation"
             echo -e "${YELLOW}Dropping and recreating database...${NC}"
-            psql -h $DB_HOST -U $DB_USER -c "DROP DATABASE IF EXISTS $DB_NAME;"
-            psql -h $DB_HOST -U $DB_USER -c "CREATE DATABASE $DB_NAME;"
+            psql -h $DB_HOST -p $DB_PORT -U $DB_USER -c "DROP DATABASE IF EXISTS $DB_NAME;"
+            psql -h $DB_HOST -p $DB_PORT -U $DB_USER -c "CREATE DATABASE $DB_NAME;"
             run_sql "complete_schema.sql"
             echo -e "${GREEN}🎉 Fresh database created with complete schema!${NC}"
         else
@@ -443,9 +472,10 @@ case "$1" in
         ;;
     "schema")
         echo -e "${YELLOW}📋 Installing complete schema...${NC}"
+        echo -e "${BLUE}Environment: ${ENVIRONMENT}${NC}"
         if ! check_db_exists; then
             echo -e "${YELLOW}Database doesn't exist, creating it...${NC}"
-            psql -h $DB_HOST -U $DB_USER -c "CREATE DATABASE $DB_NAME;"
+            psql -h $DB_HOST -p $DB_PORT -U $DB_USER -c "CREATE DATABASE $DB_NAME;"
         else
             create_backup "pre_schema" "Backup before schema update"
         fi
@@ -464,18 +494,40 @@ case "$1" in
     "cleanup-backups")
         cleanup_backups
         ;;
+    "list-users")
+    echo -e "${YELLOW}👥 Listing registered users...${NC}"
+    echo -e "${BLUE}Environment: ${ENVIRONMENT}${NC}"
+    if ! check_db_exists; then
+        echo -e "${RED}❌ Database doesn't exist.${NC}"
+        exit 1
+    fi
+    psql -h $DB_HOST -p $DB_PORT -U $DB_USER $DB_NAME -c "
+        SELECT 
+            id,
+            email,
+            display_name,
+            is_active,
+            email_verified,
+            last_login_at,
+            created_at
+        FROM user_credentials 
+        ORDER BY created_at DESC;
+    "
+    ;;
     "cleanup-user")
         echo -e "${YELLOW}🧹 Cleaning up specific user data...${NC}"
+        echo -e "${BLUE}Environment: ${ENVIRONMENT}${NC}"
         if ! check_db_exists; then
-            echo -e "${RED}❌ Database doesn't exist. Run '$0 schema' first.${NC}"
+            echo -e "${RED}❌ Database doesn't exist. Run '$0 schema --env=${ENVIRONMENT}' first.${NC}"
             exit 1
         fi
         cleanup_user "$2"
         ;;
     "seed")
         echo -e "${YELLOW}🌱 Adding basic test data...${NC}"
+        echo -e "${BLUE}Environment: ${ENVIRONMENT}${NC}"
         if ! check_db_exists; then
-            echo -e "${RED}❌ Database doesn't exist. Run '$0 schema' first.${NC}"
+            echo -e "${RED}❌ Database doesn't exist. Run '$0 schema --env=${ENVIRONMENT}' first.${NC}"
             exit 1
         fi
         create_backup "pre_seed" "Backup before adding seed data"
@@ -484,8 +536,9 @@ case "$1" in
         ;;
     "comprehensive")
         echo -e "${YELLOW}🚀 Adding comprehensive payment test data...${NC}"
+        echo -e "${BLUE}Environment: ${ENVIRONMENT}${NC}"
         if ! check_db_exists; then
-            echo -e "${RED}❌ Database doesn't exist. Run '$0 schema' first.${NC}"
+            echo -e "${RED}❌ Database doesn't exist. Run '$0 schema --env=${ENVIRONMENT}' first.${NC}"
             exit 1
         fi
         create_backup "pre_comprehensive" "Backup before adding comprehensive data"
@@ -498,11 +551,12 @@ case "$1" in
         ;;
     "check")
         echo -e "${YELLOW}🔍 Checking database schema and data...${NC}"
+        echo -e "${BLUE}Environment: ${ENVIRONMENT}${NC}"
         if ! check_db_exists; then
-            echo -e "${RED}❌ Database doesn't exist. Run '$0 schema' first.${NC}"
+            echo -e "${RED}❌ Database doesn't exist. Run '$0 schema --env=${ENVIRONMENT}' first.${NC}"
             exit 1
         fi
-        psql -h $DB_HOST -U $DB_USER $DB_NAME < check_schema.sql
+        psql -h $DB_HOST -p $DB_PORT -U $DB_USER $DB_NAME < check_schema.sql
         ;;
     *)
         echo -e "${BLUE}Usage: $0 [command] [options]${NC}"
@@ -527,21 +581,27 @@ case "$1" in
         echo -e "${YELLOW}👤 User Management:${NC}"
         echo -e "  ${GREEN}cleanup-user [email]${NC}  - 🧹 Remove all data for specific user"
         echo
+        echo -e "${YELLOW}🌍 Environment Options:${NC}"
+        echo -e "  ${GREEN}--env=local${NC}      - Use local database (default)"
+        echo -e "  ${GREEN}--env=production${NC} - Use production database via Cloud SQL Proxy"
+        echo -e "  ${GREEN}--env=staging${NC}    - Use staging database"
+        echo
         echo -e "${YELLOW}💡 Examples:${NC}"
         echo -e "  ${BLUE}# Production-safe NFS-e addition${NC}"
-        echo -e "  $0 add-nfse"
+        echo -e "  $0 add-nfse --env=production"
         echo -e ""
         echo -e "  ${BLUE}# Create backup with description${NC}"
-        echo -e "  $0 backup \"Before major update\""
+        echo -e "  $0 backup \"Before major update\" --env=production"
         echo -e ""
         echo -e "  ${BLUE}# Restore from specific backup${NC}"
-        echo -e "  $0 restore backups/manual_20241201_143022.sql.gz"
+        echo -e "  $0 restore backups/manual_production_20241201_143022.sql.gz"
         echo -e ""
         echo -e "  ${BLUE}# Clean up old backups${NC}"
-        echo -e "  $0 cleanup-backups"
+        echo -e "  $0 cleanup-backups --env=production"
         echo
         echo -e "${YELLOW}Database Info:${NC}"
-        echo -e "  Host: $DB_HOST"
+        echo -e "  Environment: $ENVIRONMENT"
+        echo -e "  Host: $DB_HOST:$DB_PORT"
         echo -e "  User: $DB_USER"
         echo -e "  Database: $DB_NAME"
         echo
