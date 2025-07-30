@@ -19,7 +19,7 @@ type AppState = "loading" | "login" | "onboarding" | "authenticated" | "calendar
 
 // Main App component that uses AuthContext
 const AppContent: React.FC = () => {
-  console.log('LV Notas Version 2.0.1 - New Credential Authentication System');
+  console.log('LV Notas Version 2.0.4 - New Credential Authentication System');
   console.log('🔑 API Key Debug:', {
     safeProxyKey: process.env.SAFE_PROXY_API_KEY ? 'Present' : 'Missing',
     isDevelopment: isDevelopment
