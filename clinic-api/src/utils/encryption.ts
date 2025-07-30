@@ -271,7 +271,8 @@ export class CertificateStorageService {
             }
 
             // Generate file path
-            const fileName = `therapist_${therapistId}_${Date.now()}.p12.enc`;
+            // Use consistent filename per therapist (overwrite existing)
+            const fileName = `therapist_${therapistId}_certificate.p12.enc`;
             const filePath = path.join(this.STORAGE_PATH, fileName);
 
             // Encrypt certificate
