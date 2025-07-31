@@ -168,14 +168,46 @@ router.post("/certificate", upload.single('certificate'), asyncHandler<Certifica
             password
         );
 
-        // Update therapist config
-        await upsertTherapistConfig(parseInt(therapistId), {
-            certificate_file_path: filePath,
-            certificate_password_encrypted: JSON.stringify(encryptedPassword),
-            certificate_expires_at: certificateInfo.notAfter,
-            certificate_status: 'active',
-            certificate_info: JSON.stringify(certificateInfo)
-        });
+        // Update or create therapist config
+        const existingConfig = await getTherapistConfig(parseInt(therapistId));
+
+        if (existingConfig) {
+            // Update existing record
+            await pool.query(
+                `UPDATE therapist_nfse_config 
+         SET certificate_file_path = $1,
+             certificate_password_encrypted = $2,
+             certificate_expires_at = $3,
+             certificate_status = $4,
+             certificate_info = $5,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE therapist_id = $6`,
+                [
+                    filePath,
+                    JSON.stringify(encryptedPassword),
+                    certificateInfo.notAfter,
+                    'active',
+                    JSON.stringify(certificateInfo),
+                    parseInt(therapistId)
+                ]
+            );
+        } else {
+            // Create new record with only certificate fields
+            await pool.query(
+                `INSERT INTO therapist_nfse_config 
+         (therapist_id, certificate_file_path, certificate_password_encrypted, 
+          certificate_expires_at, certificate_status, certificate_info)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+                [
+                    parseInt(therapistId),
+                    filePath,
+                    JSON.stringify(encryptedPassword),
+                    certificateInfo.notAfter,
+                    'active',
+                    JSON.stringify(certificateInfo)
+                ]
+            );
+        }
 
         // Test certificate with provider
         try {
@@ -220,7 +252,9 @@ router.get("/certificate/status/:therapistId", asyncHandler(async (req, res) => 
         }
 
         const certificateInfo = config.certificate_info ?
-            JSON.parse(config.certificate_info) : {};
+            (typeof config.certificate_info === 'string' ?
+                JSON.parse(config.certificate_info) :
+                config.certificate_info) : {};
 
         const now = new Date();
         const expiresAt = new Date(config.certificate_expires_at);

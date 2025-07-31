@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { apiService } from '../../services/api';
 import { whatsappService } from '../../services/whatsapp';
+import { nfseService, CertificateStatus } from '../../services/api/nfse-service';
 
 // Import types
 import {
@@ -47,12 +48,32 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
     referenceNumber: ''
   });
 
+  // NEW: NFS-e state management
+  const [certificateStatus, setCertificateStatus] = useState<CertificateStatus | null>(null);
+  const [generatingInvoices, setGeneratingInvoices] = useState<Set<number>>(new Set());
+  const [generatedInvoices, setGeneratedInvoices] = useState<Set<number>>(new Set());
+
+  const therapistId = "1"; // Replace with actual therapist ID from auth context
+
   // Load billing summary on component mount and when month/year changes
   useEffect(() => {
     if (therapistEmail) {
       loadBillingSummary();
+      loadCertificateStatus(); // NEW: Load certificate status
     }
   }, [therapistEmail, selectedYear, selectedMonth]);
+
+  // NEW: Load certificate status for NFS-e
+  const loadCertificateStatus = async () => {
+    try {
+      const status = await nfseService.getCertificateStatus(therapistId);
+      setCertificateStatus(status);
+      console.log('📋 Certificate status loaded:', status);
+    } catch (error) {
+      console.error('❌ Error loading certificate status:', error);
+      // Don't show error to user, just disable invoice functionality
+    }
+  };
 
   const loadBillingSummary = async () => {
     try {
@@ -175,6 +196,247 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
       setProcessingPatientId(null);
     }
   };
+
+  // NEW: Generate NFS-e invoice for a patient
+  const generateInvoice = async (patientSummary: BillingSummary) => {
+    // Check certificate status first
+    console.log(`🔍 Checking certificate status for NFS-e generation...`, certificateStatus?.hasValidCertificate);
+
+    if (!certificateStatus?.hasValidCertificate) {
+      const goToSettings = window.confirm(
+        'Certificado Necessário\n\n' +
+        'É necessário um certificado digital válido para emitir notas fiscais.\n\n' +
+        'Ir para Configurações NFS-e agora?'
+      );
+
+      if (goToSettings) {
+        window.location.href = '/nfse-configuracao';
+      }
+      return;
+    }
+
+    // Check if certificate is expired
+    if (certificateStatus.status === 'expired') {
+      window.alert(
+        'Certificado Expirado\n\n' +
+        'Seu certificado digital expirou. Faça upload de um certificado válido para continuar.'
+      );
+      return;
+    }
+
+    // Confirm invoice generation
+    const confirmed = window.confirm(
+      `Gerar nota fiscal de confirmação de pagamento para ${patientSummary.patientName}?\n\n` +
+      `Período: ${selectedMonth}/${selectedYear}\n` +
+      `Sessões: ${patientSummary.sessionCount}\n` +
+      `Valor pago: ${formatCurrency(patientSummary.totalAmount)}\n\n` +
+      `Esta NFS-e confirma o pagamento recebido.`
+    );
+
+    if (confirmed) {
+      executeInvoiceGeneration(patientSummary);
+    }
+  };
+
+  const executeInvoiceGeneration = async (patientSummary: BillingSummary) => {
+    // 🚧 MOCK MODE - Prevent actual API calls while waiting for PlugNotas account
+    const MOCK_MODE = true; // Set to false when PlugNotas is ready
+    try {
+      // Add patient to generating set
+      setGeneratingInvoices(prev => new Set([...prev, patientSummary.patientId]));
+
+      console.log(`🧾 Generating NFS-e for patient ${patientSummary.patientName}`);
+
+
+      if (MOCK_MODE) {
+        console.log('🧪 MOCK MODE: Simulating NFS-e generation...');
+
+        // Simulate API delay
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Mock successful response
+        const mockResult = {
+          invoice: {
+            invoiceId: `MOCK-${Date.now()}`,
+            invoiceNumber: `NFSe-${Math.floor(Math.random() * 10000)}`,
+            status: 'issued',
+            pdfUrl: null, // No PDF in mock mode
+            verificationCode: `MOCK-${Math.random().toString(36).substr(2, 9)}`,
+          }
+        };
+
+        console.log('✅ Mock NFS-e generated successfully:', mockResult);
+
+        // Add to generated set
+        setGeneratedInvoices(prev => new Set([...prev, patientSummary.patientId]));
+
+        // Show mock success message
+        const successMessage = `🧪 NFS-e Simulada Gerada! (MODO TESTE)\n\n` +
+          `Nota fiscal simulada para ${patientSummary.patientName}\n\n` +
+          `Período: ${selectedMonth}/${selectedYear}\n` +
+          `Número: ${mockResult.invoice.invoiceNumber}\n` +
+          `Status: ${mockResult.invoice.status}\n\n` +
+          `ATENÇÃO: Esta é uma simulação. Nenhuma nota fiscal real foi gerada.\n` +
+          `Aguardando aprovação da conta PlugNotas.`;
+
+        window.alert(successMessage);
+        return; // Exit early in mock mode
+      }
+
+      // 🚀 REAL NFS-e GENERATION CODE - Activated when MOCK_MODE = false
+      console.log('🎯 REAL MODE: Generating actual NFS-e via PlugNotas...');
+
+      // Get full patient data from the database to get email and other details
+      const patients = await apiService.getPatients(therapistEmail);
+      const fullPatientInfo = patients.find(p => parseInt(p.id) === patientSummary.patientId);
+
+      if (!fullPatientInfo) {
+        throw new Error('Patient information not found in database');
+      }
+
+      console.log('📋 Found patient data:', {
+        name: fullPatientInfo.name,
+        email: fullPatientInfo.email,
+        id: fullPatientInfo.id
+      });
+
+      // Get NFS-e settings from database
+      const nfseSettings = await nfseService.getNFSeSettings(therapistId);
+      console.log('📋 Found NFS-e settings:', nfseSettings.settings);
+
+      // Prepare invoice data based on the billing period with real data
+      const invoiceData = {
+        sessionId: `${patientSummary.patientId}-${selectedYear}-${selectedMonth}`, // Unique session reference
+        customerData: {
+          name: patientSummary.patientName,
+          email: fullPatientInfo.email || undefined,
+          // Add document if available in patient data (CPF/CNPJ)
+          // document: fullPatientInfo.document || undefined,
+          // Add customer address if available
+          // address: fullPatientInfo.address ? {
+          //   street: fullPatientInfo.address.street,
+          //   number: fullPatientInfo.address.number,
+          //   complement: fullPatientInfo.address.complement,
+          //   neighborhood: fullPatientInfo.address.neighborhood,
+          //   city: fullPatientInfo.address.city,
+          //   state: fullPatientInfo.address.state,
+          //   zipCode: fullPatientInfo.address.zipCode
+          // } : undefined
+        },
+        serviceData: {
+          description: nfseSettings.settings.defaultServiceDescription || `Serviços de Psicologia - ${selectedMonth}/${selectedYear}`,
+          value: patientSummary.totalAmount / 100, // Convert from cents to currency
+          serviceCode: nfseSettings.settings.serviceCode || '14.01' // Use configured service code
+        }
+      };
+
+      console.log('📋 Invoice data prepared for PlugNotas:', {
+        sessionId: invoiceData.sessionId,
+        customerName: invoiceData.customerData.name,
+        serviceDescription: invoiceData.serviceData.description,
+        value: invoiceData.serviceData.value,
+        serviceCode: invoiceData.serviceData.serviceCode
+      });
+
+      // Generate production invoice via PlugNotas
+      console.log('🔌 Calling PlugNotas API...');
+      const result = await nfseService.generateProductionInvoice(therapistId, invoiceData);
+
+      console.log('✅ Real NFS-e generated successfully via PlugNotas:', {
+        invoiceId: result.invoice.invoiceId,
+        invoiceNumber: result.invoice.invoiceNumber,
+        status: result.invoice.status,
+        hasPdf: !!result.invoice.pdfUrl
+      });
+
+      // Add to generated set
+      setGeneratedInvoices(prev => new Set([...prev, patientSummary.patientId]));
+
+      // Store invoice information in local state or refresh data if needed
+      // This could trigger a refresh of the billing summary to show updated status
+      console.log('💾 Invoice generation completed, updating UI state...');
+
+      // Show real success message with web-compatible dialogs
+      const successMessage = `✅ NFS-e Gerada com Sucesso!\n\n` +
+        `Nota fiscal oficial gerada para ${patientSummary.patientName}\n\n` +
+        `Período: ${selectedMonth}/${selectedYear}\n` +
+        `Número: ${result.invoice.invoiceNumber || result.invoice.invoiceId}\n` +
+        `Status: ${result.invoice.status}\n` +
+        `Código de Verificação: ${result.invoice.verificationCode || 'Não disponível'}\n\n` +
+        `${result.invoice.pdfUrl ? 'PDF disponível para download.' : 'PDF será disponibilizado quando a nota for processada pela Prefeitura.'}`;
+
+      if (result.invoice.pdfUrl) {
+        const openPdf = window.confirm(successMessage + '\n\nAbrir PDF da NFS-e agora?');
+        if (openPdf) {
+          console.log('🔗 Opening NFS-e PDF:', result.invoice.pdfUrl);
+          window.open(result.invoice.pdfUrl, '_blank');
+        }
+      } else {
+        window.alert(successMessage);
+      }
+
+      // Optionally refresh billing data to show updated status
+      console.log('🔄 Considering refresh of billing data...');
+      // await loadBillingSummary();
+
+      // Log successful completion
+      console.log(`🎉 NFS-e generation completed successfully for patient ${patientSummary.patientName}`);
+
+    } catch (error: any) {
+      console.error('❌ Error generating NFS-e:', error);
+
+      let errorMessage = 'Erro desconhecido ao gerar nota fiscal.';
+
+      if (error instanceof Error) {
+        // PlugNotas specific errors
+        if (error.message.includes('Certificate')) {
+          errorMessage = 'Erro no certificado digital. Verifique se o certificado está válido e não expirou.';
+        } else if (error.message.includes('Company')) {
+          errorMessage = 'Empresa não registrada no PlugNotas. Configure sua empresa nas configurações NFS-e.';
+        } else if (error.message.includes('already exists')) {
+          errorMessage = 'Já existe uma nota fiscal para este período e paciente.';
+        } else if (error.message.includes('Patient information not found')) {
+          errorMessage = 'Informações do paciente não encontradas no banco de dados. Tente novamente.';
+        } else if (error.message.includes('Authentication required')) {
+          errorMessage = 'Erro de autenticação. Faça login novamente.';
+        } else if (error.message.includes('Municipal registration required')) {
+          errorMessage = 'Inscrição municipal necessária. Configure sua empresa com inscrição municipal válida.';
+        } else if (error.message.includes('Service code invalid')) {
+          errorMessage = 'Código de serviço inválido. Verifique as configurações NFS-e.';
+        } else if (error.message.includes('Tax rate')) {
+          errorMessage = 'Erro na alíquota de imposto. Verifique as configurações de tributos.';
+        } else if (error.message.includes('network') || error.message.includes('timeout')) {
+          errorMessage = 'Erro de conexão com PlugNotas. Verifique sua internet e tente novamente.';
+        } else if (error.message.includes('rate limit')) {
+          errorMessage = 'Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.';
+        } else {
+          errorMessage = `Erro: ${error.message}`;
+        }
+      }
+
+      // Log detailed error for debugging
+      console.error('🔍 Detailed error information:', {
+        message: error.message,
+        stack: error.stack,
+        patientId: patientSummary.patientId,
+        patientName: patientSummary.patientName,
+        period: `${selectedMonth}/${selectedYear}`,
+        mockMode: MOCK_MODE
+      });
+
+      window.alert(`Erro ao Gerar NFS-e\n\n${errorMessage}`);
+    } finally {
+      // Remove from generating set (cleanup always happens)
+      setGeneratingInvoices(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(patientSummary.patientId);
+        return newSet;
+      });
+
+      console.log(`🧹 Cleanup completed for patient ${patientSummary.patientName}`);
+    }
+  };
+
 
   const viewBillingPeriodDetails = async (billingPeriodId: number | undefined, patientSummary?: BillingSummary) => {
     try {
@@ -427,6 +689,20 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
     return `R$ ${(amountInCents / 100).toFixed(2).replace('.', ',')}`;
   };
 
+  // NEW: Determine if NFS-e button should be shown for a patient
+  const shouldShowNFSeButton = (patient: BillingSummary) => {
+    // Only show for processed patients (who have been charged)
+    if (patient.status !== 'paid') return false;
+
+    // Only show if certificate is valid
+    if (!certificateStatus?.hasValidCertificate) return false;
+
+    // Don't show if already generated for this patient
+    if (generatedInvoices.has(patient.patientId)) return false;
+
+    return true;
+  };
+
   if (loading) {
     return (
       <View style={styles.centerContainer}>
@@ -446,6 +722,7 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
             <Text style={styles.subtitle}>
               {selectedMonth}/{selectedYear} • {billingSummary.length} pacientes com sessões
               {isAutoCheckInEnabled() && ' • ⚡ Modo Calendário Ativo'}
+              {certificateStatus?.hasValidCertificate && ' • 🧾 NFS-e Configurado'}
             </Text>
           </View>
 
@@ -468,8 +745,16 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
             <View key={patient.patientId} style={styles.patientCard}>
               <View style={styles.patientHeader}>
                 <Text style={styles.patientName}>{patient.patientName}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(patient.status) }]}>
-                  <Text style={styles.statusText}>{getStatusText(patient.status)}</Text>
+                <View style={styles.statusContainer}>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(patient.status) }]}>
+                    <Text style={styles.statusText}>{getStatusText(patient.status)}</Text>
+                  </View>
+                  {/* NEW: Invoice status indicator */}
+                  {generatedInvoices.has(patient.patientId) && (
+                    <View style={styles.invoiceIndicator}>
+                      <Text style={styles.invoiceIndicatorText}>🧾</Text>
+                    </View>
+                  )}
                 </View>
               </View>
 
@@ -511,6 +796,42 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
                       <Text style={styles.voidButtonText}>Cancelar</Text>
                     </Pressable>
                   </>
+                )}
+
+                {/* NEW: NFS-e button for PAID patients */}
+                {patient.status === 'paid' && shouldShowNFSeButton(patient) && (
+                  <Pressable
+                    style={[
+                      styles.actionButton,
+                      styles.nfseButton,
+                      generatingInvoices.has(patient.patientId) && styles.nfseButtonDisabled
+                    ]}
+                    onPress={() => generateInvoice(patient)}
+                    disabled={generatingInvoices.has(patient.patientId)}
+                  >
+                    <Text style={styles.nfseButtonText}>
+                      {generatingInvoices.has(patient.patientId) ? '🔄 Gerando...' : '🧾 Gerar NFS-e'}
+                    </Text>
+                  </Pressable>
+                )}
+
+                {/* Certificate Warning for processed patients without valid certificate */}
+                {patient.status === 'paid' && !certificateStatus?.hasValidCertificate && (
+                  <Pressable
+                    style={[styles.actionButton, styles.certificateWarning]}
+                    onPress={() => {
+                      Alert.alert(
+                        'Certificado Necessário',
+                        'Configure seu certificado digital para emitir notas fiscais.',
+                        [
+                          { text: 'Cancelar' },
+                          { text: 'Configurar', onPress: () => window.location.href = '/nfse-configuracao' }
+                        ]
+                      );
+                    }}
+                  >
+                    <Text style={styles.certificateWarningText}>⚠️ Certificado</Text>
+                  </Pressable>
                 )}
 
                 {/* Always show "Ver Detalhes" button for all payment states */}
@@ -698,7 +1019,8 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
       )}
     </View>
   );
-};
+}
+
 
 const styles = StyleSheet.create({
   container: {
@@ -788,6 +1110,12 @@ const styles = StyleSheet.create({
     color: '#212529',
     flex: 1,
   },
+  // NEW: Updated status container to hold both status and invoice indicator
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -797,6 +1125,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  // NEW: Invoice status indicator
+  invoiceIndicator: {
+    backgroundColor: '#e3f2fd',
+    borderColor: '#2196f3',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  invoiceIndicatorText: {
+    fontSize: 12,
+    color: '#1565c0',
   },
   patientDetails: {
     marginBottom: 12,
@@ -846,6 +1187,32 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  // NEW: NFS-e button styles
+  nfseButton: {
+    backgroundColor: '#007bff',
+    borderColor: '#0056b3',
+    borderWidth: 1,
+  },
+  nfseButtonDisabled: {
+    backgroundColor: '#6c757d',
+    borderColor: '#6c757d',
+  },
+  nfseButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  // NEW: Certificate warning button
+  certificateWarning: {
+    backgroundColor: '#fff3cd',
+    borderColor: '#ffeaa7',
+    borderWidth: 1,
+  },
+  certificateWarningText: {
+    color: '#856404',
+    fontSize: 11,
+    fontWeight: '500',
   },
   detailButton: {
     backgroundColor: '#6c757d',

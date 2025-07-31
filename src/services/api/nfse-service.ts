@@ -119,19 +119,32 @@ export const nfseService = {
 
     try {
       const headers = await baseApiService.getAuthHeaders();
-      
+
       const formData = new FormData();
-      formData.append('certificate', certificateFile);
+
+      // Handle the file properly for React Native Web
+      if (certificateFile.uri) {
+        // For React Native, create a proper File object
+        const response = await fetch(certificateFile.uri);
+        const blob = await response.blob();
+        formData.append('certificate', blob, certificateFile.name);
+      } else if (certificateFile instanceof File) {
+        // For web, use the File directly
+        formData.append('certificate', certificateFile);
+      } else {
+        throw new Error('Invalid certificate file format');
+      }
+
       formData.append('password', password);
       formData.append('therapistId', therapistId);
 
+      // Create headers without Content-Type (let browser set it for FormData)
+      const uploadHeaders = { ...headers };
+      delete uploadHeaders['Content-Type'];
+
       const response = await fetch(`${baseApiService.API_URL}/api/nfse/certificate`, {
         method: "POST",
-        headers: {
-          ...headers,
-          // Don't set Content-Type for FormData, let browser set it with boundary
-          'Content-Type': undefined as any,
-        },
+        headers: uploadHeaders,
         body: formData,
       });
 
@@ -221,12 +234,12 @@ export const nfseService = {
   // ==========================================
 
   async getTherapistInvoices(
-    therapistId: string, 
-    options?: { 
-      limit?: number; 
-      offset?: number; 
-      status?: string; 
-      isTest?: boolean; 
+    therapistId: string,
+    options?: {
+      limit?: number;
+      offset?: number;
+      status?: string;
+      isTest?: boolean;
     }
   ): Promise<{ invoices: Invoice[]; pagination: any }> {
     if (!canMakeAuthenticatedCall()) {
@@ -283,7 +296,7 @@ export const nfseService = {
 
   async getNFSeSettings(therapistId: string): Promise<{ settings: NFSeSettings }> {
     if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for settings operations");  
+      throw new Error("Authentication required for settings operations");
     }
 
     try {
@@ -351,7 +364,7 @@ export const nfseService = {
   async downloadInvoicePDF(pdfUrl: string, invoiceNumber: string): Promise<void> {
     try {
       console.log("📥 Downloading invoice PDF:", invoiceNumber);
-      
+
       // For web platform, open in new tab
       if (typeof window !== 'undefined') {
         const link = document.createElement('a');
@@ -381,10 +394,10 @@ export const nfseService = {
   // Helper function to format document (CPF/CNPJ)
   formatDocument(document: string): string {
     if (!document) return '';
-    
+
     // Remove non-digits
     const cleanDoc = document.replace(/\D/g, '');
-    
+
     if (cleanDoc.length === 11) {
       // CPF format: 000.000.000-00
       return cleanDoc.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
@@ -392,16 +405,16 @@ export const nfseService = {
       // CNPJ format: 00.000.000/0000-00
       return cleanDoc.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
     }
-    
+
     return document;
   },
 
   // Helper function to validate document
   isValidDocument(document: string): boolean {
     if (!document) return false;
-    
+
     const cleanDoc = document.replace(/\D/g, '');
-    
+
     // Basic length validation
     return cleanDoc.length === 11 || cleanDoc.length === 14;
   },
@@ -425,7 +438,7 @@ export const nfseService = {
     const fileName = file.name.toLowerCase();
     const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
     const isValidSize = file.size <= 5 * 1024 * 1024; // 5MB limit
-    
+
     return hasValidExtension && isValidSize;
   }
 };
