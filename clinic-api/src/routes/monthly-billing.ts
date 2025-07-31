@@ -155,8 +155,8 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
                     telefone: patient?.telefone || '',
                     cpf: patient?.cpf || '',
                     sessionCount: billingSummary.sessionCount,
-                    sessionPrice: patient?.session_price ? `R$ ${(patient.session_price / 100).toFixed(2).replace('.', ',')}` : '',
-                    totalAmount: `R$ ${(billingSummary.totalAmount / 100).toFixed(2).replace('.', ',')}`,
+                    sessionPrice: patient?.session_price ? (patient.session_price / 100).toFixed(2) : '',
+                    totalAmount: (billingSummary.totalAmount / 100).toFixed(2),
                     status: getStatusText(billingSummary.status || 'can_process'),
                     paymentDate,
                     paymentMethod,
@@ -210,6 +210,12 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
             `"${row.therapyStartDate}"`,
             `"${row.billingStartDate}"`
         ]);
+        
+        // Sum the total amounts
+        const totalAmountSum = csvData.reduce((acc, row) => acc + parseFloat(row.totalAmount), 0).toFixed(2);
+
+        // Add summary row with the calculated total
+        csvRows.push(['', '', '', '', '', 'TOTAL', totalAmountSum, '', '', '', '', '', '']);
 
         // Add UTF-8 BOM for proper Excel encoding
         const BOM = '\uFEFF';
