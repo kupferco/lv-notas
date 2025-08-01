@@ -576,6 +576,53 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
         </Text>
       </View>
 
+      {/* Banking Integration Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>💳 Integração Bancária</Text>
+
+        <View style={styles.infoRow}>
+          <Text style={styles.label}>Status:</Text>
+          <Text style={[styles.value, styles.statusDisconnected]}>
+            ❌ Não configurado
+          </Text>
+        </View>
+
+        <Text style={styles.helpText}>
+          Conecte suas contas bancárias para receber notificações automáticas de pagamentos PIX e TED.
+          Identifique automaticamente pagamentos de pacientes e agilize seu controle financeiro.
+        </Text>
+
+        <Pressable
+          style={styles.secondaryButton}
+          onPress={() => {
+            window.location.href = '/banking';
+          }}
+        >
+          <Text style={styles.secondaryButtonText}>
+            💳 Configurar Integração Bancária
+          </Text>
+        </Pressable>
+
+        {/* Development/Testing Button - Remove in production */}
+        {isDevelopment && (
+          <>
+            <Pressable
+              style={[styles.secondaryButton, { marginTop: 10, borderColor: '#17a2b8' }]}
+              onPress={() => {
+                window.location.href = '/banking-test';
+              }}
+            >
+              <Text style={[styles.secondaryButtonText, { color: '#17a2b8' }]}>
+                🔧 Tela de Testes Banking
+              </Text>
+            </Pressable>
+            <Text style={[styles.helpText, { color: '#17a2b8', fontSize: 11 }]}>
+              Apenas em desenvolvimento - Para testes da integração Pluggy
+            </Text>
+          </>
+        )}
+      </View>
+
       {/* NFS-e Integration Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>🧾 NFS-e (Nota Fiscal Eletrônica)</Text>
