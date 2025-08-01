@@ -47,7 +47,7 @@ const asyncHandler = (
 
 /**
  * POST /api/pluggy-webhook
- * Handle webhooks from Pluggy for real-time transaction updates
+ * Handle webhooks from Pluggy for real-time transaction updates (Option B: Privacy-First)
  */
 router.post("/", asyncHandler(async (req, res) => {
   console.log("===== PLUGGY WEBHOOK RECEIVED =====");
@@ -81,8 +81,8 @@ router.post("/", asyncHandler(async (req, res) => {
 
       case 'item/updated':
         console.log('Bank connection updated');
-        // Sync transactions for all accounts in this item
-        await syncConnectionTransactions(connections.rows);
+        // Process transactions for all therapists using this item
+        await processTransactionsForConnections(connections.rows);
         break;
 
       case 'item/error':
@@ -91,10 +91,10 @@ router.post("/", asyncHandler(async (req, res) => {
         break;
 
       case 'transactions/updated':
-        console.log('New transactions available');
+        console.log('New transactions available - processing with Option B privacy-first approach');
         // This is the most important event - new transactions are available
-        await syncConnectionTransactions(connections.rows);
-        await processNewTransactions(connections.rows);
+        // Option B: Real-time processing with automatic matching
+        await processTransactionsForConnections(connections.rows);
         break;
 
       case 'accounts/updated':
@@ -112,203 +112,40 @@ router.post("/", asyncHandler(async (req, res) => {
 }));
 
 /**
- * Sync transactions for affected bank connections
+ * Process transactions for affected bank connections (Option B: Privacy-First)
+ * This replaces the old approach of storing all transactions
  */
-async function syncConnectionTransactions(connections: any[]): Promise<void> {
+async function processTransactionsForConnections(connections: any[]): Promise<void> {
   for (const connection of connections) {
     try {
-      console.log(`Syncing transactions for connection ${connection.id}`);
-      await pluggyService.syncTransactions(connection.id);
-    } catch (error) {
-      console.error(`Failed to sync connection ${connection.id}:`, error);
-    }
-  }
-}
-
-/**
- * Process newly received transactions for automatic matching
- */
-async function processNewTransactions(connections: any[]): Promise<void> {
-  for (const connection of connections) {
-    try {
-      // Get recent unmatched transactions for this connection
-      const recentTransactions = await pool.query(`
-        SELECT bt.*, bc.therapist_id
-        FROM bank_transactions bt
-        JOIN bank_connections bc ON bt.bank_connection_id = bc.id
-        WHERE bc.id = $1 
-          AND bt.match_status = 'unmatched'
-          AND bt.created_at >= NOW() - INTERVAL '1 hour'
-        ORDER BY bt.transaction_date DESC
-      `, [connection.id]);
-
-      console.log(`Found ${recentTransactions.rows.length} recent unmatched transactions for connection ${connection.id}`);
-
-      // Process each transaction for automatic matching
-      for (const transaction of recentTransactions.rows) {
-        await attemptAutomaticMatching(transaction);
-      }
-    } catch (error) {
-      console.error(`Error processing new transactions for connection ${connection.id}:`, error);
-    }
-  }
-}
-
-/**
- * Attempt automatic matching for a transaction
- */
-async function attemptAutomaticMatching(transaction: any): Promise<void> {
-  try {
-    const { id: transactionId, therapist_id, pix_sender_cpf, pix_sender_name, amount, transaction_date } = transaction;
-
-    // Strategy 1: Match by CPF (highest confidence)
-    if (pix_sender_cpf) {
-      const cpfMatch = await pool.query(`
-        SELECT p.*, s.id as session_id, s.date as session_date
-        FROM patients p
-        LEFT JOIN sessions s ON p.id = s.patient_id
-        WHERE p.therapist_id = $1 
-          AND p.cpf = $2
-          AND s.status = 'agendada'
-          AND ABS(EXTRACT(EPOCH FROM (s.date - $3::timestamp)) / 3600) <= 168 -- Within 1 week
-        ORDER BY ABS(EXTRACT(EPOCH FROM (s.date - $3::timestamp))) ASC
-        LIMIT 1
-      `, [therapist_id, pix_sender_cpf, transaction_date]);
-
-      if (cpfMatch.rows.length > 0) {
-        await createAutomaticMatch(transactionId, cpfMatch.rows[0], 'auto_cpf', 0.95, 'Matched by CPF');
-        return;
-      }
-    }
-
-    // Strategy 2: Match by name similarity (medium confidence)
-    if (pix_sender_name) {
-      const nameMatch = await pool.query(`
-        SELECT p.*, s.id as session_id, s.date as session_date,
-               SIMILARITY(p.nome, $2) as name_similarity
-        FROM patients p
-        LEFT JOIN sessions s ON p.id = s.patient_id
-        WHERE p.therapist_id = $1 
-          AND SIMILARITY(p.nome, $2) > 0.7
-          AND s.status = 'agendada'
-          AND ABS(EXTRACT(EPOCH FROM (s.date - $3::timestamp)) / 3600) <= 168 -- Within 1 week
-        ORDER BY name_similarity DESC, ABS(EXTRACT(EPOCH FROM (s.date - $3::timestamp))) ASC
-        LIMIT 1
-      `, [therapist_id, pix_sender_name, transaction_date]);
-
-      if (nameMatch.rows.length > 0) {
-        const similarity = nameMatch.rows[0].name_similarity;
-        await createAutomaticMatch(
-          transactionId, 
-          nameMatch.rows[0], 
-          'auto_name', 
-          similarity * 0.8, // Reduce confidence for name matches
-          `Matched by name similarity (${Math.round(similarity * 100)}%)`
-        );
-        return;
-      }
-    }
-
-    // Strategy 3: Match by exact amount and date proximity (lower confidence)
-    const amountMatch = await pool.query(`
-      SELECT p.*, s.id as session_id, s.date as session_date
-      FROM patients p
-      LEFT JOIN sessions s ON p.id = s.patient_id
-      WHERE p.therapist_id = $1 
-        AND p.preco = $2
-        AND s.status = 'agendada'
-        AND ABS(EXTRACT(EPOCH FROM (s.date - $3::timestamp)) / 3600) <= 48 -- Within 2 days
-      ORDER BY ABS(EXTRACT(EPOCH FROM (s.date - $3::timestamp))) ASC
-      LIMIT 1
-    `, [therapist_id, amount, transaction_date]);
-
-    if (amountMatch.rows.length > 0) {
-      await createAutomaticMatch(
-        transactionId, 
-        amountMatch.rows[0], 
-        'auto_amount_date', 
-        0.6,
-        'Matched by exact amount and date proximity'
-      );
-      return;
-    }
-
-    console.log(`No automatic match found for transaction ${transactionId}`);
-  } catch (error) {
-    console.error(`Error in automatic matching for transaction ${transaction.id}:`, error);
-  }
-}
-
-/**
- * Create an automatic payment match
- */
-async function createAutomaticMatch(
-  transactionId: number, 
-  patientSession: any, 
-  matchType: string, 
-  confidence: number,
-  reason: string
-): Promise<void> {
-  try {
-    const { id: patientId, preco: sessionPrice, session_id: sessionId } = patientSession;
-
-    // Get transaction amount
-    const transactionResult = await pool.query(
-      'SELECT amount FROM bank_transactions WHERE id = $1',
-      [transactionId]
-    );
-    
-    if (transactionResult.rows.length === 0) return;
-    
-    const transactionAmount = transactionResult.rows[0].amount;
-    const amountDifference = transactionAmount - (sessionPrice || 0);
-
-    // Create the automatic match
-    await pool.query(`
-      INSERT INTO payment_matches (
-        bank_transaction_id,
-        session_id,
-        patient_id,
-        match_type,
-        match_confidence,
-        match_reason,
-        matched_amount,
-        session_price,
-        amount_difference,
-        status,
-        confirmed_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    `, [
-      transactionId,
-      sessionId,
-      patientId,
-      matchType,
-      confidence,
-      reason,
-      transactionAmount,
-      sessionPrice,
-      amountDifference,
-      confidence >= 0.9 ? 'confirmed' : 'pending', // Auto-confirm high confidence matches
-      confidence >= 0.9 ? 'auto' : null
-    ]);
-
-    // Update transaction status
-    await pool.query(
-      'UPDATE bank_transactions SET match_status = $1, processed_at = CURRENT_TIMESTAMP WHERE id = $2',
-      ['auto_matched', transactionId]
-    );
-
-    // If high confidence match, also update session status
-    if (confidence >= 0.9 && sessionId) {
+      console.log(`Processing transactions for connection ${connection.id} (therapist ${connection.therapist_id})`);
+      
+      // Use the new Option B service method that only stores matched transactions
+      const result = await pluggyService.processTransactionsForTherapist(connection.therapist_id);
+      
+      console.log(`Processed ${result.processedTransactions} transactions, found ${result.newMatches} new matches for therapist ${connection.therapist_id}`);
+      
+      // Update connection sync time
       await pool.query(
-        'UPDATE sessions SET status = $1 WHERE id = $2',
-        ['compareceu', sessionId]
+        'UPDATE bank_connections SET last_sync_at = CURRENT_TIMESTAMP WHERE id = $1',
+        [connection.id]
       );
+      
+    } catch (error) {
+      console.error(`Failed to process transactions for connection ${connection.id}:`, error);
+      
+      // Update error tracking
+      await pool.query(`
+        UPDATE bank_connections 
+        SET error_count = error_count + 1,
+            last_error = $1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+      `, [
+        error instanceof Error ? error.message : String(error), 
+        connection.id
+      ]);
     }
-
-    console.log(`Created automatic match for transaction ${transactionId} with confidence ${confidence}`);
-  } catch (error) {
-    console.error(`Error creating automatic match for transaction ${transactionId}:`, error);
   }
 }
 
@@ -331,5 +168,95 @@ async function updateConnectionsStatus(itemId: string, status: string, errorMess
     console.error(`Error updating connection status for item ${itemId}:`, error);
   }
 }
+
+/**
+ * GET /api/pluggy-webhook/test
+ * Test endpoint to manually trigger transaction processing (for development)
+ */
+router.get("/test/:therapistId", asyncHandler(async (req, res) => {
+  const { therapistId } = req.params;
+  
+  console.log(`🧪 Test: Manually triggering transaction processing for therapist ${therapistId}`);
+  
+  try {
+    const result = await pluggyService.processTransactionsForTherapist(parseInt(therapistId));
+    
+    return res.json({
+      message: "Test processing completed",
+      processedTransactions: result.processedTransactions,
+      newMatches: result.newMatches
+    });
+  } catch (error) {
+    console.error('Error in test processing:', error);
+    return res.status(500).json({
+      error: "Test processing failed",
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+}));
+
+/**
+ * GET /api/pluggy-webhook/status
+ * Get webhook processing status and statistics
+ */
+router.get("/status", asyncHandler(async (req, res) => {
+  try {
+    // Get summary of all bank connections
+    const connections = await pool.query(`
+      SELECT 
+        therapist_id,
+        COUNT(*) as connection_count,
+        COUNT(CASE WHEN status = 'active' THEN 1 END) as active_connections,
+        COUNT(CASE WHEN status = 'error' THEN 1 END) as error_connections,
+        MAX(last_sync_at) as last_sync,
+        SUM(error_count) as total_errors
+      FROM bank_connections
+      GROUP BY therapist_id
+      ORDER BY therapist_id
+    `);
+
+    // Get summary of matched transactions
+    const matches = await pool.query(`
+      SELECT 
+        COUNT(*) as total_matches,
+        COUNT(CASE WHEN status = 'confirmed' THEN 1 END) as confirmed_matches,
+        SUM(amount) as total_matched_amount,
+        AVG(match_confidence) as avg_confidence,
+        MAX(transaction_date) as last_match_date
+      FROM matched_transactions
+    `);
+
+    // Get recent processing activity
+    const recentActivity = await pool.query(`
+      SELECT 
+        COUNT(*) as recent_processed,
+        COUNT(CASE WHEN match_found = true THEN 1 END) as recent_matches
+      FROM processed_transactions 
+      WHERE processed_at >= NOW() - INTERVAL '24 hours'
+    `);
+
+    return res.json({
+      connectionsSummary: connections.rows,
+      matchesSummary: matches.rows[0] || {
+        total_matches: 0,
+        confirmed_matches: 0,
+        total_matched_amount: 0,
+        avg_confidence: null,
+        last_match_date: null
+      },
+      recentActivity: recentActivity.rows[0] || {
+        recent_processed: 0,
+        recent_matches: 0
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error getting webhook status:', error);
+    return res.status(500).json({
+      error: "Failed to get status",
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+}));
 
 export default router;
