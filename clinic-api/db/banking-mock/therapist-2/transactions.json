@@ -1,0 +1,157 @@
+[
+  {
+    "id": "tx_bb_pix_20250801_001",
+    "accountId": "account_bb_checking_therapist1",
+    "amount": 600.00,
+    "date": "2025-08-01T14:30:00Z",
+    "description": "PIX RECEBIDO",
+    "type": "credit",
+    "category": "transfer",
+    "paymentData": {
+      "payer": {
+        "name": "João Silva Santos",
+        "document": "123.456.789-01",
+        "bankName": "Nubank"
+      },
+      "endToEndId": "E12345678202408011234567890123456"
+    }
+  },
+  {
+    "id": "tx_bb_pix_20250729_002", 
+    "accountId": "account_bb_checking_therapist1",
+    "amount": 300.00,
+    "date": "2025-07-29T16:45:00Z",
+    "description": "PIX RECEBIDO",
+    "type": "credit", 
+    "category": "transfer",
+    "paymentData": {
+      "payer": {
+        "name": "Maria Santos Oliveira", 
+        "document": "987.654.321-09",
+        "bankName": "Banco do Brasil"
+      },
+      "endToEndId": "E98765432202407291234567890987654"
+    }
+  },
+  {
+    "id": "tx_bb_pix_20250725_003",
+    "accountId": "account_bb_checking_therapist1", 
+    "amount": 800.00,
+    "date": "2025-07-25T09:15:00Z",
+    "description": "PIX RECEBIDO",
+    "type": "credit",
+    "category": "transfer",
+    "paymentData": {
+      "payer": {
+        "name": "Carlos Lima Costa",
+        "document": "456.789.123-45",
+        "bankName": "Itaú"
+      },
+      "endToEndId": "E55667788202407251234567890556677"
+    }
+  },
+  {
+    "id": "tx_bb_pix_20250730_004",
+    "accountId": "account_bb_checking_therapist1",
+    "amount": 175.00, 
+    "date": "2025-07-30T11:20:00Z",
+    "description": "PIX RECEBIDO",
+    "type": "credit",
+    "category": "transfer",
+    "paymentData": {
+      "payer": {
+        "name": "Ana Pereira Souza",
+        "document": "321.654.987-12", 
+        "bankName": "Santander"
+      },
+      "endToEndId": "E11223344202408051234567890112233"
+    }
+  },
+  {
+    "id": "tx_bb_pix_20250728_005",
+    "accountId": "account_bb_checking_therapist1",
+    "amount": 1200.00,
+    "date": "2025-07-28T13:00:00Z", 
+    "description": "PIX RECEBIDO",
+    "type": "credit",
+    "category": "transfer",
+    "paymentData": {
+      "payer": {
+        "name": "Sofia Oliveira Mendes",
+        "document": "159.753.486-20",
+        "bankName": "Nubank"
+      },
+      "endToEndId": "E99887766202407281234567890998877"
+    }
+  },
+  {
+    "id": "tx_bb_pix_20250726_006",
+    "accountId": "account_bb_checking_therapist1",
+    "amount": 580.00,
+    "date": "2025-07-26T17:30:00Z",
+    "description": "PIX RECEBIDO", 
+    "type": "credit",
+    "category": "transfer",
+    "paymentData": {
+      "payer": {
+        "name": "Pedro Santos Lima",
+        "document": "741.852.963-85",
+        "bankName": "Caixa"
+      },
+      "endToEndId": "E44556677202407261234567890445566"
+    }
+  },
+  {
+    "id": "tx_bb_pix_20250724_007",
+    "accountId": "account_bb_checking_therapist1",
+    "amount": 250.00,
+    "date": "2025-07-24T08:45:00Z",
+    "description": "PIX RECEBIDO",
+    "type": "credit",
+    "category": "transfer", 
+    "paymentData": {
+      "payer": {
+        "name": "José da Silva Fernandes",
+        "document": "852.741.963-74",
+        "bankName": "Bradesco"
+      },
+      "endToEndId": "E33221100202407241234567890332211"
+    }
+  },
+  {
+    "id": "tx_bb_transfer_20250731_008",
+    "accountId": "account_bb_checking_therapist1",
+    "amount": -500.00,
+    "date": "2025-07-31T20:00:00Z",
+    "description": "TRANSFERENCIA ENVIADA", 
+    "type": "debit",
+    "category": "transfer",
+    "paymentData": null
+  },
+  {
+    "id": "tx_bb_ted_20250723_009", 
+    "accountId": "account_bb_checking_therapist1",
+    "amount": 1500.00,
+    "date": "2025-07-23T12:15:00Z",
+    "description": "TED RECEBIDA",
+    "type": "credit",
+    "category": "transfer",
+    "paymentData": {
+      "payer": {
+        "name": "João Silva",
+        "document": "123.456.789-01",
+        "bankName": "Nubank"
+      }
+    }
+  },
+  {
+    "id": "tx_bb_fee_20250721_010",
+    "accountId": "account_bb_checking_therapist1", 
+    "amount": -120.00,
+    "date": "2025-07-21T18:45:00Z",
+    "description": "TARIFA PACOTE SERVICOS",
+    "type": "debit",
+    "category": "fee",
+    "paymentData": null
+  }
+]

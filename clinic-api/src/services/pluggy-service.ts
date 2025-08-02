@@ -1,5 +1,6 @@
 // src/services/pluggy-service.ts
 import pool from '../config/database.js';
+import { mockDataLoader } from './mock-data-loader.js';
 import { 
   PluggyAccount, 
   PluggyTransaction, 
@@ -17,28 +18,32 @@ export class PluggyService {
     private environment: string;
     private baseUrl: string;
     private mockMode: boolean;
+    private mockTherapistId: string;
 
     constructor(mockMode?: boolean) {
         this.clientId = process.env.PLUGGY_CLIENT_ID || '';
         this.clientSecret = process.env.PLUGGY_CLIENT_SECRET || '';
         this.environment = process.env.PLUGGY_ENVIRONMENT || 'production';
         this.mockMode = mockMode ?? (process.env.PLUGGY_MOCK_MODE === 'true');
+        this.mockTherapistId = process.env.MOCK_THERAPIST_ID || '1';
         this.baseUrl = this.environment === 'production'
             ? 'https://api.pluggy.ai'
             : 'https://api.pluggy.ai';
 
-        console.log('🔑 Pluggy Configuration Debug:');
+        console.log('🔑 Pluggy Service Configuration:');
+        console.log(`   Mode: ${this.mockMode ? 'MOCK' : 'REAL'}`);
+        console.log(`   Mock Therapist ID: ${this.mockTherapistId}`);
         console.log(`   Environment: ${this.environment}`);
-        console.log(`   Mock Mode: ${this.mockMode ? 'ENABLED' : 'DISABLED'}`);
-        console.log(`   Base URL: ${this.baseUrl}`);
-        console.log(`   Client ID: ${this.clientId ? `${this.clientId.substring(0, 8)}...` : 'MISSING'}`);
-        console.log(`   Client Secret: ${this.clientSecret ? `${this.clientSecret.substring(0, 8)}...` : 'MISSING'}`);
+        
+        if (!this.mockMode) {
+            console.log(`   Base URL: ${this.baseUrl}`);
+            console.log(`   Client ID: ${this.clientId ? `${this.clientId.substring(0, 8)}...` : 'MISSING'}`);
+            console.log(`   Client Secret: ${this.clientSecret ? `${this.clientSecret.substring(0, 8)}...` : 'MISSING'}`);
 
-        if (!this.mockMode && (!this.clientId || !this.clientSecret)) {
-            throw new Error('Pluggy credentials not found in environment variables (set PLUGGY_MOCK_MODE=true to use mock mode)');
-        }
+            if (!this.clientId || !this.clientSecret) {
+                throw new Error('Pluggy credentials not found in environment variables (set PLUGGY_MOCK_MODE=true to use mock mode)');
+            }
 
-        if (!this.mockMode && this.clientId) {
             const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
             if (!uuidRegex.test(this.clientId)) {
                 throw new Error(`Pluggy clientId must be a valid UUID format. Got: ${this.clientId.substring(0, 20)}...`);
@@ -120,38 +125,9 @@ export class PluggyService {
 
     async getItems(): Promise<PluggyItemResponse[]> {
         if (this.mockMode) {
-            console.log('🎭 Mock Mode: Returning fake bank items');
+            console.log('🎭 Mock Mode: Loading items from files');
             await new Promise(resolve => setTimeout(resolve, 600));
-            return [
-                {
-                    id: 'mock_item_banco_brasil',
-                    connector: {
-                        id: 611,
-                        name: 'Banco do Brasil',
-                        primaryColor: '1194F6',
-                        institutionUrl: 'https://www.bb.com.br/docs/pub/inst/img/LogoBB.svg',
-                        country: 'BR',
-                        type: 'PERSONAL_BANK',
-                        credentials: [],
-                        imageUrl: 'https://cdn.pluggy.ai/assets/connector-icons/211.svg',
-                        hasMFA: false,
-                        oauth: true,
-                        health: { status: 'ONLINE', stage: null },
-                        products: ['ACCOUNTS', 'TRANSACTIONS', 'IDENTITY', 'CREDIT_CARDS', 'PAYMENT_DATA'],
-                        createdAt: '2023-09-01T18:05:09.145Z',
-                        isSandbox: false,
-                        isOpenFinance: true,
-                        updatedAt: new Date().toISOString(),
-                        supportsPaymentInitiation: true,
-                        supportsScheduledPayments: true,
-                        supportsSmartTransfers: false,
-                        supportsBoletoManagement: false
-                    },
-                    status: 'UPDATED',
-                    createdAt: '2024-01-15T10:00:00Z',
-                    updatedAt: new Date().toISOString()
-                }
-            ];
+            return await mockDataLoader.getMockItems(this.mockTherapistId);
         }
 
         try {
@@ -178,35 +154,9 @@ export class PluggyService {
 
     async getAccounts(itemId: string): Promise<PluggyAccount[]> {
         if (this.mockMode) {
-            console.log(`🎭 Mock Mode: Returning fake accounts for item ${itemId}`);
+            console.log(`🎭 Mock Mode: Loading accounts for item ${itemId} from files`);
             await new Promise(resolve => setTimeout(resolve, 400));
-
-            return [
-                {
-                    id: 'mock_account_bb_checking',
-                    type: 'BANK',
-                    subtype: 'CHECKING_ACCOUNT',
-                    name: 'Conta Corrente',
-                    balance: 15420.50,
-                    currencyCode: 'BRL',
-                    itemId: itemId,
-                    number: '0001/12345-0',
-                    createdAt: '2025-08-01T22:11:55.778Z',
-                    updatedAt: new Date().toISOString(),
-                    marketingName: 'GOLD Conta Corrente',
-                    taxNumber: '416.799.495-00',
-                    owner: 'John Doe',
-                    bankData: {
-                        transferNumber: '123/0001/12345-0',
-                        closingBalance: 15420.50,
-                        automaticallyInvestedBalance: 1542.05,
-                        overdraftContractedLimit: null,
-                        overdraftUsedLimit: null,
-                        unarrangedOverdraftAmount: null
-                    },
-                    creditData: null
-                }
-            ];
+            return await mockDataLoader.getMockAccounts(this.mockTherapistId, itemId);
         }
 
         try {
@@ -233,57 +183,9 @@ export class PluggyService {
 
     async getTransactions(accountId: string, from?: string, to?: string): Promise<PluggyTransaction[]> {
         if (this.mockMode) {
-            console.log(`🎭 Mock Mode: Returning fake transactions for account ${accountId}`);
+            console.log(`🎭 Mock Mode: Loading transactions for account ${accountId} from files`);
             await new Promise(resolve => setTimeout(resolve, 700));
-
-            const baseTransactions = [
-                {
-                    id: 'mock_tx_pix_1',
-                    accountId: accountId,
-                    amount: 150.00,
-                    date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-                    description: 'PIX recebido',
-                    type: 'credit',
-                    category: 'transfer',
-                    paymentData: {
-                        payer: {
-                            name: 'Maria Silva Santos',
-                            document: '123.456.789-01',
-                            bankName: 'Nubank'
-                        },
-                        endToEndId: 'E12345678202408011234567890123456'
-                    }
-                },
-                {
-                    id: 'mock_tx_pix_2',
-                    accountId: accountId,
-                    amount: 200.00,
-                    date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-                    description: 'PIX recebido - Terapia',
-                    type: 'credit',
-                    category: 'transfer',
-                    paymentData: {
-                        payer: {
-                            name: 'João Carlos Oliveira',
-                            document: '987.654.321-09',
-                            bankName: 'Banco do Brasil'
-                        },
-                        endToEndId: 'E98765432202407291234567890987654'
-                    }
-                }
-            ];
-
-            let filteredTransactions = baseTransactions;
-            if (from) {
-                const fromDate = new Date(from);
-                filteredTransactions = filteredTransactions.filter(t => new Date(t.date) >= fromDate);
-            }
-            if (to) {
-                const toDate = new Date(to);
-                filteredTransactions = filteredTransactions.filter(t => new Date(t.date) <= toDate);
-            }
-
-            return filteredTransactions;
+            return await mockDataLoader.getMockTransactions(this.mockTherapistId, accountId, from, to);
         }
 
         try {
@@ -313,7 +215,7 @@ export class PluggyService {
     }
 
     /**
-     * Store bank connection metadata in our database (Option B: no sensitive data)
+     * Store bank connection metadata in our database (works for both mock and real)
      */
     async storeBankConnection(therapistId: number, itemId: string, accountId: string): Promise<void> {
         try {
@@ -321,7 +223,7 @@ export class PluggyService {
             const account = accounts.find(acc => acc.id === accountId);
 
             if (!account) {
-                throw new Error('Account not found in Pluggy response');
+                throw new Error('Account not found in response');
             }
 
             await pool.query(`
@@ -358,8 +260,11 @@ export class PluggyService {
         }
     }
 
+    // All other methods stay the same - they use the methods above which already handle mock/real internally
+    // No need for ifMock checks in these methods anymore
+
     /**
-     * Option B: Real-time transaction processing with privacy-first matching
+     * Real-time transaction processing with privacy-first matching
      * Only stores matched transactions, discards unmatched ones
      */
     async processTransactionsForTherapist(therapistId: number): Promise<{ 
@@ -382,7 +287,7 @@ export class PluggyService {
 
             for (const connection of connections.rows) {
                 try {
-                    // Get transactions from Pluggy (last 30 days)
+                    // Get transactions (automatically uses mock or real based on service mode)
                     const thirtyDaysAgo = new Date();
                     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -411,7 +316,7 @@ export class PluggyService {
                         const match = await this.findSessionMatch(therapistId, transaction);
 
                         if (match) {
-                            // Store the matched transaction (Option B: only matched ones)
+                            // Store the matched transaction
                             await this.storeMatchedTransaction(connection.id, transaction, match);
                             totalNewMatches++;
 
@@ -617,7 +522,7 @@ export class PluggyService {
     }
 
     /**
-     * Determine transaction type from Pluggy transaction data
+     * Determine transaction type from transaction data
      */
     private determineTransactionType(transaction: PluggyTransaction): string {
         if (transaction.paymentData?.endToEndId) {
@@ -633,7 +538,7 @@ export class PluggyService {
     }
 
     /**
-     * Get matched transactions for a therapist (Option B: only shows stored matches)
+     * Get matched transactions for a therapist
      */
     async getMatchedTransactionsForTherapist(therapistId: number): Promise<any[]> {
         try {
@@ -659,29 +564,9 @@ export class PluggyService {
     }
 
     /**
-     * Get unmatched transactions with suggestions (Option B: real-time from Pluggy)
+     * Get unmatched transactions with suggestions
      */
     async getUnmatchedTransactionsWithSuggestions(therapistId: number): Promise<any[]> {
-        if (this.mockMode) {
-            // Return mock unmatched transactions with suggestions
-            return [
-                {
-                    transaction_id: 'mock_tx_unmatched_1',
-                    amount: 180.00,
-                    description: 'PIX recebido',
-                    transaction_date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-                    sender_name: 'Carlos Silva',
-                    sender_document: '111.222.333-44',
-                    patient_id: 1,
-                    patient_name: 'Mock Patient 1',
-                    match_confidence: 0.85,
-                    match_reason: 'Amount matches session price',
-                    suggested_session_id: 1,
-                    suggested_session_date: new Date().toISOString()
-                }
-            ];
-        }
-
         try {
             // Get active connections
             const connections = await pool.query(
@@ -692,7 +577,7 @@ export class PluggyService {
             const suggestions = [];
 
             for (const connection of connections.rows) {
-                // Get recent transactions from Pluggy
+                // Get recent transactions (automatically uses mock or real)
                 const sevenDaysAgo = new Date();
                 sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 

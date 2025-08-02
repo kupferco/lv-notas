@@ -31,14 +31,14 @@ router.get("/summary", asyncHandler(async (req, res) => {
   const isAutoCheckIn = autoCheckIn === 'true';
   const statusFilter = status as string;
   const patientFilterStr = patientFilter as string;
-  
+
   console.log(`💰 Payment Summary Request - Auto Check-in: ${isAutoCheckIn}, Status: ${statusFilter}, Patient: ${patientFilterStr}`);
 
   let result;
 
   if (isAutoCheckIn) {
     console.log('🔄 Using AUTO CHECK-IN mode for summary - including past scheduled sessions AFTER billing start date');
-    
+
     // Build patient filter for auto check-in mode
     let patientFilterClause = "";
     if (patientFilterStr && patientFilterStr !== "todos") {
@@ -95,16 +95,16 @@ router.get("/summary", asyncHandler(async (req, res) => {
         COALESCE(SUM(session_price) FILTER (WHERE payment_status = 'pendente'), 0) / 100.0 as pendente_revenue
       FROM filtered_sessions
     `, [therapistEmail, startDate || null, endDate || null]);
-    
+
   } else {
     console.log('🔄 Using MANUAL mode for summary - only payment_overview sessions');
-    
+
     // Build filters for manual mode
     let manualFilters = "";
     if (patientFilterStr && patientFilterStr !== "todos") {
       manualFilters += ` AND patient_id = ${parseInt(patientFilterStr)}`;
     }
-    
+
     // Manual mode: Use your existing working query with filters
     result = await pool.query(`
       SELECT 
@@ -171,7 +171,7 @@ router.get("/patients", asyncHandler(async (req, res) => {
 
   if (isAutoCheckIn) {
     console.log('🔄 Using AUTO CHECK-IN mode for patients - including past scheduled sessions AFTER billing start date');
-    
+
     // FIXED: Auto check-in mode now respects patient billing start dates
     result = await pool.query(`
       WITH all_billable_sessions AS (
@@ -245,16 +245,16 @@ router.get("/patients", asyncHandler(async (req, res) => {
       ${statusFilter}
       ORDER BY abs.patient_name
     `, [therapistEmail, startDate || null, endDate || null]);
-    
+
   } else {
     console.log('🔄 Using MANUAL mode for patients - only payment_overview sessions');
-    
+
     // Manual mode: Use your existing working query with proper status filter
     let manualStatusFilter = "";
     if (status && status !== "todos") {
       manualStatusFilter = `AND payment_state = '${status}'`;
     }
-    
+
     result = await pool.query(`
       SELECT 
         po.patient_id,
@@ -338,7 +338,7 @@ router.get("/sessions", asyncHandler(async (req, res) => {
 
   if (isAutoCheckIn) {
     console.log('🔄 Using AUTO CHECK-IN mode - including past scheduled sessions AFTER billing start date');
-    
+
     // FIXED: Auto check-in mode now respects patient billing start dates
     result = await pool.query(`
       SELECT 
@@ -383,10 +383,10 @@ router.get("/sessions", asyncHandler(async (req, res) => {
       
       ORDER BY session_date DESC
     `, [therapistEmail, startDate || null, endDate || null]);
-    
+
   } else {
     console.log('🔄 Using MANUAL mode - only payment_overview sessions');
-    
+
     // Manual mode: Use your existing working query
     result = await pool.query(`
       SELECT 
@@ -425,7 +425,39 @@ router.get("/sessions", asyncHandler(async (req, res) => {
   res.json(sessions);
 }));
 
-// POST /api/payments/request - Send payment request
+
+/**
+ * Generate unique payment reference like ALV-JUL25-001
+ */
+function generatePaymentReference(patientName: string, year: number, month: number): string {
+  // Extract initials from patient name
+  const nameParts = patientName.split(' ').filter(part => part.length > 0);
+  let initials = '';
+
+  if (nameParts.length >= 2) {
+    // First name + last name: "Aline de Melo Alves" -> "ALV"
+    initials = nameParts[0].substring(0, 2).toUpperCase() +
+      nameParts[nameParts.length - 1].substring(0, 1).toUpperCase();
+  } else {
+    // Single name: take first 3 characters
+    initials = nameParts[0].substring(0, 3).toUpperCase();
+  }
+
+  // Month abbreviations in Portuguese
+  const months = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN',
+    'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+
+  // Generate reference components
+  const monthAbbr = months[month - 1];
+  const yearShort = year.toString().slice(-2);
+
+  // Use timestamp for uniqueness to avoid collisions
+  const timestamp = Date.now().toString().slice(-3);
+
+  return `${initials}-${monthAbbr}${yearShort}-${timestamp}`;
+}
+
+// POST /api/payments/request - Send payment request with reference generation
 router.post("/request", asyncHandler(async (req, res) => {
   const { patientId, sessionIds, amount, autoCheckIn } = req.body;
 
@@ -462,18 +494,28 @@ router.post("/request", asyncHandler(async (req, res) => {
   const sessionIdArray = unpaidSessions.rows.map(row => row.id);
   const totalAmount = unpaidSessions.rows.length * parseFloat(patient.session_price || patient.preco || 180);
 
-  // Create payment request record
-  await pool.query(`
+  // Generate unique payment reference
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // JavaScript months are 0-indexed
+  const paymentReference = generatePaymentReference(patient.nome, year, month);
+
+  console.log(`🏷️ Generated payment reference: ${paymentReference} for ${patient.nome}`);
+
+  // Create payment request record with reference
+  const insertResult = await pool.query(`
     INSERT INTO payment_requests (
       patient_id, therapist_id, session_ids, total_amount, 
-      request_type, whatsapp_sent, whatsapp_message
-    ) VALUES ($1, $2, $3, $4, 'invoice', true, $5)
+      request_type, payment_reference, whatsapp_sent, whatsapp_message
+    ) VALUES ($1, $2, $3, $4, 'invoice', $5, true, $6)
+    RETURNING *
   `, [
     patientId,
     patient.therapist_id,
     sessionIdArray,
     totalAmount,
-    `Olá ${patient.nome}! Sua cobrança de R$ ${totalAmount.toFixed(2).replace('.', ',')} está disponível para pagamento.`
+    paymentReference, // NEW: Include the generated reference
+    `Olá ${patient.nome}! Sua cobrança de R$ ${totalAmount.toFixed(2).replace('.', ',')} está disponível para pagamento. Use a referência ${paymentReference} no PIX.`
   ]);
 
   // Update sessions to mark as payment requested
@@ -483,7 +525,9 @@ router.post("/request", asyncHandler(async (req, res) => {
     WHERE id = ANY($1)
   `, [sessionIdArray]);
 
-  console.log(`Payment request: Patient ${patient.nome}, Sessions: ${sessionIdArray.length}, Amount: R$ ${totalAmount}`);
+  const createdRequest = insertResult.rows[0];
+
+  console.log(`💰 Payment request created: Patient ${patient.nome}, Sessions: ${sessionIdArray.length}, Amount: R$ ${totalAmount}, Reference: ${paymentReference}`);
 
   res.json({
     success: true,
@@ -491,7 +535,10 @@ router.post("/request", asyncHandler(async (req, res) => {
     patient_id: patientId,
     session_ids: sessionIdArray,
     total_amount: totalAmount,
-    request_date: new Date().toISOString()
+    payment_reference: paymentReference, // NEW: Return the reference to client
+    request_id: createdRequest.id,
+    request_date: createdRequest.request_date,
+    whatsapp_message: createdRequest.whatsapp_message
   });
 }));
 

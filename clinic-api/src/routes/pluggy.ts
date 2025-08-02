@@ -36,6 +36,30 @@ interface CreateMatchBody {
     notes?: string;
 }
 
+interface Transaction {
+    id: string;
+    amount: number;
+    date: string;
+    description: string;
+    type: string;
+    potential_reference?: string | null;
+    sender_name?: string;
+    paymentData?: {
+        payer?: {
+            name?: string;
+            document?: string;
+            bankName?: string;
+        };
+        endToEndId?: string;
+    };
+    _metadata?: {
+        item_id: string;
+        account_id: string;
+        bank_name: string;
+        therapist_id: number;
+    };
+}
+
 // Type-safe async handler
 const asyncHandler = (
     handler: (
@@ -55,6 +79,320 @@ const asyncHandler = (
         }
     };
 };
+
+// =============================================================================
+// SHARED INTERNAL FUNCTIONS
+// =============================================================================
+
+/**
+ * Internal function to get all raw transactions for a therapist
+ * Used by both /all-transactions and /potential-matches endpoints
+ */
+async function getAllRawTransactions(
+    therapistId: number,
+    start: string,
+    end: string,
+    service: any
+): Promise<any[]> {
+    let allRawTransactions: any[] = [];
+
+    try {
+        // Get accounts through service (agnostic approach)
+        const items = await service.getItems();
+
+        for (const item of items) {
+            const accounts = await service.getAccounts(item.id);
+
+            for (const account of accounts) {
+                try {
+                    const rawTransactions = await service.getTransactions(
+                        account.id,
+                        start,
+                        end
+                    );
+
+                    // Add minimal metadata but keep raw structure
+                    const transactionsWithMeta = rawTransactions.map((transaction: any) => ({
+                        ...transaction, // Keep ALL raw data from service
+                        _metadata: {
+                            item_id: item.id,
+                            account_id: account.id,
+                            bank_name: item.connector?.name || account.bankData?.name || 'Unknown',
+                            therapist_id: therapistId
+                        }
+                    }));
+
+                    allRawTransactions.push(...transactionsWithMeta);
+
+                } catch (error) {
+                    console.error(`Error fetching transactions for account ${account.id}:`, error);
+                    // Add error info but continue
+                    allRawTransactions.push({
+                        error: `Failed to fetch from account ${account.id}`,
+                        details: error instanceof Error ? error.message : String(error),
+                        _metadata: {
+                            item_id: item.id,
+                            account_id: account.id,
+                            therapist_id: therapistId
+                        }
+                    });
+                }
+            }
+        }
+
+        // Sort by date (newest first)
+        allRawTransactions.sort((a, b) => {
+            const dateA = new Date(a.date || 0).getTime();
+            const dateB = new Date(b.date || 0).getTime();
+            return dateB - dateA;
+        });
+
+    } catch (error) {
+        console.error('Error getting data from service:', error);
+        throw new Error(`Failed to fetch raw transactions: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return allRawTransactions;
+}
+
+/**
+ * Internal function to get incoming transactions (credits only) for matching
+ * Used by /potential-matches endpoint
+ */
+async function getIncomingTransactions(
+    therapistId: number,
+    start: string,
+    end: string,
+    service: any
+): Promise<any[]> {
+    const allTransactions = await getAllRawTransactions(therapistId, start, end, service);
+
+    // Filter for incoming payments only and transform for matching
+    const incomingTransactions = allTransactions
+        .filter(transaction =>
+            transaction.amount > 0 &&
+            transaction.type === 'credit' &&
+            !transaction.error // Skip error entries
+        )
+        .map(transaction => ({
+            id: transaction.id,
+            amount: transaction.amount,
+            date: transaction.date,
+            description: transaction.description,
+            type: transaction.paymentData?.endToEndId ? 'pix' : 'other',
+            sender_name: transaction.paymentData?.payer?.name || '',
+            pix_end_to_end_id: transaction.paymentData?.endToEndId || null,
+            bank_name: transaction._metadata.bank_name,
+            account_id: transaction._metadata.account_id,
+            // Extract potential reference from description or pix data
+            potential_reference: extractPaymentReference(transaction),
+            raw_transaction: transaction // Keep for advanced matching logic
+        }));
+
+    return incomingTransactions;
+}
+
+// Helper function to extract payment reference from transaction
+function extractPaymentReference(transaction: Transaction): string | null {
+    // Look for reference patterns in description or pix data
+    const text = `${transaction.description} ${transaction.paymentData?.endToEndId || ''}`.toLowerCase();
+
+    // PRIORITY 1: Look for LV-{patientId} pattern (new system)
+    const lvPattern = /lv-(\d+)/i;
+    const lvMatch = text.match(lvPattern);
+    if (lvMatch) {
+        console.log(`🎯 Found LV reference: LV-${lvMatch[1]} in transaction ${transaction.id}`);
+        return `LV-${lvMatch[1]}`;  // Return in standard format
+    }
+
+    // PRIORITY 2: Legacy reference patterns (for backward compatibility)
+    const legacyPatterns = [
+        /ref[:\s]*([a-z0-9\-]+)/i,
+        /referencia[:\s]*([a-z0-9\-]+)/i,
+        /([a-z]{2,3}-[a-z]{3}\d{2}-\d{3})/i, // ALV-JUL25-001 format
+        /([a-z]+\d+)/i // Simple alphanumeric
+    ];
+
+    for (const pattern of legacyPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            console.log(`📋 Found legacy reference: ${match[1]} in transaction ${transaction.id}`);
+            return match[1].toUpperCase();
+        }
+    }
+
+    return null;
+}
+
+// Helper function to find potential matches for a transaction
+function findPotentialMatches(transaction: Transaction, paymentRequests: any[], unpaidSessions: any[]): any[] {
+    const matches: any[] = [];
+
+    // Match against payment requests first (higher priority)
+    paymentRequests.forEach(request => {
+        const confidence = calculateMatchConfidence(transaction, request, 'payment_request');
+        if (confidence > 0.3) { // Minimum threshold
+            matches.push({
+                type: 'payment_request',
+                request_id: request.id,
+                patient_id: request.patient_id,
+                patient_name: request.patient_name,
+                expected_amount: request.total_amount,
+                payment_reference: request.payment_reference,
+                confidence,
+                match_reasons: getMatchReasons(transaction, request, 'payment_request')
+            });
+        }
+    });
+
+    // Match against unpaid sessions (lower priority)
+    unpaidSessions.forEach(session => {
+        const confidence = calculateMatchConfidence(transaction, session, 'session');
+        if (confidence > 0.3) {
+            matches.push({
+                type: 'session',
+                session_id: session.session_id,
+                patient_id: session.patient_id,
+                patient_name: session.patient_name,
+                expected_amount: session.expected_amount,
+                session_date: session.session_date,
+                confidence,
+                match_reasons: getMatchReasons(transaction, session, 'session')
+            });
+        }
+    });
+
+    // Sort by confidence
+    return matches.sort((a, b) => b.confidence - a.confidence);
+}
+
+// Helper function to calculate match confidence
+function calculateMatchConfidence(transaction: Transaction, target: any, type: 'payment_request' | 'session'): number {
+    let confidence = 0;
+    const maxConfidence = 1.0;
+
+    // Reference matching (50% weight) - highest priority when present
+    if (transaction.potential_reference && type === 'payment_request' && target.payment_reference) {
+        if (transaction.potential_reference === target.payment_reference) {
+            confidence += 0.5; // High bonus for exact reference match
+        } else if (transaction.potential_reference.includes(target.payment_reference) ||
+            target.payment_reference.includes(transaction.potential_reference)) {
+            confidence += 0.3; // Partial reference match
+        }
+    }
+
+    // Amount matching (30% weight)
+    const expectedAmount = type === 'payment_request' ? target.total_amount : target.expected_amount;
+    if (expectedAmount) {
+        const amountDiff = Math.abs(transaction.amount - expectedAmount);
+        const amountMatch = Math.max(0, 1 - (amountDiff / expectedAmount));
+        confidence += amountMatch * 0.3;
+    }
+
+    // Name similarity (15% weight)
+    if (transaction.sender_name && target.patient_name) {
+        const nameSimilarity = calculateNameSimilarity(transaction.sender_name, target.patient_name);
+        confidence += nameSimilarity * 0.15;
+    }
+
+    // Date proximity (5% weight)
+    const targetDate = type === 'payment_request' ? target.request_date : target.session_date;
+    if (targetDate) {
+        const daysDiff = Math.abs(
+            (new Date(transaction.date).getTime() - new Date(targetDate).getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const dateMatch = Math.max(0, 1 - (daysDiff / 30)); // 30 days max
+        confidence += dateMatch * 0.05;
+    }
+
+    return Math.min(confidence, maxConfidence);
+}
+
+// Helper function to calculate name similarity
+function calculateNameSimilarity(senderName: string, patientName: string): number {
+    // Simple name matching - can be enhanced with fuzzy matching
+    const senderLower = senderName.toLowerCase().trim();
+    const patientLower = patientName.toLowerCase().trim();
+
+    // Exact match
+    if (senderLower === patientLower) return 1.0;
+
+    // First name match
+    const senderFirst = senderLower.split(' ')[0];
+    const patientFirst = patientLower.split(' ')[0];
+    if (senderFirst === patientFirst && senderFirst.length > 2) return 0.8;
+
+    // Initials match
+    const senderInitials = senderLower.split(' ').map(part => part[0]).join('');
+    const patientInitials = patientLower.split(' ').map(part => part[0]).join('');
+    if (senderInitials === patientInitials && senderInitials.length >= 2) return 0.6;
+
+    // Contains check
+    if (senderLower.includes(patientFirst) || patientLower.includes(senderFirst)) return 0.5;
+
+    return 0;
+}
+
+// Helper function to get match reasons
+function getMatchReasons(transaction: Transaction, target: any, type: 'payment_request' | 'session'): string[] {
+    const reasons: string[] = [];
+
+    // Reference matching
+    if (transaction.potential_reference && type === 'payment_request' && target.payment_reference) {
+        if (transaction.potential_reference === target.payment_reference) {
+            reasons.push('exact_reference_match');
+        } else if (transaction.potential_reference.includes(target.payment_reference) ||
+            target.payment_reference.includes(transaction.potential_reference)) {
+            reasons.push('partial_reference_match');
+        }
+    }
+
+    const expectedAmount = type === 'payment_request' ? target.total_amount : target.expected_amount;
+
+    if (expectedAmount && Math.abs(transaction.amount - expectedAmount) < 0.01) {
+        reasons.push('exact_amount_match');
+    } else if (expectedAmount && Math.abs(transaction.amount - expectedAmount) < expectedAmount * 0.1) {
+        reasons.push('close_amount_match');
+    }
+
+    if (transaction.sender_name && target.patient_name) {
+        const similarity = calculateNameSimilarity(transaction.sender_name, target.patient_name);
+        if (similarity > 0.8) reasons.push('name_match');
+        else if (similarity > 0.5) reasons.push('partial_name_match');
+    }
+
+    if (transaction.potential_reference) {
+        reasons.push('reference_found');
+    }
+
+    if (transaction.type === 'pix') {
+        reasons.push('pix_payment');
+    }
+
+    return reasons;
+}
+
+// Helper function to determine if transaction is likely a therapy payment
+function isLikelyTherapyPayment(transaction: Transaction): boolean {
+    // Basic heuristics for therapy payments
+    const amount = transaction.amount;
+
+    // Typical therapy session amounts (adjust based on your pricing)
+    if (amount >= 50 && amount <= 2000) {
+        return true;
+    }
+
+    // PIX payments are common for therapy
+    if (transaction.type === 'pix' && amount >= 100) {
+        return true;
+    }
+
+    return false;
+}
+
+// =============================================================================
+// ROUTE HANDLERS
+// =============================================================================
 
 /**
  * POST /api/pluggy/connect-token
@@ -108,92 +446,59 @@ router.post("/store-connection", asyncHandler(async (req: Request<ParamsDictiona
 /**
  * GET /api/pluggy/connections/:therapistId
  * Get all bank connections for a therapist
- * In mock mode: returns mock data from Pluggy service
- * In real mode: returns stored connections from database
  */
 router.get("/connections/:therapistId", asyncHandler(async (req, res) => {
     const { therapistId } = req.params;
+    const service = getPluggyService(req);
 
-    // Check if we're in mock mode
-    const testMode = req.headers['x-test-mode'] as string;
-    const isMockMode = testMode === 'mock';
+    try {
+        // Get mock items from service (handles mock/real internally)
+        const items = await service.getItems();
 
-    if (isMockMode) {
-        console.log(`🎭 Mock Mode: Fetching mock bank connections for therapist ${therapistId}`);
+        // Transform items to match expected connection format
+        const connections = await Promise.all(
+            items.map(async (item) => {
+                // Get accounts for this item
+                const accounts = await service.getAccounts(item.id);
 
-        try {
-            const service = getPluggyService(req);
-            // Get mock items from Pluggy service
-            const items = await service.getItems();
+                // Return one connection per account
+                return accounts.map(account => ({
+                    id: `connection_${account.id}`,
+                    bank_name: account.bankData?.transferNumber || item.connector.name,
+                    account_type: account.subtype,
+                    account_holder_name: account.owner || account.name,
+                    status: 'active',
+                    last_sync_at: new Date().toISOString(),
+                    created_at: account.createdAt,
+                    error_count: 0,
+                    last_error: null,
+                    // Additional fields
+                    pluggy_item_id: item.id,
+                    pluggy_account_id: account.id,
+                    balance: account.balance,
+                    currency_code: account.currencyCode
+                }));
+            })
+        );
 
-            // Transform Pluggy items to match your expected connection format
-            const mockConnections = await Promise.all(
-                items.map(async (item) => {
-                    // Get accounts for this item
-                    const accounts = await service.getAccounts(item.id);
+        // Flatten the array of arrays
+        const flatConnections = connections.flat();
 
-                    // Return one connection per account
-                    return accounts.map(account => ({
-                        id: `mock_connection_${account.id}`,
-                        bank_name: account.bankData?.transferNumber || item.connector.name,
-                        account_type: account.subtype,
-                        account_holder_name: account.owner || account.name,
-                        status: 'active',
-                        last_sync_at: new Date().toISOString(),
-                        created_at: account.createdAt,
-                        error_count: 0,
-                        last_error: null,
-                        // Additional mock fields
-                        pluggy_item_id: item.id,
-                        pluggy_account_id: account.id,
-                        balance: account.balance,
-                        currency_code: account.currencyCode
-                    }));
-                })
-            );
+        console.log(`Returning ${flatConnections.length} connections for therapist ${therapistId}`);
+        return res.json(flatConnections);
 
-            // Flatten the array of arrays
-            const flatConnections = mockConnections.flat();
-
-            console.log(`🎭 Mock Mode: Returning ${flatConnections.length} mock connections`);
-            return res.json(flatConnections);
-
-        } catch (error) {
-            console.error('Error fetching mock connections:', error);
-            return res.status(500).json({
-                error: 'Failed to fetch mock connections',
-                details: error instanceof Error ? error.message : String(error)
-            });
-        }
+    } catch (error) {
+        console.error('Error fetching connections:', error);
+        return res.status(500).json({
+            error: 'Failed to fetch connections',
+            details: error instanceof Error ? error.message : String(error)
+        });
     }
-
-    // Real mode: fetch from database (Option B: only connection metadata)
-    console.log(`📊 Real Mode: Fetching stored connections for therapist ${therapistId}`);
-
-    const connections = await pool.query(`
-        SELECT 
-            id,
-            bank_name,
-            account_type,
-            account_holder_name,
-            status,
-            last_sync_at,
-            created_at,
-            error_count,
-            last_error,
-            pluggy_item_id,
-            pluggy_account_id
-        FROM bank_connections 
-        WHERE therapist_id = $1 
-        ORDER BY created_at DESC
-    `, [parseInt(therapistId)]);
-
-    return res.json(connections.rows);
 }));
 
 /**
  * POST /api/pluggy/process-transactions
- * Manually trigger transaction processing for a therapist (Option B: real-time processing)
+ * Manually trigger transaction processing for a therapist
  */
 router.post("/process-transactions", asyncHandler(async (req: Request<ParamsDictionary, any, ProcessTransactionsBody>, res) => {
     const { therapistId } = req.body;
@@ -202,9 +507,10 @@ router.post("/process-transactions", asyncHandler(async (req: Request<ParamsDict
         return res.status(400).json({ error: "therapistId is required" });
     }
 
-    const result = await pluggyService.processTransactionsForTherapist(parseInt(therapistId));
+    const service = getPluggyService(req);
+    const result = await service.processTransactionsForTherapist(parseInt(therapistId));
 
-    return res.json({ 
+    return res.json({
         message: "Transaction processing completed successfully",
         newMatches: result.newMatches,
         processedTransactions: result.processedTransactions
@@ -213,102 +519,286 @@ router.post("/process-transactions", asyncHandler(async (req: Request<ParamsDict
 
 /**
  * GET /api/pluggy/unmatched-transactions/:therapistId
- * Get unmatched transactions with patient suggestions (Option B: real-time from Pluggy)
+ * Get unmatched transactions with patient suggestions
  */
 router.get("/unmatched-transactions/:therapistId", asyncHandler(async (req, res) => {
     const { therapistId } = req.params;
+    const service = getPluggyService(req);
 
-    const transactions = await pluggyService.getUnmatchedTransactionsWithSuggestions(parseInt(therapistId));
+    const transactions = await service.getUnmatchedTransactionsWithSuggestions(parseInt(therapistId));
 
     return res.json(transactions);
 }));
 
 /**
+ * GET /api/pluggy/all-transactions/:therapistId
+ * Get ALL raw transactions from service (DEV MODE ONLY for external access)
+ * Returns raw banking data for debugging purposes
+ */
+router.get("/all-transactions/:therapistId", asyncHandler(async (req, res) => {
+    const { therapistId } = req.params;
+    const { start, end, limit = 100 } = req.query;
+
+    // Restrict external access to development mode only
+    if (process.env.NODE_ENV === 'production') {
+        return res.status(403).json({
+            error: 'This endpoint is only available in development mode',
+            message: 'Use /potential-matches for production data access'
+        });
+    }
+
+    console.log(`🔧 DEV: Fetching ALL raw transactions for therapist ${therapistId}`);
+    console.log(`📅 Date range: ${start} to ${end}`);
+
+    try {
+        const service = getPluggyService(req);
+        const allRawTransactions = await getAllRawTransactions(
+            parseInt(therapistId),
+            start as string,
+            end as string,
+            service
+        );
+
+        const limitedTransactions = allRawTransactions.slice(0, parseInt(limit as string));
+
+        return res.json({
+            notice: 'DEV MODE: Raw transaction data - contains sensitive information',
+            transactions: limitedTransactions,
+            total_count: allRawTransactions.length,
+            date_range: { start, end },
+            service_mode: service.constructor.name,
+            breakdown: {
+                total: allRawTransactions.length,
+                credit: allRawTransactions.filter(t => t.amount > 0).length,
+                debit: allRawTransactions.filter(t => t.amount < 0).length,
+                with_pix_data: allRawTransactions.filter(t => t.paymentData?.endToEndId).length,
+                errors: allRawTransactions.filter(t => t.error).length
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching raw transactions:', error);
+        return res.status(500).json({
+            error: 'Failed to fetch raw transactions',
+            details: error instanceof Error ? error.message : String(error)
+        });
+    }
+}));
+
+/**
+ * GET /api/pluggy/potential-matches/:therapistId
+ * Get potential transaction matches using LV-{patientId} pattern matching
+ * UPDATED: Works with monthly billing periods instead of payment requests
+ */
+router.get("/potential-matches/:therapistId", asyncHandler(async (req, res) => {
+    const { therapistId } = req.params;
+    const { start, end, limit = 50 } = req.query;
+
+    console.log(`🔍 Finding potential LV-{patientId} matches for therapist ${therapistId}`);
+    console.log(`📅 Date range: ${start} to ${end}`);
+
+    try {
+        const service = getPluggyService(req);
+
+        // Step 1: Get incoming transactions using shared function
+        const transactions = await getIncomingTransactions(
+            parseInt(therapistId),
+            start as string,
+            end as string,
+            service
+        );
+
+        console.log(`💳 Found ${transactions.length} incoming transactions`);
+
+        // Step 2: Find LV-{patientId} matches against monthly billing periods
+        const matches: any[] = [];
+        let lvReferenceCount = 0;
+
+        for (const transaction of transactions) {
+            // Extract LV reference from transaction
+            if (transaction.potential_reference && transaction.potential_reference.startsWith('LV-')) {
+                lvReferenceCount++;
+                const patientIdStr = transaction.potential_reference.substring(3); // Remove "LV-"
+                const patientId = parseInt(patientIdStr);
+
+                console.log(`🎯 Processing LV-${patientId} reference from transaction ${transaction.id}`);
+
+                // Step 3: Find monthly billing periods for this specific patient
+                const transactionDate = new Date(transaction.date);
+                const transactionYear = transactionDate.getFullYear();
+                const transactionMonth = transactionDate.getMonth() + 1; // JS months are 0-based
+
+                // Step 3: Find monthly billing periods for this specific patient (simplified)
+                const billingPeriodsQuery = `
+    SELECT mbp.*, p.nome as patient_name, p.email as patient_email, p.cpf as patient_cpf,
+           COALESCE(SUM(mbp_pay.amount), 0) as total_paid
+    FROM monthly_billing_periods mbp
+    JOIN patients p ON mbp.patient_id = p.id
+    LEFT JOIN monthly_billing_payments mbp_pay ON mbp.id = mbp_pay.billing_period_id
+    WHERE mbp.therapist_id = $1 
+    AND mbp.patient_id = $2 
+    AND mbp.status = 'processed'
+    GROUP BY mbp.id, p.nome, p.email, p.cpf
+    HAVING COALESCE(SUM(mbp_pay.amount), 0) < mbp.total_amount
+    ORDER BY mbp.processed_at ASC
+    LIMIT 1
+`;
+
+                const billingPeriods = await pool.query(billingPeriodsQuery, [
+                    parseInt(therapistId),
+                    patientId
+                    // Removed: transactionYear, transactionMonth
+                ]);
+
+                console.log(`📋 Found ${billingPeriods.rows.length} unpaid billing period(s) for patient ${patientId}`);
+
+                if (billingPeriods.rows.length > 0) {
+                    const billingPeriod = billingPeriods.rows[0]; // Only process the oldest unpaid period
+
+                    console.log(`🎯 Matching against billing period ${billingPeriod.id} (${billingPeriod.billing_year}-${billingPeriod.billing_month})`);
+
+                    const { confidence, reasons } = calculateLVBillingPeriodConfidence(transaction, billingPeriod);
+
+                    if (confidence > 0.6) {
+                        matches.push({
+                            transaction_id: transaction.id,
+                            transaction_amount: transaction.amount,
+                            transaction_date: transaction.date,
+                            transaction_description: transaction.description,
+                            transaction_type: transaction.type,
+                            sender_name: transaction.sender_name,
+                            lv_reference: transaction.potential_reference,
+
+                            // Monthly billing period information
+                            billing_period_id: billingPeriod.id,
+                            patient_id: billingPeriod.patient_id,
+                            patient_name: billingPeriod.patient_name,
+                            patient_cpf: billingPeriod.patient_cpf,
+                            billing_amount: billingPeriod.total_amount,
+                            billing_year: billingPeriod.billing_year,
+                            billing_month: billingPeriod.billing_month,
+                            session_count: billingPeriod.session_count,
+                            processed_at: billingPeriod.processed_at,
+                            total_paid: billingPeriod.total_paid, // Show how much has been paid already
+
+                            confidence,
+                            match_reasons: reasons
+                        });
+
+                        console.log(`✅ LV Match found: ${transaction.potential_reference} → ${billingPeriod.patient_name} (${billingPeriod.billing_year}-${billingPeriod.billing_month}) (confidence: ${confidence.toFixed(2)})`);
+                    } else {
+                        console.log(`⚠️ Low confidence match: ${confidence.toFixed(2)} for ${transaction.potential_reference}`);
+                    }
+                } else {
+                    console.log(`❌ No unpaid billing periods found for patient ID ${patientId}`);
+                }
+            }
+        }
+
+        // Step 4: Sort by confidence (highest first)
+        matches.sort((a, b) => b.confidence - a.confidence);
+
+        // Step 5: Limit results
+        const limitedMatches = matches.slice(0, parseInt(limit as string));
+
+        return res.json({
+            matches: limitedMatches,
+            summary: {
+                total_incoming_transactions: transactions.length,
+                lv_reference_transactions: lvReferenceCount,
+                total_matches: matches.length,
+                high_confidence_matches: matches.filter(m => m.confidence > 0.8).length
+            },
+            date_range: { start, end }
+        });
+
+    } catch (error) {
+        console.error('Error finding LV potential matches:', error);
+        return res.status(500).json({
+            error: 'Failed to find potential matches',
+            details: error instanceof Error ? error.message : String(error)
+        });
+    }
+}));
+
+// Helper function to calculate match confidence AND reasons for LV references against monthly billing periods
+function calculateLVBillingPeriodConfidence(transaction: Transaction, billingPeriod: any): { confidence: number, reasons: string[] } {
+    let confidence = 0;
+    const reasons: string[] = [];
+
+    // LV reference match (40% weight)
+    if (transaction.potential_reference && transaction.potential_reference.startsWith('LV-')) {
+        confidence += 0.4;
+        reasons.push('lv_reference_match');
+    }
+
+    // CPF matching (35% weight) - FIXED: Use raw_transaction path with type assertion
+    const rawTx = (transaction as any).raw_transaction;
+    if (rawTx?.paymentData?.payer?.document && billingPeriod.patient_cpf) {
+        const cleanTxCpf = rawTx.paymentData.payer.document.replace(/\D/g, '');
+        const cleanPatientCpf = billingPeriod.patient_cpf.replace(/\D/g, '');
+
+        // console.log('🐛 DEBUG - Comparing CPFs:', cleanTxCpf, 'vs', cleanPatientCpf);
+
+        if (cleanTxCpf === cleanPatientCpf) {
+            confidence += 0.35;
+            reasons.push('cpf_match');
+        }
+    } else {
+        console.log('🐛 DEBUG - CPF data missing:', {
+            transactionCPF: rawTx?.paymentData?.payer?.document,
+            patientCPF: billingPeriod.patient_cpf
+        });
+    }
+
+    // Amount matching (20% weight)
+    if (billingPeriod.total_amount && transaction.amount) {
+        const billingAmountInCurrency = parseFloat(billingPeriod.total_amount) / 100;
+        const amountDiff = Math.abs(transaction.amount - billingAmountInCurrency);
+
+        // console.log('🐛 DEBUG - Amount comparison:', {
+        //     transaction: transaction.amount,
+        //     billingInCurrency: billingAmountInCurrency,
+        //     difference: amountDiff
+        // });
+
+        if (amountDiff < 0.01) {
+            reasons.push('exact_amount_match');
+            confidence += 0.2;
+        } else if (amountDiff < billingAmountInCurrency * 0.1) {
+            reasons.push('close_amount_match');
+            const amountMatch = Math.max(0, 1 - (amountDiff / billingAmountInCurrency));
+            confidence += amountMatch * 0.2;
+        }
+    }
+
+    // Name similarity (5% weight)
+    if (transaction.sender_name && billingPeriod.patient_name) {
+        const nameSimilarity = calculateNameSimilarity(transaction.sender_name, billingPeriod.patient_name);
+        if (nameSimilarity > 0.8) {
+            reasons.push('name_match');
+            confidence += nameSimilarity * 0.05;
+        } else if (nameSimilarity > 0.5) {
+            reasons.push('partial_name_match');
+            confidence += nameSimilarity * 0.05;
+        }
+    }
+
+    console.log('🐛 DEBUG - Final confidence:', confidence, 'Reasons:', reasons);
+
+    return { confidence: Math.min(confidence, 1.0), reasons };
+}
+
+/**
  * GET /api/pluggy/transactions/:therapistId
- * Get matched transactions for a therapist (Option B: only shows stored matches)
+ * Get matched transactions for a therapist
  */
 router.get("/transactions/:therapistId", asyncHandler(async (req, res) => {
     const { therapistId } = req.params;
     const { status, startDate, endDate, limit = 50 } = req.query;
 
-    // Check if we're in mock mode
-    const isMockMode = process.env.PLUGGY_MOCK_MODE === 'true';
-
-    if (isMockMode) {
-        console.log(`🎭 Mock Mode: Returning mock matched transactions for therapist ${therapistId}`);
-        
-        // Return mock matched transactions
-        const mockTransactions = [
-            {
-                id: 'mock_matched_1',
-                amount: 150.00,
-                transaction_date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-                transaction_type: 'pix',
-                sender_first_name: 'Maria',
-                sender_initials: 'M.S.',
-                pix_end_to_end_id: 'E12345678202408011234567890123456',
-                session_id: 1,
-                patient_id: 1,
-                match_type: 'automatic_cpf',
-                match_confidence: 0.95,
-                match_reason: 'CPF match',
-                session_price: 150.00,
-                amount_difference: 0.00,
-                status: 'confirmed',
-                confirmed_by: 'system',
-                bank_name: 'Banco do Brasil',
-                patient_name: 'Mock Patient 1',
-                session_date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
-            },
-            {
-                id: 'mock_matched_2',
-                amount: 200.00,
-                transaction_date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-                transaction_type: 'pix',
-                sender_first_name: 'João',
-                sender_initials: 'J.C.',
-                pix_end_to_end_id: 'E98765432202407291234567890987654',
-                session_id: 2,
-                patient_id: 2,
-                match_type: 'automatic_amount_date',
-                match_confidence: 0.80,
-                match_reason: 'Amount and date match',
-                session_price: 200.00,
-                amount_difference: 0.00,
-                status: 'confirmed',
-                confirmed_by: 'system',
-                bank_name: 'Banco do Brasil',
-                patient_name: 'Mock Patient 2',
-                session_date: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString()
-            }
-        ];
-
-        // Apply filters
-        let filteredTransactions = mockTransactions;
-
-        if (status) {
-            filteredTransactions = filteredTransactions.filter(t => t.status === status);
-        }
-
-        if (startDate) {
-            const start = new Date(startDate as string);
-            filteredTransactions = filteredTransactions.filter(t => new Date(t.transaction_date) >= start);
-        }
-
-        if (endDate) {
-            const end = new Date(endDate as string);
-            filteredTransactions = filteredTransactions.filter(t => new Date(t.transaction_date) <= end);
-        }
-
-        // Sort and limit
-        filteredTransactions.sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
-        filteredTransactions = filteredTransactions.slice(0, parseInt(limit as string));
-
-        return res.json(filteredTransactions);
-    }
-
-    // Real mode: fetch matched transactions from database (Option B: new table structure)
-    console.log(`📊 Real Mode: Fetching matched transactions for therapist ${therapistId}`);
+    // Get matched transactions from database
+    console.log(`Fetching matched transactions for therapist ${therapistId}`);
 
     let query = `
         SELECT 
@@ -347,6 +837,9 @@ router.get("/transactions/:therapistId", asyncHandler(async (req, res) => {
     query += ` ORDER BY mt.transaction_date DESC LIMIT $${paramCount + 1}`;
     queryParams.push(parseInt(limit as string));
 
+    console.log('Final query:', query);
+    console.log('Query params:', queryParams);
+
     const transactions = await pool.query(query, queryParams);
 
     return res.json(transactions.rows);
@@ -354,7 +847,7 @@ router.get("/transactions/:therapistId", asyncHandler(async (req, res) => {
 
 /**
  * POST /api/pluggy/create-match
- * Manually create a payment match between Pluggy transaction and session (Option B: direct to matched_transactions)
+ * Manually create a payment match between Pluggy transaction and session
  */
 router.post("/create-match", asyncHandler(async (req: Request<ParamsDictionary, any, CreateMatchBody>, res) => {
     const { transactionId, sessionId, patientId, matchType, notes } = req.body;
@@ -365,9 +858,6 @@ router.post("/create-match", asyncHandler(async (req: Request<ParamsDictionary, 
         });
     }
 
-    // This route is now for manual matching of unmatched Pluggy transactions
-    // The transactionId here refers to a Pluggy transaction ID, not a stored transaction
-    
     // Get session and patient details
     const session = await pool.query(
         "SELECT * FROM sessions WHERE id = $1",
@@ -397,12 +887,14 @@ router.post("/create-match", asyncHandler(async (req: Request<ParamsDictionary, 
     }
 
     try {
-        // Fetch transaction details from Pluggy
-        const transactions = await pluggyService.getTransactions(connection.rows[0].pluggy_account_id);
+        const service = getPluggyService(req);
+
+        // Fetch transaction details from service (handles mock/real internally)
+        const transactions = await service.getTransactions(connection.rows[0].pluggy_account_id);
         const transaction = transactions.find(t => t.id === transactionId);
 
         if (!transaction) {
-            return res.status(404).json({ error: "Transaction not found in Pluggy" });
+            return res.status(404).json({ error: "Transaction not found" });
         }
 
         // Check if this transaction was already processed
@@ -417,11 +909,11 @@ router.post("/create-match", asyncHandler(async (req: Request<ParamsDictionary, 
 
         // Create manual match in matched_transactions table
         const amountDifference = transaction.amount - (patientData.preco || 0);
-        
+
         // Extract minimal sender information (privacy-compliant)
-        const senderFirstName = transaction.paymentData?.payer?.name ? 
+        const senderFirstName = transaction.paymentData?.payer?.name ?
             transaction.paymentData.payer.name.split(' ')[0] : null;
-        const senderInitials = transaction.paymentData?.payer?.name ? 
+        const senderInitials = transaction.paymentData?.payer?.name ?
             transaction.paymentData.payer.name.split(' ').map(part => part[0]).join('.') : null;
 
         const matchResult = await pool.query(`
@@ -478,7 +970,7 @@ router.post("/create-match", asyncHandler(async (req: Request<ParamsDictionary, 
         // Update session status to indicate payment received
         await pool.query(
             "UPDATE sessions SET status = $1 WHERE id = $2",
-            ['compareceu', parseInt(sessionId)]
+            ["compareceu", parseInt(sessionId)]
         );
 
         return res.json({
@@ -488,7 +980,7 @@ router.post("/create-match", asyncHandler(async (req: Request<ParamsDictionary, 
 
     } catch (error) {
         console.error('Error creating manual match:', error);
-        return res.status(500).json({ 
+        return res.status(500).json({
             error: "Failed to create match",
             details: error instanceof Error ? error.message : String(error)
         });
@@ -513,7 +1005,7 @@ router.delete("/connections/:connectionId", asyncHandler(async (req, res) => {
 
 /**
  * GET /api/pluggy/summary/:therapistId
- * Get payment summary for a therapist (Option B: uses new view)
+ * Get payment summary for a therapist
  */
 router.get("/summary/:therapistId", asyncHandler(async (req, res) => {
     const { therapistId } = req.params;
