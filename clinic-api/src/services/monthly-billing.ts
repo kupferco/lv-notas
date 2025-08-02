@@ -37,6 +37,7 @@ export interface BillingPayment {
     notes?: string;
 }
 
+// ENHANCED: Updated with outstanding balance and payment matching support
 export interface BillingSummary {
     patientName: string;
     patientId: number;
@@ -48,6 +49,23 @@ export interface BillingSummary {
     processedAt?: Date;
     canProcess: boolean; // true if no billing period exists yet
     sessionSnapshots?: SessionSnapshot[];
+    // ENHANCED: Outstanding balance fields
+    outstandingBalance: number; // in cents - from previous months
+    totalOwed: number; // in cents - current + outstanding
+    hasOutstandingBalance: boolean;
+    oldestUnpaidMonth?: number;
+    oldestUnpaidYear?: number;
+    // ENHANCED: Payment matching fields
+    hasMatchedPayment?: boolean;
+    matchedTransaction?: {
+        id: string;
+        amount: number;
+        description: string;
+        date: string;
+        confidence: number;
+        matchType: string;
+    };
+    canPayCurrentMonth: boolean; // false if outstanding balance blocks current payment
 }
 
 interface PatientInfo {
@@ -56,6 +74,21 @@ interface PatientInfo {
     email: string | null;
     billingStartDate: Date | null;
     sessionPrice: number;
+}
+
+// ENHANCED: Add outstanding balance information
+export interface OutstandingBalance {
+    patientId: number;
+    totalOutstanding: number; // in cents
+    oldestUnpaidMonth: number;
+    oldestUnpaidYear: number;
+    unpaidBillingPeriods: Array<{
+        id: number;
+        year: number;
+        month: number;
+        amount: number;
+        sessionCount: number;
+    }>;
 }
 
 export class MonthlyBillingService {
@@ -400,6 +433,9 @@ export class MonthlyBillingService {
             // Get all patients with billing info
             const allPatients = await this.getTherapistPatientsWithBillingInfo(therapistId);
 
+            console.log(`💰 Calculating outstanding balances for ${allPatients.length} patients`);
+            const outstandingBalances = await this.calculateOutstandingBalances(therapistId, year, month);
+
             // Get existing billing periods for this month (only exclude void ones)
             const billingResult = await pool.query(
                 `SELECT 
@@ -442,42 +478,41 @@ export class MonthlyBillingService {
 
             for (const patient of allPatients) {
                 const billing = billingMap.get(patient.id);
+                const outstanding = outstandingBalances.get(patient.id);
+                const outstandingAmount = outstanding?.totalOutstanding || 0;
 
                 if (billing) {
-                    // Patient has billing period
+                    // Patient has billing period for current month
+                    const currentAmount = parseInt(billing.total_amount);
+                    const totalOwed = currentAmount + outstandingAmount;
+
                     summary.push({
                         patientName: patient.name,
                         patientId: patient.id,
                         billingPeriodId: billing.billing_period_id,
                         sessionCount: billing.session_count,
-                        totalAmount: billing.total_amount,
+                        totalAmount: currentAmount,
                         status: billing.status,
                         hasPayment: billing.has_payment,
                         processedAt: new Date(billing.processed_at),
-                        canProcess: false
+                        canProcess: false,
+                        // ENHANCED: Outstanding balance fields
+                        outstandingBalance: outstandingAmount,
+                        totalOwed: totalOwed,
+                        hasOutstandingBalance: outstandingAmount > 0,
+                        oldestUnpaidMonth: outstanding?.oldestUnpaidMonth,
+                        oldestUnpaidYear: outstanding?.oldestUnpaidYear,
+                        // ENHANCED: Payment control
+                        canPayCurrentMonth: outstandingAmount === 0
                     });
                 } else {
-                    // Patient has no billing period yet - use pre-fetched calendar sessions
+                    // Patient has no billing period yet
                     const calendarSessions = allSessionsMap.get(patient.id) || [];
                     const sessionCount = calendarSessions.length;
                     const estimatedAmount = sessionCount * patient.sessionPrice;
+                    const totalOwed = estimatedAmount + outstandingAmount;
 
-                    console.log(`Patient ${patient.name}: ${sessionCount} calendar sessions, estimated R$ ${(estimatedAmount / 100).toFixed(2)}`);
-
-                    // console.log(222, calendarSessions);
-                    // In monthly-billing.ts, when returning session details for unprocessed patients:
-                    const sessionSnapshots = calendarSessions.map(session => ({
-                        date: new Date(session.date).toLocaleDateString('pt-BR'),
-                        time: new Date(session.date).toLocaleTimeString('pt-BR', {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        }),
-                        patientName: session.patientName,
-                        googleEventId: session.googleEventId
-                    }));
-                    // console.log(333, sessionSnapshots);
-
-                    // Return this formatted snapshot with the billing summary
+                    // ... rest of the session snapshots logic ...
 
                     summary.push({
                         patientName: patient.name,
@@ -486,12 +521,27 @@ export class MonthlyBillingService {
                         totalAmount: estimatedAmount,
                         hasPayment: false,
                         canProcess: true,
-                        sessionSnapshots: calendarSessions
+                        sessionSnapshots: calendarSessions,
+                        // ENHANCED: Outstanding balance fields
+                        outstandingBalance: outstandingAmount,
+                        totalOwed: totalOwed,
+                        hasOutstandingBalance: outstandingAmount > 0,
+                        oldestUnpaidMonth: outstanding?.oldestUnpaidMonth,
+                        oldestUnpaidYear: outstanding?.oldestUnpaidYear,
+                        // ENHANCED: Payment control
+                        canPayCurrentMonth: outstandingAmount === 0
                     });
                 }
             }
 
-            return summary;
+            // Include patients with: sessions > 0 OR outstandingBalance > 0
+            const filteredSummary = summary.filter(patient =>
+                patient.sessionCount > 0 || patient.hasOutstandingBalance
+            );
+
+            console.log(`📊 Enhanced filtering: ${summary.length} total patients -> ${filteredSummary.length} with sessions or outstanding balances`);
+
+            return filteredSummary;
 
         } catch (error) {
             console.error('Error getting billing summary:', error);
@@ -679,6 +729,84 @@ export class MonthlyBillingService {
         } catch (error) {
             console.error('Error getting billing period details:', error);
             throw error;
+        }
+    }
+
+    /**
+ * ENHANCED: Calculate outstanding balances for all patients
+ */
+    private async calculateOutstandingBalances(
+        therapistId: number,
+        currentYear: number,
+        currentMonth: number
+    ): Promise<Map<number, OutstandingBalance>> {
+        try {
+            console.log(`💰 Calculating outstanding balances for therapist ${therapistId}, excluding ${currentYear}-${currentMonth}`);
+
+            // Get all unpaid billing periods BEFORE the current month
+            const result = await pool.query(
+                `SELECT 
+                bp.id,
+                bp.patient_id,
+                bp.billing_year,
+                bp.billing_month,
+                bp.total_amount,
+                bp.session_count,
+                COALESCE(SUM(pay.amount), 0) as total_paid
+            FROM monthly_billing_periods bp
+            LEFT JOIN monthly_billing_payments pay ON bp.id = pay.billing_period_id
+            WHERE bp.therapist_id = $1 
+            AND bp.status != 'void'
+            AND (
+                bp.billing_year < $2 
+                OR (bp.billing_year = $2 AND bp.billing_month < $3)
+            )
+            GROUP BY bp.id, bp.patient_id, bp.billing_year, bp.billing_month, bp.total_amount, bp.session_count
+            HAVING bp.total_amount > COALESCE(SUM(pay.amount), 0)
+            ORDER BY bp.patient_id, bp.billing_year, bp.billing_month`,
+                [therapistId, currentYear, currentMonth]
+            );
+
+            const outstandingMap = new Map<number, OutstandingBalance>();
+
+            for (const row of result.rows) {
+                const patientId = row.patient_id;
+                const unpaidAmount = row.total_amount - row.total_paid;
+
+                if (!outstandingMap.has(patientId)) {
+                    outstandingMap.set(patientId, {
+                        patientId,
+                        totalOutstanding: 0,
+                        oldestUnpaidMonth: row.billing_month,
+                        oldestUnpaidYear: row.billing_year,
+                        unpaidBillingPeriods: []
+                    });
+                }
+
+                const outstanding = outstandingMap.get(patientId)!;
+                outstanding.totalOutstanding += unpaidAmount;
+                outstanding.unpaidBillingPeriods.push({
+                    id: row.id,
+                    year: row.billing_year,
+                    month: row.billing_month,
+                    amount: unpaidAmount,
+                    sessionCount: row.session_count
+                });
+
+                // Keep track of oldest unpaid period
+                if (row.billing_year < outstanding.oldestUnpaidYear ||
+                    (row.billing_year === outstanding.oldestUnpaidYear && row.billing_month < outstanding.oldestUnpaidMonth)) {
+                    outstanding.oldestUnpaidMonth = row.billing_month;
+                    outstanding.oldestUnpaidYear = row.billing_year;
+                }
+            }
+
+            console.log(`💰 Found outstanding balances for ${outstandingMap.size} patients`);
+            return outstandingMap;
+
+        } catch (error) {
+            console.error('Error calculating outstanding balances:', error);
+            return new Map();
         }
     }
 }

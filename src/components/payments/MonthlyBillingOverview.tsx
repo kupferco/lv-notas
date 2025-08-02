@@ -4,9 +4,10 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Alert } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../contexts/SettingsContext';
-import { apiService } from '../../services/api';
+import { apiService, bankingService, therapistService } from '../../services/api';
 import { whatsappService } from '../../services/whatsapp';
 import { nfseService, CertificateStatus } from '../../services/api/nfse-service';
+import { PaymentMatchInfo } from './PaymentMatchInfo';
 
 // Import types
 import {
@@ -30,7 +31,7 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
   selectedYear,
   selectedMonth
 }) => {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const { isAutoCheckInEnabled } = useSettings();
 
   // State management
@@ -53,15 +54,55 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
   const [generatingInvoices, setGeneratingInvoices] = useState<Set<number>>(new Set());
   const [generatedInvoices, setGeneratedInvoices] = useState<Set<number>>(new Set());
 
-  const therapistId = "1"; // Replace with actual therapist ID from auth context
+  // NEW: Payment matching state
+  const [paymentMatches, setPaymentMatches] = useState<Map<number, any>>(new Map());
+  const [loadingMatches, setLoadingMatches] = useState(false);
 
-  // Load billing summary on component mount and when month/year changes
+  const [therapistId, setTherapistId] = useState<string>("1");
+  const [therapistData, setTherapistData] = useState<any>(null);
+
+  // Fetch therapist ID from email
   useEffect(() => {
-    if (therapistEmail) {
+    const fetchTherapistData = async () => {
+      if (user?.email || therapistEmail) {
+        try {
+          const email = user?.email || therapistEmail;
+          console.log(`🔍 Fetching therapist data for email: ${email}`);
+
+          const therapist = await therapistService.getTherapistByEmail(email);
+
+          if (therapist) {
+            console.log(`✅ Found therapist data:`, therapist);
+            setTherapistData(therapist);
+            setTherapistId(therapist.id.toString());
+          } else {
+            console.warn('⚠️ No therapist found, using default ID');
+          }
+        } catch (error) {
+          console.error('❌ Error fetching therapist data:', error);
+          // Keep default value of "1"
+        }
+      }
+    };
+
+    fetchTherapistData();
+  }, [user?.email, therapistEmail]);
+
+  /// Update your existing useEffect to wait for proper authentication
+  useEffect(() => {
+    if (therapistEmail && user && isAuthenticated) {
       loadBillingSummary();
-      loadCertificateStatus(); // NEW: Load certificate status
+      loadCertificateStatus();
     }
-  }, [therapistEmail, selectedYear, selectedMonth]);
+  }, [therapistEmail, selectedYear, selectedMonth, user, isAuthenticated]);
+
+  // NEW: Separate useEffect for payment matches that waits for billing data AND auth
+  useEffect(() => {
+    if (therapistId && therapistId !== "1" && billingSummary.length > 0 && isAuthenticated) {
+      console.log('🔍 Auth and billing data ready, now loading payment matches...');
+      loadPaymentMatches();
+    }
+  }, [therapistId, billingSummary.length, isAuthenticated]);
 
   // NEW: Load certificate status for NFS-e
   const loadCertificateStatus = async () => {
@@ -72,6 +113,49 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
     } catch (error) {
       console.error('❌ Error loading certificate status:', error);
       // Don't show error to user, just disable invoice functionality
+    }
+  };
+
+  // NEW: Load payment matches for patients with unpaid periods
+  const loadPaymentMatches = async () => {
+    // Add authentication check
+    if (!isAuthenticated || !user) {
+      console.log('⚠️ Authentication not ready, skipping payment matches');
+      return;
+    }
+
+    try {
+      setLoadingMatches(true);
+      console.log(`🔍 Loading payment matches for ${selectedYear}-${selectedMonth} with proper auth`);
+
+      // Calculate date range for matching (look back a few months)
+      const startDate = new Date(selectedYear, selectedMonth - 4, 1).toISOString().split('T')[0];
+      const endDate = new Date(selectedYear, selectedMonth, 0).toISOString().split('T')[0];
+
+      console.log(`📅 Payment matching date range: ${startDate} to ${endDate}`);
+      console.log(`👤 Using therapist ID: ${therapistId}`);
+
+      // Use the proper banking service
+      const data = await bankingService.findPotentialMatches(therapistId, startDate, endDate, 100);
+
+      console.log(`🎯 Payment matching API success:`, data);
+
+      // Create a map of patientId -> match for quick lookup
+      const matchMap = new Map();
+      data.matches?.forEach((match: any) => {
+        if (match.patient_id) {
+          matchMap.set(match.patient_id, match);
+          console.log(`✅ Added match for patient ${match.patient_id}: ${match.lv_reference}`);
+        }
+      });
+
+      setPaymentMatches(matchMap);
+      console.log(`🎯 Final payment matches loaded: ${matchMap.size} matches`);
+
+    } catch (error) {
+      console.error('❌ Error loading payment matches:', error);
+    } finally {
+      setLoadingMatches(false);
     }
   };
 
@@ -88,11 +172,13 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
 
       console.log(555, response.summary)
 
-      // 🎯 Filter out patients with zero sessions to clean up the interface
-      const patientsWithSessions = response.summary.filter((patient: BillingSummary) => patient.sessionCount > 0);
+      // 🎯 ENHANCED FILTERING: Include patients with sessions > 0 OR outstandingBalance > 0
+      const patientsWithRelevantData = response.summary.filter((patient: BillingSummary) =>
+        patient.sessionCount > 0 || patient.hasOutstandingBalance
+      );
 
-      setBillingSummary(patientsWithSessions);
-      console.log(`✅ Loaded ${response.summary.length} total patients, showing ${patientsWithSessions.length} with sessions`);
+      setBillingSummary(patientsWithRelevantData);
+      console.log(`✅ Enhanced filtering: ${response.summary.length} total patients -> ${patientsWithRelevantData.length} with sessions or outstanding balances`);
 
       // Log filtered patients for debugging
       const filteredOut = response.summary.filter((patient: BillingSummary) => patient.sessionCount === 0);
@@ -483,12 +569,21 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
 
   const openPaymentForm = (patientSummary: BillingSummary) => {
     setSelectedPatient(patientSummary);
+
+    // NEW: Check if there's a matched payment for this patient
+    const matchedPayment = paymentMatches.get(patientSummary.patientId);
+
     setPaymentFormData({
-      amount: (patientSummary.totalAmount / 100).toFixed(2),
-      paymentMethod: 'pix',
-      paymentDate: new Date().toISOString().split('T')[0],
-      referenceNumber: ''
+      amount: matchedPayment
+        ? matchedPayment.transaction_amount.toFixed(2) // Pre-fill with matched amount
+        : (patientSummary.totalAmount / 100).toFixed(2), // Fallback to billing amount
+      paymentMethod: matchedPayment?.transaction_type === 'pix' ? 'pix' : 'pix', // Default to PIX
+      paymentDate: matchedPayment
+        ? matchedPayment.transaction_date.split('T')[0] // Pre-fill with transaction date
+        : new Date().toISOString().split('T')[0], // Fallback to today
+      referenceNumber: matchedPayment?.lv_reference || '' // Pre-fill LV reference
     });
+
     setShowPaymentForm(true);
   };
 
@@ -533,6 +628,24 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
       console.error('❌ Error recording payment:', error);
       Alert.alert('Erro', `Falha ao registrar pagamento: ${error.message}`);
     }
+  };
+
+  const handlePaymentButtonPress = (patientSummary: BillingSummary) => {
+    // Check for outstanding balance blocking
+    if (patientSummary.hasOutstandingBalance) {
+      window.alert(
+        `Saldo Pendente\n\n` +
+        `Este paciente possui saldo pendente de R$ ${(patientSummary.outstandingBalance / 100).toFixed(2).replace('.', ',')} ` +
+        `de ${patientSummary.oldestUnpaidMonth}/${patientSummary.oldestUnpaidYear}.\n\n` +
+        `Para manter a ordem cronológica dos pagamentos, reconcilie primeiro o mês anterior antes de registrar ` +
+        `pagamentos do mês atual.\n\n` +
+        `Vá para a aba "${patientSummary.oldestUnpaidMonth}/${patientSummary.oldestUnpaidYear}" para reconciliar o pagamento pendente.`
+      );
+      return;
+    }
+
+    // No outstanding balance, proceed normally
+    openPaymentForm(patientSummary);
   };
 
   const voidBillingPeriod = async (patientSummary: BillingSummary) => {
@@ -746,8 +859,8 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
               <View style={styles.patientHeader}>
                 <Text style={styles.patientName}>{patient.patientName}</Text>
                 <View style={styles.statusContainer}>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(patient.status) }]}>
-                    <Text style={styles.statusText}>{getStatusText(patient.status)}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(patient.status || 'can_process') }]}>
+                    <Text style={styles.statusText}>{getStatusText(patient.status || 'can_process')}</Text>
                   </View>
                   {/* NEW: Invoice status indicator */}
                   {generatedInvoices.has(patient.patientId) && (
@@ -767,6 +880,19 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
                 )}
               </View>
 
+
+              {/* NEW: Outstanding balance display */}
+              {patient.hasOutstandingBalance && (
+                <Text style={styles.outstandingText}>
+                  💰 Saldo pendente: {formatCurrency(patient.outstandingBalance)} de {patient.oldestUnpaidMonth}/{patient.oldestUnpaidYear}
+                </Text>
+              )}
+
+              {/* NEW: Payment match info component */}
+              {paymentMatches.has(patient.patientId) && (
+                <PaymentMatchInfo match={paymentMatches.get(patient.patientId)} />
+              )}
+
               <View style={styles.actionButtons}>
                 {patient.canProcess && (
                   <Pressable
@@ -783,17 +909,20 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
                 {patient.status === 'processed' && (
                   <>
                     <Pressable
-                      style={[styles.actionButton, styles.paymentButton]}
-                      onPress={() => openPaymentForm(patient)}
+                      style={[
+                        styles.actionButton,
+                        patient.hasOutstandingBalance ? styles.paymentButtonWarning : styles.paymentButton
+                      ]}
+                      onPress={() => handlePaymentButtonPress(patient)}
                     >
-                      <Text style={styles.paymentButtonText}>Registrar Pagamento</Text>
-                    </Pressable>
-
-                    <Pressable
-                      style={[styles.actionButton, styles.voidButton]}
-                      onPress={() => voidBillingPeriod(patient)}
-                    >
-                      <Text style={styles.voidButtonText}>Cancelar</Text>
+                      <Text style={styles.paymentButtonText}>
+                        {patient.hasOutstandingBalance
+                          ? '⚠️ Reconciliar Primeiro'
+                          : paymentMatches.has(patient.patientId)
+                            ? '✅ Confirmar Pagamento'
+                            : 'Registrar Pagamento'
+                        }
+                      </Text>
                     </Pressable>
                   </>
                 )}
@@ -1026,6 +1155,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
+  },
+  outstandingText: {
+    fontSize: 12,
+    color: '#dc3545',
+    fontWeight: 'bold',
+    marginBottom: 2,
   },
   scrollContainer: {
     flex: 1,
@@ -1358,5 +1493,15 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  paymentButtonDisabled: {
+    backgroundColor: '#e9ecef',
+    borderColor: '#dee2e6',
+    borderWidth: 1,
+  },
+  paymentButtonWarning: {
+    backgroundColor: '#ffc107',
+    borderColor: '#f0ad4e',
+    borderWidth: 1,
   },
 });

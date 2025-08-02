@@ -42,15 +42,23 @@ export interface SessionSnapshot {
 
 // Monthly billing summary interface
 export interface BillingSummary {
-  sessionSnapshots: any;
   patientName: string;
   patientId: number;
+  billingPeriodId?: number;
   sessionCount: number;
   totalAmount: number; // in cents
+  status?: 'processed' | 'paid' | 'void';
   hasPayment: boolean;
-  canProcess: boolean; // Can process charges for this month
-  status: 'can_process' | 'processed' | 'paid' | 'void';
-  billingPeriodId?: number;
+  processedAt?: Date;
+  canProcess: boolean; // true if no billing period exists yet
+  sessionSnapshots?: SessionSnapshot[];
+  // NEW: Outstanding balance fields
+  outstandingBalance: number; // in cents - from previous months
+  totalOwed: number; // in cents - current + outstanding
+  hasOutstandingBalance: boolean;
+  oldestUnpaidMonth?: number;
+  oldestUnpaidYear?: number;
+  canPayCurrentMonth: boolean; // false if outstanding balance blocks current payment
 }
 
 // Monthly billing API request/response types
