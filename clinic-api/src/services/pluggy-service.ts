@@ -1,12 +1,12 @@
 // src/services/pluggy-service.ts
 import pool from '../config/database.js';
 import { mockDataLoader } from './mock-data-loader.js';
-import { 
-  PluggyAccount, 
-  PluggyTransaction, 
-  PluggyConnectTokenResponse, 
-  PluggyItemResponse,
-  PluggyListResponse 
+import {
+    PluggyAccount,
+    PluggyTransaction,
+    PluggyConnectTokenResponse,
+    PluggyItemResponse,
+    PluggyListResponse
 } from '../types/pluggy.js';
 
 // Use Node.js built-in fetch (Node 18+) or add this type declaration
@@ -34,7 +34,7 @@ export class PluggyService {
         console.log(`   Mode: ${this.mockMode ? 'MOCK' : 'REAL'}`);
         console.log(`   Mock Therapist ID: ${this.mockTherapistId}`);
         console.log(`   Environment: ${this.environment}`);
-        
+
         if (!this.mockMode) {
             console.log(`   Base URL: ${this.baseUrl}`);
             console.log(`   Client ID: ${this.clientId ? `${this.clientId.substring(0, 8)}...` : 'MISSING'}`);
@@ -106,8 +106,8 @@ export class PluggyService {
                     'accept': 'application/json',
                 },
                 body: JSON.stringify({
-                  clientUserId: `therapist_${therapistId}`,
-                  webhookUrl: `${process.env.WEBHOOK_URL || process.env.BASE_URL}/api/pluggy-webhook`,
+                    clientUserId: `therapist_${therapistId}`,
+                    webhookUrl: `${process.env.WEBHOOK_URL || process.env.BASE_URL}/api/pluggy-webhook`,
                 }),
             });
 
@@ -267,9 +267,9 @@ export class PluggyService {
      * Real-time transaction processing with privacy-first matching
      * Only stores matched transactions, discards unmatched ones
      */
-    async processTransactionsForTherapist(therapistId: number): Promise<{ 
-        newMatches: number, 
-        processedTransactions: number 
+    async processTransactionsForTherapist(therapistId: number): Promise<{
+        newMatches: number,
+        processedTransactions: number
     }> {
         try {
             // Get all active bank connections for this therapist
@@ -392,7 +392,7 @@ export class PluggyService {
                 if (transaction.paymentData?.payer?.document && session.cpf) {
                     const cleanTxCpf = transaction.paymentData.payer.document.replace(/\D/g, '');
                     const cleanSessionCpf = session.cpf.replace(/\D/g, '');
-                    
+
                     if (cleanTxCpf === cleanSessionCpf) {
                         return {
                             sessionId: session.id,
@@ -409,7 +409,7 @@ export class PluggyService {
                     const sessionDate = new Date(session.date);
                     const transactionDate = new Date(transaction.date);
                     const daysDiff = Math.abs((sessionDate.getTime() - transactionDate.getTime()) / (1000 * 60 * 60 * 24));
-                    
+
                     if (daysDiff <= 3) { // Within 3 days
                         return {
                             sessionId: session.id,
@@ -425,11 +425,11 @@ export class PluggyService {
                 if (transaction.paymentData?.payer?.name && session.nome) {
                     const senderName = transaction.paymentData.payer.name.toLowerCase();
                     const patientName = session.nome.toLowerCase();
-                    
+
                     // Simple name similarity check
                     const firstNameMatch = senderName.split(' ')[0] === patientName.split(' ')[0];
                     const amountMatch = session.preco && Math.abs(transaction.amount - session.preco) < 0.01;
-                    
+
                     if (firstNameMatch && amountMatch) {
                         return {
                             sessionId: session.id,
@@ -453,8 +453,8 @@ export class PluggyService {
      * Store matched transaction with minimal privacy-compliant data
      */
     private async storeMatchedTransaction(
-        bankConnectionId: number, 
-        transaction: PluggyTransaction, 
+        bankConnectionId: number,
+        transaction: PluggyTransaction,
         match: { sessionId: number; patientId: number; matchType: string; confidence: number; reason: string }
     ): Promise<void> {
         try {
@@ -463,9 +463,9 @@ export class PluggyService {
             const sessionData = sessionResult.rows[0];
 
             // Extract minimal sender information (privacy-compliant)
-            const senderFirstName = transaction.paymentData?.payer?.name ? 
+            const senderFirstName = transaction.paymentData?.payer?.name ?
                 transaction.paymentData.payer.name.split(' ')[0] : null;
-            const senderInitials = transaction.paymentData?.payer?.name ? 
+            const senderInitials = transaction.paymentData?.payer?.name ?
                 transaction.paymentData.payer.name.split(' ').map(part => part[0]).join('.') : null;
 
             await pool.query(`
@@ -596,7 +596,7 @@ export class PluggyService {
                     if (alreadyProcessed.rows.length === 0) {
                         // Find potential matches
                         const potentialMatch = await this.findSessionMatch(therapistId, transaction);
-                        
+
                         if (potentialMatch) {
                             // Get session details
                             const sessionResult = await pool.query(`
@@ -633,6 +633,314 @@ export class PluggyService {
             console.error('Error getting unmatched transactions with suggestions:', error);
             throw error;
         }
+    }
+
+    // Add these methods to the existing PluggyService class in src/services/pluggy-service.ts
+
+    /**
+     * Find potential LV-{patientId} matches for a therapist
+     * Moved from router to service layer for better organization
+     */
+    async findPotentialMatches(
+        therapistId: number,
+        start: string,
+        end: string,
+        limit: number = 50
+    ): Promise<any> {
+        console.log(`🔍 Finding potential LV-{patientId} matches for therapist ${therapistId}`);
+        console.log(`📅 Date range: ${start} to ${end}`);
+
+        try {
+            // Step 1: Get incoming transactions
+            const transactions = await this.getIncomingTransactionsForMatching(
+                therapistId,
+                start,
+                end
+            );
+
+            console.log(`💳 Found ${transactions.length} incoming transactions`);
+
+            // Step 2: Find LV-{patientId} matches against monthly billing periods
+            const matches: any[] = [];
+            let lvReferenceCount = 0;
+
+            for (const transaction of transactions) {
+                // Extract LV reference from transaction
+                if (transaction.potential_reference && transaction.potential_reference.startsWith('LV-')) {
+                    lvReferenceCount++;
+                    const patientIdStr = transaction.potential_reference.substring(3); // Remove "LV-"
+                    const patientId = parseInt(patientIdStr);
+
+                    console.log(`🎯 Processing LV-${patientId} reference from transaction ${transaction.id}`);
+
+                    // Step 3: Find oldest unpaid billing period for this patient
+                    const billingPeriod = await this.findOldestUnpaidBillingPeriod(therapistId, patientId);
+
+                    if (billingPeriod) {
+                        console.log(`🎯 Matching against billing period ${billingPeriod.id} (${billingPeriod.billing_year}-${billingPeriod.billing_month})`);
+
+                        const { confidence, reasons } = this.calculateLVBillingPeriodConfidence(transaction, billingPeriod);
+
+                        if (confidence > 0.6) {
+                            matches.push({
+                                transaction_id: transaction.id,
+                                transaction_amount: transaction.amount,
+                                transaction_date: transaction.date,
+                                transaction_description: transaction.description,
+                                transaction_type: transaction.type,
+                                sender_name: transaction.sender_name,
+                                lv_reference: transaction.potential_reference,
+
+                                // Monthly billing period information
+                                billing_period_id: billingPeriod.id,
+                                patient_id: billingPeriod.patient_id,
+                                patient_name: billingPeriod.patient_name,
+                                patient_cpf: billingPeriod.patient_cpf,
+                                billing_amount: billingPeriod.total_amount,
+                                billing_year: billingPeriod.billing_year,
+                                billing_month: billingPeriod.billing_month,
+                                session_count: billingPeriod.session_count,
+                                processed_at: billingPeriod.processed_at,
+                                total_paid: billingPeriod.total_paid,
+
+                                confidence,
+                                match_reasons: reasons
+                            });
+
+                            console.log(`✅ LV Match found: ${transaction.potential_reference} → ${billingPeriod.patient_name} (${billingPeriod.billing_year}-${billingPeriod.billing_month}) (confidence: ${confidence.toFixed(2)})`);
+                        } else {
+                            console.log(`⚠️ Low confidence match: ${confidence.toFixed(2)} for ${transaction.potential_reference}`);
+                        }
+                    } else {
+                        console.log(`❌ No unpaid billing periods found for patient ID ${patientId}`);
+                    }
+                }
+            }
+
+            // Step 4: Sort by confidence (highest first) and limit results
+            matches.sort((a, b) => b.confidence - a.confidence);
+            const limitedMatches = matches.slice(0, limit);
+
+            return {
+                matches: limitedMatches,
+                summary: {
+                    total_incoming_transactions: transactions.length,
+                    lv_reference_transactions: lvReferenceCount,
+                    total_matches: matches.length,
+                    high_confidence_matches: matches.filter(m => m.confidence > 0.8).length
+                },
+                date_range: { start, end }
+            };
+
+        } catch (error) {
+            console.error('Error finding LV potential matches:', error);
+            throw new Error(`Failed to find potential matches: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    /**
+     * Get incoming transactions formatted for matching
+     * Reuses existing getIncomingTransactions logic but returns formatted data
+     */
+    private async getIncomingTransactionsForMatching(
+        therapistId: number,
+        start: string,
+        end: string
+    ): Promise<any[]> {
+        // Get items and accounts (automatically uses mock or real based on service mode)
+        const items = await this.getItems();
+
+        let allRawTransactions: any[] = [];
+
+        for (const item of items) {
+            const accounts = await this.getAccounts(item.id);
+
+            for (const account of accounts) {
+                try {
+                    const rawTransactions = await this.getTransactions(account.id, start, end);
+
+                    // Add minimal metadata but keep raw structure
+                    const transactionsWithMeta = rawTransactions.map((transaction: any) => ({
+                        ...transaction,
+                        _metadata: {
+                            item_id: item.id,
+                            account_id: account.id,
+                            bank_name: item.connector?.name || (account.bankData as any)?.name || account.name || 'Unknown',
+                            therapist_id: therapistId
+                        }
+                    }));
+
+                    allRawTransactions.push(...transactionsWithMeta);
+
+                } catch (error) {
+                    console.error(`Error fetching transactions for account ${account.id}:`, error);
+                }
+            }
+        }
+
+        // Filter for incoming payments only and transform for matching
+        const incomingTransactions = allRawTransactions
+            .filter(transaction =>
+                transaction.amount > 0 &&
+                transaction.type === 'credit' &&
+                !transaction.error
+            )
+            .map(transaction => ({
+                id: transaction.id,
+                amount: transaction.amount,
+                date: transaction.date,
+                description: transaction.description,
+                type: transaction.paymentData?.endToEndId ? 'pix' : 'other',
+                sender_name: transaction.paymentData?.payer?.name || '',
+                pix_end_to_end_id: transaction.paymentData?.endToEndId || null,
+                bank_name: transaction._metadata.bank_name,
+                account_id: transaction._metadata.account_id,
+                potential_reference: this.extractPaymentReference(transaction),
+                raw_transaction: transaction // Keep for advanced matching logic
+            }));
+
+        return incomingTransactions;
+    }
+
+    /**
+     * Extract payment reference from transaction description or PIX data
+     * Prioritizes LV-{patientId} pattern
+     */
+    private extractPaymentReference(transaction: any): string | null {
+        const text = `${transaction.description} ${transaction.paymentData?.endToEndId || ''}`.toLowerCase();
+
+        // PRIORITY 1: Look for LV-{patientId} pattern (new system)
+        const lvPattern = /lv-(\d+)/i;
+        const lvMatch = text.match(lvPattern);
+        if (lvMatch) {
+            console.log(`🎯 Found LV reference: LV-${lvMatch[1]} in transaction ${transaction.id}`);
+            return `LV-${lvMatch[1]}`;
+        }
+
+        // PRIORITY 2: Legacy reference patterns (for backward compatibility)
+        const legacyPatterns = [
+            /ref[:\s]*([a-z0-9\-]+)/i,
+            /referencia[:\s]*([a-z0-9\-]+)/i,
+            /([a-z]{2,3}-[a-z]{3}\d{2}-\d{3})/i, // ALV-JUL25-001 format
+            /([a-z]+\d+)/i // Simple alphanumeric
+        ];
+
+        for (const pattern of legacyPatterns) {
+            const match = text.match(pattern);
+            if (match) {
+                console.log(`📋 Found legacy reference: ${match[1]} in transaction ${transaction.id}`);
+                return match[1].toUpperCase();
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Find the oldest unpaid billing period for a patient
+     * Used for FIFO payment matching
+     */
+    private async findOldestUnpaidBillingPeriod(therapistId: number, patientId: number): Promise<any | null> {
+        const billingPeriodsQuery = `
+        SELECT mbp.*, p.nome as patient_name, p.email as patient_email, p.cpf as patient_cpf,
+               COALESCE(SUM(mbp_pay.amount), 0) as total_paid
+        FROM monthly_billing_periods mbp
+        JOIN patients p ON mbp.patient_id = p.id
+        LEFT JOIN monthly_billing_payments mbp_pay ON mbp.id = mbp_pay.billing_period_id
+        WHERE mbp.therapist_id = $1 
+        AND mbp.patient_id = $2 
+        AND mbp.status = 'processed'
+        GROUP BY mbp.id, p.nome, p.email, p.cpf
+        HAVING COALESCE(SUM(mbp_pay.amount), 0) < mbp.total_amount
+        ORDER BY mbp.processed_at ASC
+        LIMIT 1
+    `;
+
+        const result = await pool.query(billingPeriodsQuery, [therapistId, patientId]);
+        return result.rows.length > 0 ? result.rows[0] : null;
+    }
+
+    /**
+     * Calculate match confidence AND reasons for LV references against monthly billing periods
+     * Multi-factor scoring system
+     */
+    private calculateLVBillingPeriodConfidence(transaction: any, billingPeriod: any): { confidence: number, reasons: string[] } {
+        let confidence = 0;
+        const reasons: string[] = [];
+
+        // LV reference match (40% weight)
+        if (transaction.potential_reference && transaction.potential_reference.startsWith('LV-')) {
+            confidence += 0.4;
+            reasons.push('lv_reference_match');
+        }
+
+        // CPF matching (35% weight)
+        const rawTx = transaction.raw_transaction;
+        if (rawTx?.paymentData?.payer?.document && billingPeriod.patient_cpf) {
+            const cleanTxCpf = rawTx.paymentData.payer.document.replace(/\D/g, '');
+            const cleanPatientCpf = billingPeriod.patient_cpf.replace(/\D/g, '');
+
+            if (cleanTxCpf === cleanPatientCpf) {
+                confidence += 0.35;
+                reasons.push('cpf_match');
+            }
+        }
+
+        // Amount matching (20% weight)
+        if (billingPeriod.total_amount && transaction.amount) {
+            const billingAmountInCurrency = parseFloat(billingPeriod.total_amount) / 100;
+            const amountDiff = Math.abs(transaction.amount - billingAmountInCurrency);
+
+            if (amountDiff < 0.01) {
+                reasons.push('exact_amount_match');
+                confidence += 0.2;
+            } else if (amountDiff < billingAmountInCurrency * 0.1) {
+                reasons.push('close_amount_match');
+                const amountMatch = Math.max(0, 1 - (amountDiff / billingAmountInCurrency));
+                confidence += amountMatch * 0.2;
+            }
+        }
+
+        // Name similarity (5% weight)
+        if (transaction.sender_name && billingPeriod.patient_name) {
+            const nameSimilarity = this.calculateNameSimilarity(transaction.sender_name, billingPeriod.patient_name);
+            if (nameSimilarity > 0.8) {
+                reasons.push('name_match');
+                confidence += nameSimilarity * 0.05;
+            } else if (nameSimilarity > 0.5) {
+                reasons.push('partial_name_match');
+                confidence += nameSimilarity * 0.05;
+            }
+        }
+
+        return { confidence: Math.min(confidence, 1.0), reasons };
+    }
+
+    /**
+     * Calculate name similarity between transaction sender and patient
+     * Used for matching confidence scoring
+     */
+    private calculateNameSimilarity(senderName: string, patientName: string): number {
+        const senderLower = senderName.toLowerCase().trim();
+        const patientLower = patientName.toLowerCase().trim();
+
+        // Exact match
+        if (senderLower === patientLower) return 1.0;
+
+        // First name match
+        const senderFirst = senderLower.split(' ')[0];
+        const patientFirst = patientLower.split(' ')[0];
+        if (senderFirst === patientFirst && senderFirst.length > 2) return 0.8;
+
+        // Initials match
+        const senderInitials = senderLower.split(' ').map(part => part[0]).join('');
+        const patientInitials = patientLower.split(' ').map(part => part[0]).join('');
+        if (senderInitials === patientInitials && senderInitials.length >= 2) return 0.6;
+
+        // Contains check
+        if (senderLower.includes(patientFirst) || patientLower.includes(senderFirst)) return 0.5;
+
+        return 0;
     }
 }
 

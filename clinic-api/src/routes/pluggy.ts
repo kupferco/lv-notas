@@ -588,206 +588,42 @@ router.get("/all-transactions/:therapistId", asyncHandler(async (req, res) => {
 /**
  * GET /api/pluggy/potential-matches/:therapistId
  * Get potential transaction matches using LV-{patientId} pattern matching
- * UPDATED: Works with monthly billing periods instead of payment requests
+ * REFACTORED: Thin router layer - business logic moved to service
  */
 router.get("/potential-matches/:therapistId", asyncHandler(async (req, res) => {
     const { therapistId } = req.params;
     const { start, end, limit = 50 } = req.query;
 
-    console.log(`🔍 Finding potential LV-{patientId} matches for therapist ${therapistId}`);
-    console.log(`📅 Date range: ${start} to ${end}`);
+    // Validate required parameters
+    if (!start || !end) {
+        return res.status(400).json({
+            error: 'Missing required parameters: start and end dates are required'
+        });
+    }
 
     try {
         const service = getPluggyService(req);
 
-        // Step 1: Get incoming transactions using shared function
-        const transactions = await getIncomingTransactions(
+        const result = await service.findPotentialMatches(
             parseInt(therapistId),
             start as string,
             end as string,
-            service
+            parseInt(limit as string)
         );
 
-        console.log(`💳 Found ${transactions.length} incoming transactions`);
-
-        // Step 2: Find LV-{patientId} matches against monthly billing periods
-        const matches: any[] = [];
-        let lvReferenceCount = 0;
-
-        for (const transaction of transactions) {
-            // Extract LV reference from transaction
-            if (transaction.potential_reference && transaction.potential_reference.startsWith('LV-')) {
-                lvReferenceCount++;
-                const patientIdStr = transaction.potential_reference.substring(3); // Remove "LV-"
-                const patientId = parseInt(patientIdStr);
-
-                console.log(`🎯 Processing LV-${patientId} reference from transaction ${transaction.id}`);
-
-                // Step 3: Find monthly billing periods for this specific patient
-                const transactionDate = new Date(transaction.date);
-                const transactionYear = transactionDate.getFullYear();
-                const transactionMonth = transactionDate.getMonth() + 1; // JS months are 0-based
-
-                // Step 3: Find monthly billing periods for this specific patient (simplified)
-                const billingPeriodsQuery = `
-    SELECT mbp.*, p.nome as patient_name, p.email as patient_email, p.cpf as patient_cpf,
-           COALESCE(SUM(mbp_pay.amount), 0) as total_paid
-    FROM monthly_billing_periods mbp
-    JOIN patients p ON mbp.patient_id = p.id
-    LEFT JOIN monthly_billing_payments mbp_pay ON mbp.id = mbp_pay.billing_period_id
-    WHERE mbp.therapist_id = $1 
-    AND mbp.patient_id = $2 
-    AND mbp.status = 'processed'
-    GROUP BY mbp.id, p.nome, p.email, p.cpf
-    HAVING COALESCE(SUM(mbp_pay.amount), 0) < mbp.total_amount
-    ORDER BY mbp.processed_at ASC
-    LIMIT 1
-`;
-
-                const billingPeriods = await pool.query(billingPeriodsQuery, [
-                    parseInt(therapistId),
-                    patientId
-                    // Removed: transactionYear, transactionMonth
-                ]);
-
-                console.log(`📋 Found ${billingPeriods.rows.length} unpaid billing period(s) for patient ${patientId}`);
-
-                if (billingPeriods.rows.length > 0) {
-                    const billingPeriod = billingPeriods.rows[0]; // Only process the oldest unpaid period
-
-                    console.log(`🎯 Matching against billing period ${billingPeriod.id} (${billingPeriod.billing_year}-${billingPeriod.billing_month})`);
-
-                    const { confidence, reasons } = calculateLVBillingPeriodConfidence(transaction, billingPeriod);
-
-                    if (confidence > 0.6) {
-                        matches.push({
-                            transaction_id: transaction.id,
-                            transaction_amount: transaction.amount,
-                            transaction_date: transaction.date,
-                            transaction_description: transaction.description,
-                            transaction_type: transaction.type,
-                            sender_name: transaction.sender_name,
-                            lv_reference: transaction.potential_reference,
-
-                            // Monthly billing period information
-                            billing_period_id: billingPeriod.id,
-                            patient_id: billingPeriod.patient_id,
-                            patient_name: billingPeriod.patient_name,
-                            patient_cpf: billingPeriod.patient_cpf,
-                            billing_amount: billingPeriod.total_amount,
-                            billing_year: billingPeriod.billing_year,
-                            billing_month: billingPeriod.billing_month,
-                            session_count: billingPeriod.session_count,
-                            processed_at: billingPeriod.processed_at,
-                            total_paid: billingPeriod.total_paid, // Show how much has been paid already
-
-                            confidence,
-                            match_reasons: reasons
-                        });
-
-                        console.log(`✅ LV Match found: ${transaction.potential_reference} → ${billingPeriod.patient_name} (${billingPeriod.billing_year}-${billingPeriod.billing_month}) (confidence: ${confidence.toFixed(2)})`);
-                    } else {
-                        console.log(`⚠️ Low confidence match: ${confidence.toFixed(2)} for ${transaction.potential_reference}`);
-                    }
-                } else {
-                    console.log(`❌ No unpaid billing periods found for patient ID ${patientId}`);
-                }
-            }
-        }
-
-        // Step 4: Sort by confidence (highest first)
-        matches.sort((a, b) => b.confidence - a.confidence);
-
-        // Step 5: Limit results
-        const limitedMatches = matches.slice(0, parseInt(limit as string));
-
         return res.json({
-            matches: limitedMatches,
-            summary: {
-                total_incoming_transactions: transactions.length,
-                lv_reference_transactions: lvReferenceCount,
-                total_matches: matches.length,
-                high_confidence_matches: matches.filter(m => m.confidence > 0.8).length
-            },
-            date_range: { start, end }
+            ...result,
+            mode: req.headers['x-test-mode'] === 'mock' ? 'mock' : 'real'
         });
 
     } catch (error) {
-        console.error('Error finding LV potential matches:', error);
+        console.error('Error in potential-matches endpoint:', error);
         return res.status(500).json({
             error: 'Failed to find potential matches',
             details: error instanceof Error ? error.message : String(error)
         });
     }
 }));
-
-// Helper function to calculate match confidence AND reasons for LV references against monthly billing periods
-function calculateLVBillingPeriodConfidence(transaction: Transaction, billingPeriod: any): { confidence: number, reasons: string[] } {
-    let confidence = 0;
-    const reasons: string[] = [];
-
-    // LV reference match (40% weight)
-    if (transaction.potential_reference && transaction.potential_reference.startsWith('LV-')) {
-        confidence += 0.4;
-        reasons.push('lv_reference_match');
-    }
-
-    // CPF matching (35% weight) - FIXED: Use raw_transaction path with type assertion
-    const rawTx = (transaction as any).raw_transaction;
-    if (rawTx?.paymentData?.payer?.document && billingPeriod.patient_cpf) {
-        const cleanTxCpf = rawTx.paymentData.payer.document.replace(/\D/g, '');
-        const cleanPatientCpf = billingPeriod.patient_cpf.replace(/\D/g, '');
-
-        // console.log('🐛 DEBUG - Comparing CPFs:', cleanTxCpf, 'vs', cleanPatientCpf);
-
-        if (cleanTxCpf === cleanPatientCpf) {
-            confidence += 0.35;
-            reasons.push('cpf_match');
-        }
-    } else {
-        console.log('🐛 DEBUG - CPF data missing:', {
-            transactionCPF: rawTx?.paymentData?.payer?.document,
-            patientCPF: billingPeriod.patient_cpf
-        });
-    }
-
-    // Amount matching (20% weight)
-    if (billingPeriod.total_amount && transaction.amount) {
-        const billingAmountInCurrency = parseFloat(billingPeriod.total_amount) / 100;
-        const amountDiff = Math.abs(transaction.amount - billingAmountInCurrency);
-
-        // console.log('🐛 DEBUG - Amount comparison:', {
-        //     transaction: transaction.amount,
-        //     billingInCurrency: billingAmountInCurrency,
-        //     difference: amountDiff
-        // });
-
-        if (amountDiff < 0.01) {
-            reasons.push('exact_amount_match');
-            confidence += 0.2;
-        } else if (amountDiff < billingAmountInCurrency * 0.1) {
-            reasons.push('close_amount_match');
-            const amountMatch = Math.max(0, 1 - (amountDiff / billingAmountInCurrency));
-            confidence += amountMatch * 0.2;
-        }
-    }
-
-    // Name similarity (5% weight)
-    if (transaction.sender_name && billingPeriod.patient_name) {
-        const nameSimilarity = calculateNameSimilarity(transaction.sender_name, billingPeriod.patient_name);
-        if (nameSimilarity > 0.8) {
-            reasons.push('name_match');
-            confidence += nameSimilarity * 0.05;
-        } else if (nameSimilarity > 0.5) {
-            reasons.push('partial_name_match');
-            confidence += nameSimilarity * 0.05;
-        }
-    }
-
-    console.log('🐛 DEBUG - Final confidence:', confidence, 'Reasons:', reasons);
-
-    return { confidence: Math.min(confidence, 1.0), reasons };
-}
 
 /**
  * GET /api/pluggy/transactions/:therapistId
