@@ -229,8 +229,10 @@ export const billingService = {
         month: month.toString()
       });
 
-      console.log("📊 exportMonthlyBillingCSV API call");
-      return await makeApiBlobCall(`/api/monthly-billing/export-csv?${params}`);
+      // console.log("📊 exportMonthlyBillingCSV API call");
+      // return await makeApiBlobCall(`/api/monthly-billing/export-csv?${params}`);
+      console.log("📊 exportMonthlyBillingExcel API call");
+      return await makeApiBlobCall(`/api/monthly-billing/export-excel?${params}`);
     } catch (error) {
       return handleApiError(error as Error, 'exportMonthlyBillingCSV');
     }

@@ -211,7 +211,8 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
       const url = window.URL.createObjectURL(csvBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `cobranca-mensal-${selectedYear}-${selectedMonth.toString().padStart(2, '0')}.csv`;
+      link.download = `cobranca-mensal-${selectedYear}-${selectedMonth.toString().padStart(2, '0')}.xlsx`;
+      // link.download = `cobranca-mensal-${selectedYear}-${selectedMonth.toString().padStart(2, '0')}.csv`;
 
       // Trigger download
       document.body.appendChild(link);
@@ -846,7 +847,8 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
               disabled={loading || billingSummary.length === 0 || isExporting}
             >
               <Text style={styles.exportButtonText}>
-                {isExporting ? '📊 Exportando...' : '📊 Exportar CSV'}
+                {isExporting ? '📊 Exportando...' : '📊 Exportar XLSX'}
+                {/* {isExporting ? '📊 Exportando...' : '📊 Exportar CSV'} */}
               </Text>
             </Pressable>
           </View>
