@@ -1,0 +1,26 @@
+[
+  {
+    "id": "account_bb_checking_therapist1",
+    "type": "BANK",
+    "subtype": "CHECKING_ACCOUNT",
+    "name": "Conta Corrente",
+    "balance": 18420.50,
+    "currencyCode": "BRL",
+    "itemId": "item_bb_therapist1",
+    "number": "0001/12345-0",
+    "createdAt": "2025-07-01T10:00:00Z",
+    "updatedAt": "2025-08-02T10:30:00Z",
+    "marketingName": "GOLD Conta Corrente",
+    "taxNumber": "416.799.495-00",
+    "owner": "Dr. João Silva Terapeuta",
+    "bankData": {
+      "transferNumber": "001/0001/12345-0",
+      "closingBalance": 18420.50,
+      "automaticallyInvestedBalance": 1842.05,
+      "overdraftContractedLimit": null,
+      "overdraftUsedLimit": null,
+      "unarrangedOverdraftAmount": null
+    },
+    "creditData": null
+  }
+]

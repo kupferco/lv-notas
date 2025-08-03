@@ -7,6 +7,7 @@ export { calendarService } from './calendar-service';
 export { billingService } from './billing-service';
 export { nfseService } from './nfse-service';
 export { baseApiService } from './base-service';
+export { bankingService } from './banking-service';
 
 // Re-export types for convenience
 export type { 

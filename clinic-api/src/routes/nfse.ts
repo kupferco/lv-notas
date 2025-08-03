@@ -293,7 +293,7 @@ router.post("/company/register", asyncHandler<CompanyRegistrationBody>(async (re
         }
 
         // Register company with provider
-        const companyId = await nfseService.registerCompany(companyData);
+        const companyId = await nfseService.registerCompany(parseInt(therapistId), companyData);
 
         // Update therapist config
         await upsertTherapistConfig(parseInt(therapistId), {

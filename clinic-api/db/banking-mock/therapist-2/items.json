@@ -1,0 +1,33 @@
+[
+  {
+    "id": "item_bb_therapist1",
+    "connector": {
+      "id": 611,
+      "name": "Banco do Brasil",
+      "primaryColor": "1194F6",
+      "institutionUrl": "https://www.bb.com.br/docs/pub/inst/img/LogoBB.svg",
+      "country": "BR",
+      "type": "PERSONAL_BANK",
+      "credentials": [],
+      "imageUrl": "https://cdn.pluggy.ai/assets/connector-icons/211.svg",
+      "hasMFA": false,
+      "oauth": true,
+      "health": {
+        "status": "ONLINE",
+        "stage": null
+      },
+      "products": ["ACCOUNTS", "TRANSACTIONS", "IDENTITY", "CREDIT_CARDS", "PAYMENT_DATA"],
+      "createdAt": "2023-09-01T18:05:09.145Z",
+      "isSandbox": false,
+      "isOpenFinance": true,
+      "updatedAt": "2025-08-02T10:30:00Z",
+      "supportsPaymentInitiation": true,
+      "supportsScheduledPayments": true,
+      "supportsSmartTransfers": false,
+      "supportsBoletoManagement": false
+    },
+    "status": "UPDATED",
+    "createdAt": "2025-07-01T10:00:00Z",
+    "updatedAt": "2025-08-02T10:30:00Z"
+  }
+]

@@ -39,14 +39,17 @@
 \echo '💰 Installing monthly billing system...'
 \i schemas/10_monthly_billing.sql
 
-\echo '💰 Installing authentication system...'
+\echo '🔐 Installing authentication system...'
 \i schemas/11_authentication_system.sql
 
-\echo '💰 Installing authentication config...'
+\echo '🔑 Installing authentication config...'
 \i schemas/12_authentication_config.sql
 
 \echo '🧾 Installing NFS-e integration system...'
 \i schemas/13_nfse_integration.sql
+
+\echo '🏦 Installing banking integration system...'
+\i schemas/14_banking_integration.sql
 
 \echo ''
 \echo '✅ Complete schema installation finished!'
@@ -59,5 +62,6 @@ SELECT
     (SELECT COUNT(*) FROM therapists) as therapists,
     (SELECT COUNT(*) FROM patients) as patients,
     (SELECT COUNT(*) FROM sessions) as sessions,
+    (SELECT COUNT(*) FROM bank_connections) as bank_connections,
     (SELECT COUNT(*) FROM app_configuration) as app_configs,
     NOW() as completed_at;

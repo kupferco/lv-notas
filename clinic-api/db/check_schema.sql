@@ -15,6 +15,8 @@ SELECT
         WHEN table_name IN ('therapists', 'patients', 'sessions', 'calendar_events', 'check_ins', 'calendar_webhooks') THEN '✅ Core'
         WHEN table_name IN ('therapist_onboarding', 'imported_calendar_events', 'patient_matching_candidates', 'recurring_session_templates') THEN '🎯 Onboarding'
         WHEN table_name IN ('therapist_billing_history', 'patient_billing_history', 'billing_periods') THEN '💰 Billing'
+        WHEN table_name IN ('bank_connections', 'bank_transactions', 'payment_matches') THEN '🏦 Banking'
+        WHEN table_name IN ('therapist_nfse_config', 'nfse_invoices') THEN '🧾 NFS-e'
         WHEN table_type = 'VIEW' THEN '📋 View'
         ELSE '❓ Other'
     END as category
@@ -40,6 +42,58 @@ WHERE tc.constraint_type = 'FOREIGN KEY'
 ORDER BY tc.table_name, kcu.column_name;
 
 \echo ''
+\echo '🏦 BANKING INTEGRATION STRUCTURE'
+\echo '---------------------------------'
+SELECT 
+    column_name as "Column",
+    data_type as "Type",
+    is_nullable as "Nullable",
+    CASE 
+        WHEN column_name IN ('pluggy_item_id', 'pluggy_account_id', 'bank_name', 'account_type') THEN '🔗 Pluggy Integration'
+        WHEN column_name IN ('status', 'last_sync_at', 'sync_enabled') THEN '⚡ Sync Status'
+        WHEN column_name IN ('last_error', 'error_count') THEN '🚨 Error Tracking'
+        ELSE '📋 Standard'
+    END as purpose
+FROM information_schema.columns 
+WHERE table_name = 'bank_connections' 
+ORDER BY ordinal_position;
+
+\echo ''
+\echo '💳 BANK TRANSACTIONS STRUCTURE'
+\echo '-------------------------------'
+SELECT 
+    column_name as "Column",
+    data_type as "Type",
+    is_nullable as "Nullable",
+    CASE 
+        WHEN column_name LIKE 'pix_%' THEN '📱 PIX Specific'
+        WHEN column_name LIKE 'sender_%' THEN '👤 Sender Info'
+        WHEN column_name IN ('match_status', 'processed_at') THEN '🎯 Matching'
+        WHEN column_name IN ('pluggy_transaction_id', 'raw_data') THEN '🔗 Pluggy Data'
+        ELSE '📋 Standard'
+    END as purpose
+FROM information_schema.columns 
+WHERE table_name = 'bank_transactions' 
+ORDER BY ordinal_position;
+
+\echo ''
+\echo '🎯 PAYMENT MATCHES STRUCTURE'
+\echo '-----------------------------'
+SELECT 
+    column_name as "Column",
+    data_type as "Type",
+    is_nullable as "Nullable",
+    CASE 
+        WHEN column_name IN ('match_type', 'match_confidence', 'match_reason') THEN '🤖 AI Matching'
+        WHEN column_name IN ('matched_amount', 'amount_difference') THEN '💰 Financial'
+        WHEN column_name IN ('status', 'confirmed_by', 'confirmed_at') THEN '✅ Confirmation'
+        ELSE '📋 Standard'
+    END as purpose
+FROM information_schema.columns 
+WHERE table_name = 'payment_matches' 
+ORDER BY ordinal_position;
+
+\echo ''
 \echo '🔍 ENHANCED THERAPIST STRUCTURE'
 \echo '--------------------------------'
 SELECT 
@@ -62,26 +116,11 @@ SELECT
     data_type as "Type",
     is_nullable as "Nullable",
     CASE 
-        WHEN column_name IN ('therapy_start_date', 'lv_notas_billing_start_date', 'session_price', 'recurring_pattern', 'notes') THEN '🆕 New'
+        WHEN column_name IN ('therapy_start_date', 'lv_notas_billing_start_date', 'session_price', 'recurring_pattern', 'notes', 'cpf') THEN '🆕 New'
         ELSE '📋 Original'
     END as status
 FROM information_schema.columns 
 WHERE table_name = 'patients' 
-ORDER BY ordinal_position;
-
-\echo ''
-\echo '📅 ENHANCED SESSION STRUCTURE (with Billing Tracking)'
-\echo '-------------------------------------------------------'
-SELECT 
-    column_name as "Column",
-    data_type as "Type",
-    is_nullable as "Nullable",
-    CASE 
-        WHEN column_name IN ('billable', 'billing_period', 'session_price', 'billing_cycle_used', 'created_during_onboarding', 'import_batch_id', 'billing_period_id') THEN '🆕 New'
-        ELSE '📋 Original'
-    END as status
-FROM information_schema.columns 
-WHERE table_name = 'sessions' 
 ORDER BY ordinal_position;
 
 \echo ''
@@ -94,30 +133,13 @@ SELECT
         WHEN table_name = 'current_billing_settings' THEN 'Current billing configuration for all patients'
         WHEN table_name = 'therapist_onboarding_progress' THEN 'Onboarding progress for all therapists'
         WHEN table_name = 'billing_change_history' THEN 'Complete history of billing changes'
+        WHEN table_name = 'unmatched_transactions_with_suggestions' THEN '🏦 Unmatched payments with AI suggestions'
+        WHEN table_name = 'therapist_payment_summary' THEN '🏦 Payment overview by therapist'
         ELSE 'Other view'
     END as "Description"
 FROM information_schema.views
 WHERE table_schema = 'public'
 ORDER BY table_name;
-
-\echo ''
-\echo '⚙️ HELPER FUNCTIONS'
-\echo '--------------------'
-SELECT 
-    routine_name as "Function Name",
-    CASE 
-        WHEN routine_name = 'get_billing_sessions_count' THEN 'Count billable sessions for patient/period'
-        WHEN routine_name = 'extract_patient_name_from_summary' THEN 'Extract patient name from calendar event'
-        WHEN routine_name = 'get_therapist_billing_cycle' THEN 'Get current billing cycle for therapist'
-        WHEN routine_name = 'get_patient_billing_cycle' THEN 'Get current billing cycle for patient (with overrides)'
-        WHEN routine_name = 'change_therapist_billing_cycle' THEN 'Change therapist billing with history'
-        WHEN routine_name = 'change_patient_billing_cycle' THEN 'Change patient billing with history'
-        ELSE 'Other function'
-    END as "Purpose"
-FROM information_schema.routines
-WHERE routine_schema = 'public'
-    AND routine_type = 'FUNCTION'
-ORDER BY routine_name;
 
 \echo ''
 \echo '🚀 PERFORMANCE INDEXES'
@@ -128,6 +150,7 @@ SELECT
     CASE 
         WHEN indexname LIKE '%pkey' THEN '🔑 Primary Key'
         WHEN indexname LIKE 'idx_%billing%' THEN '💰 Billing Performance'
+        WHEN indexname LIKE 'idx_%bank%' OR indexname LIKE 'idx_%transaction%' OR indexname LIKE 'idx_%payment%' THEN '🏦 Banking Performance'
         WHEN indexname LIKE 'idx_%onboarding%' OR indexname LIKE 'idx_%imported%' OR indexname LIKE 'idx_%matching%' THEN '🎯 Onboarding Performance'
         WHEN indexname LIKE 'idx_%' THEN '⚡ Performance'
         ELSE '📋 Other'
@@ -159,38 +182,47 @@ SELECT
 FROM sessions
 UNION ALL
 SELECT 
-    'Onboarding Steps' as "Table",
+    'Bank Connections' as "Table",
     COUNT(*) as "Records",
-    COUNT(DISTINCT therapist_id) as "Therapists"
-FROM therapist_onboarding
+    SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as "Active"
+FROM bank_connections
 UNION ALL
 SELECT 
-    'Billing History' as "Table",
+    'Bank Transactions' as "Table",
     COUNT(*) as "Records",
-    COUNT(DISTINCT therapist_id) as "Therapists"
-FROM therapist_billing_history;
+    SUM(CASE WHEN match_status = 'unmatched' THEN 1 ELSE 0 END) as "Unmatched"
+FROM bank_transactions;
 
 \echo ''
-\echo '🔍 DUAL DATE SYSTEM CHECK'
-\echo '--------------------------'
+\echo '🏦 BANKING INTEGRATION STATUS'
+\echo '------------------------------'
+-- Check if banking tables exist and show status
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'bank_connections') THEN
+        RAISE NOTICE '✅ Banking integration tables are installed';
+        PERFORM 1; -- This allows the IF block to execute properly
+    ELSE
+        RAISE NOTICE '❌ Banking integration tables are missing';
+    END IF;
+END $$;
+
+-- Show banking summary if tables exist
 SELECT 
-    p.nome as "Patient",
-    t.nome as "Therapist",
-    p.therapy_start_date as "Therapy Start (Historical)",
-    p.lv_notas_billing_start_date as "LV Notas Billing Start",
-    CASE 
-        WHEN p.therapy_start_date IS NOT NULL AND p.lv_notas_billing_start_date IS NOT NULL 
-        THEN p.lv_notas_billing_start_date - p.therapy_start_date || ' days'
-        ELSE 'N/A'
-    END as "Gap (Billing - Historical)"
-FROM patients p
-JOIN therapists t ON p.therapist_id = t.id
-ORDER BY t.nome, p.nome;
+    bc.bank_name as "Bank",
+    COUNT(*) as "Connections",
+    COUNT(CASE WHEN bc.status = 'active' THEN 1 END) as "Active",
+    COUNT(bt.id) as "Transactions",
+    COUNT(CASE WHEN bt.match_status = 'unmatched' THEN 1 END) as "Unmatched"
+FROM bank_connections bc
+LEFT JOIN bank_transactions bt ON bc.id = bt.bank_connection_id
+GROUP BY bc.bank_name
+ORDER BY "Connections" DESC;
 
 \echo ''
 \echo '💰 BILLING OVERVIEW'
 \echo '--------------------'
-SELECT * FROM current_billing_settings ORDER BY therapist_name, patient_name;
+SELECT * FROM current_billing_settings ORDER BY therapist_name, patient_name LIMIT 10;
 
 \echo ''
 \echo '✅ SCHEMA CHECK COMPLETE!'
@@ -200,4 +232,7 @@ SELECT * FROM current_billing_settings ORDER BY therapist_name, patient_name;
 \echo '• Dual date system (historical vs billing start dates)'  
 \echo '• Advanced billing cycle management with full history'
 \echo '• Smart patient matching and recurring session detection'
+\echo '• 🏦 Banking integration with Pluggy for automatic payment tracking'
+\echo '• 🤖 AI-powered payment matching with confidence scoring'
+\echo '• 📱 PIX payment support with CPF-based patient identification'
 \echo '• Complete audit trail for all billing changes'
