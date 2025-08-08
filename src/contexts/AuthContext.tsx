@@ -268,9 +268,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setGoogleAccessToken(null);
 
     // Show user-friendly message
-    if (typeof window !== 'undefined') {
-      window.alert('Sua sessão expirou. Você será redirecionado para a tela de login.');
-    }
+    // if (typeof window !== 'undefined') {
+    //   window.alert('Sua sessão expirou. Você será redirecionado para a tela de login.');
+    // }
   };
 
   // Credential authentication methods

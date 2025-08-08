@@ -238,14 +238,35 @@ export class AuthService {
     }
 
     /**
-     * Extend current session
-     */
+ * Extend current session - with timing information
+ */
     async extendSession(): Promise<boolean> {
         if (!this.sessionToken) {
             return false;
         }
 
         try {
+            // First, get current session status to see timing BEFORE extending
+            let timeBeforeExtension = 'unknown';
+            try {
+                const statusResponse = await fetch(`${config.apiUrl}/api/auth/session-status`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${this.sessionToken}`,
+                        'X-API-Key': process.env.SAFE_PROXY_API_KEY || '',
+                    },
+                });
+
+                if (statusResponse.ok) {
+                    const statusData = await statusResponse.json();
+                    const minutesRemaining = Math.round(statusData.timeUntilExpiryMs / 60000);
+                    timeBeforeExtension = `${minutesRemaining} minutes`;
+                }
+            } catch (error) {
+                console.warn('Could not get session status before extension:', error);
+            }
+
+            // Now extend the session
             const response = await fetch(`${config.apiUrl}/api/auth/extend-session`, {
                 method: 'POST',
                 headers: {
@@ -266,7 +287,29 @@ export class AuthService {
                 return false;
             }
 
+            // Get the NEW session status after extending
+            let timeAfterExtension = 'unknown';
+            try {
+                const newStatusResponse = await fetch(`${config.apiUrl}/api/auth/session-status`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${this.sessionToken}`,
+                        'X-API-Key': process.env.SAFE_PROXY_API_KEY || '',
+                    },
+                });
+
+                if (newStatusResponse.ok) {
+                    const newStatusData = await newStatusResponse.json();
+                    const minutesRemaining = Math.round(newStatusData.timeUntilExpiryMs / 60000);
+                    timeAfterExtension = `${minutesRemaining} minutes`;
+                }
+            } catch (error) {
+                console.warn('Could not get session status after extension:', error);
+            }
+
             console.log('✅ Session extended successfully');
+            console.log(`📊 Session timing was: ${timeBeforeExtension} remaining → Extended now back to full ${timeAfterExtension} remaining`);
+
             return true;
         } catch (error: any) {
             console.error('Extend session error:', error);
@@ -315,7 +358,7 @@ export class AuthService {
     private startSessionMonitoring(): void {
         console.log('🚫 Session monitoring temporarily disabled for debugging');
         return;
-        
+
         /*
         // Clear any existing interval
         if (this.sessionCheckInterval) {
