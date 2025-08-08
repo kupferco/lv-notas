@@ -8,7 +8,7 @@ import { apiService } from '../../services/api';
 
 // Import both payment systems
 import { PaymentsOverview } from './PaymentsOverview';
-import { MonthlyBillingOverview } from './MonthlyBillingOverview';
+import { MonthlyBillingOverview } from './monthly/MonthlyBillingOverview';
 
 // Payment system modes
 type PaymentSystemMode = 'current' | 'calendar-only';
