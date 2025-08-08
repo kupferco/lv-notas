@@ -220,6 +220,7 @@ export class MonthlyBillingService {
             );
 
             console.log(`📅 Retrieved ${allEvents.length} total calendar events in one API call`);
+            // console.log(allEvents);
 
             // Process all events and match to patients
             const patientSessionsMap = new Map<number, SessionSnapshot[]>();

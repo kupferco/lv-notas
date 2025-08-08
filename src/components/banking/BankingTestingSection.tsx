@@ -189,6 +189,100 @@ export const BankingTestingSection: React.FC = () => {
     }
   };
 
+  const openPluggyWidget = async () => {
+    try {
+      // Get connect token (you already have this working)
+      const tokenResponse = await makeAPICall('http://localhost:3000/api/pluggy/connect-token', {
+        method: 'POST',
+        body: JSON.stringify({ therapistId }),
+      });
+
+      const { connect_token } = await tokenResponse.json();
+      console.log('✅ Connect token received:', connect_token);
+
+      // Load Pluggy Connect script and open widget
+      if (!window.PluggyConnect) {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.pluggy.ai/pluggy-connect.js';
+        script.onload = () => {
+          openWidget(connect_token);
+        };
+        document.head.appendChild(script);
+      } else {
+        openWidget(connect_token);
+      }
+
+    } catch (error) {
+      console.error('Error opening Pluggy widget:', error);
+    }
+  };
+
+  const openWidget = (connectToken: string) => {
+    try {
+      if (!window.PluggyConnect) {
+        console.error('PluggyConnect not loaded');
+        return;
+      }
+
+      console.log('Opening Pluggy widget with token:', connectToken);
+
+      const widget = new window.PluggyConnect({
+        connectToken: connectToken,
+        onSuccess: (itemData: any) => {
+          console.log('✅ Bank connected successfully:', itemData);
+          alert(`Bank connected! Item ID: ${itemData.item?.id || itemData.id}`);
+        },
+        onError: (error: any) => {
+          console.error('❌ Connection error:', error);
+          alert('Connection failed: ' + JSON.stringify(error));
+        },
+        onClose: () => {
+          console.log('Widget closed');
+        }
+      });
+
+      console.log('Attempting to open widget...');
+
+      if (typeof widget.zoidComponent === 'function') {
+        try {
+          const componentInstance = widget.zoidComponent(widget.componentProps);
+          console.log('Component instance created with methods:', Object.keys(componentInstance || {}));
+
+          // Create a container element for the widget
+          const widgetContainer = document.createElement('div');
+          widgetContainer.id = 'pluggy-widget-container';
+          widgetContainer.style.position = 'fixed';
+          widgetContainer.style.top = '0';
+          widgetContainer.style.left = '0';
+          widgetContainer.style.width = '100%';
+          widgetContainer.style.height = '100%';
+          widgetContainer.style.zIndex = '9999';
+          widgetContainer.style.backgroundColor = 'rgba(0,0,0,0.5)';
+          document.body.appendChild(widgetContainer);
+
+          // Try different render approaches
+          if (componentInstance && typeof componentInstance.render === 'function') {
+            console.log('Calling render with container element...');
+            componentInstance.render(widgetContainer);
+          } else if (componentInstance && typeof componentInstance.renderTo === 'function') {
+            console.log('Calling renderTo with container element...');
+            componentInstance.renderTo(widgetContainer);
+          } else if (componentInstance && typeof componentInstance.show === 'function') {
+            console.log('Calling show...');
+            componentInstance.show();
+          }
+
+        } catch (renderError) {
+          console.error('Error rendering component:', renderError);
+        }
+      }
+
+    } catch (error) {
+      console.error('Error in openWidget:', error);
+    }
+  };
+
+
   const ResultDisplay: React.FC<{ result: TestResult | null; title: string }> = ({ result, title }) => {
     if (!result) return null;
 
@@ -251,6 +345,20 @@ export const BankingTestingSection: React.FC = () => {
               keyboardType="numeric"
             />
           </View>
+
+
+
+
+          <Pressable
+            style={[styles.primaryButton]}
+            onPress={openPluggyWidget}
+          >
+            <Text style={styles.buttonText}>
+              🏦 Connect Bank (Widget Test)
+            </Text>
+          </Pressable>
+
+
         </View>
       </View>
 

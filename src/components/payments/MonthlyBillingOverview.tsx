@@ -61,6 +61,9 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
   const [therapistId, setTherapistId] = useState<string>("1");
   const [therapistData, setTherapistData] = useState<any>(null);
 
+  const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
+  const [patientToCancel, setPatientToCancel] = useState<BillingSummary | null>(null);
+
   // Fetch therapist ID from email
   useEffect(() => {
     const fetchTherapistData = async () => {
@@ -170,7 +173,7 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
         selectedMonth
       );
 
-      console.log(555, response.summary)
+      console.log(response.summary)
 
       // 🎯 ENHANCED FILTERING: Include patients with sessions > 0 OR outstandingBalance > 0
       const patientsWithRelevantData = response.summary.filter((patient: BillingSummary) =>
@@ -926,7 +929,78 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
                         }
                       </Text>
                     </Pressable>
+
+                    {/* NEW: Cancel Billing Request button for processed but unpaid billing periods */}
+                    {!patient.hasPayment && (
+                      <Pressable
+                        style={[styles.actionButton, styles.cancelBillingButton]}
+                        onPress={() => {
+                          console.log(`🗑️ Requesting cancellation for patient ${patient.patientName}`);
+                          setPatientToCancel(patient);
+                          setShowCancelConfirmation(true);
+                          console.log(showCancelConfirmation);
+                          console.log(patientToCancel);
+                        }}
+                      >
+                        <Text style={styles.cancelBillingButtonText}>🗑️ Cancelar Cobrança</Text>
+                      </Pressable>
+                    )}
                   </>
+                )}
+
+                {/* Cancel Confirmation Modal */}
+                {showCancelConfirmation && patientToCancel && (
+                  <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                      <View style={styles.cancelConfirmationModal}>
+                        <Text style={styles.formTitle}>⚠️ Cancelar Cobrança</Text>
+
+                        <Text style={styles.cancelWarningText}>
+                          Tem certeza que deseja cancelar a cobrança de{' '}
+                          <Text style={styles.patientNameBold}>{patientToCancel.patientName}</Text>?
+                        </Text>
+
+                        <Text style={styles.cancelDetailsText}>
+                          Isso irá remover o período de cobrança e permitir reprocessar as sessões.
+                        </Text>
+
+                        <View style={styles.cancelSummary}>
+                          <Text style={styles.cancelSummaryText}>
+                            📅 Período: {selectedMonth}/{selectedYear}
+                          </Text>
+                          <Text style={styles.cancelSummaryText}>
+                            📊 Sessões: {patientToCancel.sessionCount}
+                          </Text>
+                          <Text style={styles.cancelSummaryText}>
+                            💰 Valor: {formatCurrency(patientToCancel.totalAmount)}
+                          </Text>
+                        </View>
+
+                        <View style={styles.cancelActions}>
+                          <Pressable
+                            style={[styles.actionButton, styles.cancelModalCancelButton]}
+                            onPress={() => {
+                              setShowCancelConfirmation(false);
+                              setPatientToCancel(null);
+                            }}
+                          >
+                            <Text style={styles.cancelModalCancelButtonText}>Não, Manter</Text>
+                          </Pressable>
+
+                          <Pressable
+                            style={[styles.actionButton, styles.cancelModalConfirmButton]}
+                            onPress={async () => {
+                              setShowCancelConfirmation(false);
+                              await voidBillingPeriod(patientToCancel);
+                              setPatientToCancel(null);
+                            }}
+                          >
+                            <Text style={styles.cancelModalConfirmButtonText}>🗑️ Sim, Cancelar</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
                 )}
 
                 {/* NEW: NFS-e button for PAID patients */}
@@ -1505,5 +1579,79 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffc107',
     borderColor: '#f0ad4e',
     borderWidth: 1,
+  },
+  cancelBillingButton: {
+    backgroundColor: '#dc3545', // Red color for destructive action
+    borderColor: '#dc3545',
+  },
+  cancelBillingButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  // Add these to your existing styles object
+  cancelConfirmationModal: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  cancelWarningText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 16,
+    color: '#495057',
+    lineHeight: 24,
+  },
+  patientNameBold: {
+    fontWeight: 'bold',
+    color: '#212529',
+  },
+  cancelDetailsText: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 20,
+    color: '#6c757d',
+    fontStyle: 'italic',
+  },
+  cancelSummary: {
+    backgroundColor: '#f8f9fa',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 24,
+    width: '100%',
+    borderLeftWidth: 4,
+    borderLeftColor: '#dc3545',
+  },
+  cancelSummaryText: {
+    fontSize: 14,
+    marginBottom: 4,
+    color: '#495057',
+  },
+  cancelActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  cancelModalCancelButton: {
+    backgroundColor: '#6c757d',
+    borderColor: '#6c757d',
+    flex: 1,
+    maxWidth: 140,
+  },
+  cancelModalCancelButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  cancelModalConfirmButton: {
+    backgroundColor: '#dc3545',
+    borderColor: '#dc3545',
+    flex: 1,
+    maxWidth: 140,
+  },
+  cancelModalConfirmButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

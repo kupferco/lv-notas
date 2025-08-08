@@ -51,7 +51,7 @@ export class PluggyService {
         }
     }
 
-    private async getAccessToken(): Promise<string> {
+    private async getApiKey(): Promise<string> {
         if (this.mockMode) {
             console.log('🎭 Mock Mode: Returning fake access token');
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -69,7 +69,7 @@ export class PluggyService {
                 headers: {
                     'Content-Type': 'application/json',
                     'User-Agent': 'LV-Notas-Clinic-API/1.0',
-                    'Accept': 'application/json',
+                    'accept': 'application/json',
                 },
                 body: JSON.stringify(payload),
                 signal: AbortSignal.timeout(15000),
@@ -81,6 +81,7 @@ export class PluggyService {
             }
 
             const data = await response.json() as { apiKey: string };
+            console.log(`✅ Pluggy apiKey retrieved successfully: ${data.apiKey.substring(0, 8)}...`);
             return data.apiKey;
         } catch (error) {
             console.error('❌ Error getting Pluggy access token:', error);
@@ -95,19 +96,21 @@ export class PluggyService {
             return `mock_connect_token_${therapistId}_${Date.now()}`;
         }
 
+        console.log(`🔗 Creating Pluggy connect token for therapist ${therapistId}`);
+
         try {
-            const accessToken = await this.getAccessToken();
+            const apiKey = await this.getApiKey();
 
             const response = await fetch(`${this.baseUrl}/connect_token`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-API-KEY': accessToken,
+                    'X-API-KEY': apiKey,
                     'accept': 'application/json',
                 },
                 body: JSON.stringify({
                     clientUserId: `therapist_${therapistId}`,
-                    webhookUrl: `${process.env.WEBHOOK_URL || process.env.BASE_URL}/api/pluggy-webhook`,
+                    // webhookUrl: `${process.env.WEBHOOK_URL || process.env.BASE_URL}/api/pluggy-webhook`,
                 }),
             });
 
@@ -116,12 +119,14 @@ export class PluggyService {
             }
 
             const data = await response.json() as { accessToken: string };
+            console.log(`✅ Pluggy connect token created successfully for therapist ${therapistId}: ${data.accessToken.substring(0, 8)}...`);
             return data.accessToken;
         } catch (error) {
             console.error('Error creating Pluggy connect token:', error);
             throw error;
         }
     }
+
 
     async getItems(): Promise<PluggyItemResponse[]> {
         if (this.mockMode) {
@@ -131,7 +136,10 @@ export class PluggyService {
         }
 
         try {
-            const accessToken = await this.getAccessToken();
+            // const apiKey = await this.getApiKey();
+            const accessToken = await this.createConnectToken(4);
+
+            console.log(`🔍 Using Pluggy items for access token: ${accessToken.substring(0, 8)}...`);
 
             const response = await fetch(`${this.baseUrl}/items`, {
                 method: 'GET',
@@ -139,12 +147,24 @@ export class PluggyService {
                     'X-API-KEY': accessToken,
                 },
             });
+            console.log('Response status:', response.status);
+            console.log('Response headers:', [...response.headers.entries()]);
+
+            // ADD THIS - Get the actual error message
+            const responseText = await response.text();
+            console.log('Response body:', responseText);
+
+            if (!response.ok) {
+                throw new Error(`Failed to get items: ${response.status} - ${responseText}`);
+            }
 
             if (!response.ok) {
                 throw new Error(`Failed to get items: ${response.status}`);
             }
 
             const data = await response.json() as PluggyListResponse<PluggyItemResponse>;
+            console.log(`✅ Pluggy items retrieved successfully: ${data.results.length} items found`);
+            console.log(data);
             return data.results;
         } catch (error) {
             console.error('Error getting Pluggy items:', error);
@@ -160,7 +180,7 @@ export class PluggyService {
         }
 
         try {
-            const accessToken = await this.getAccessToken();
+            const accessToken = await this.getApiKey();
 
             const response = await fetch(`${this.baseUrl}/accounts?itemId=${itemId}`, {
                 method: 'GET',
@@ -189,7 +209,7 @@ export class PluggyService {
         }
 
         try {
-            const accessToken = await this.getAccessToken();
+            const accessToken = await this.getApiKey();
 
             let url = `${this.baseUrl}/transactions?accountId=${accountId}`;
             if (from) url += `&from=${from}`;
