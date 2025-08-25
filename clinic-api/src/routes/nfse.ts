@@ -6,6 +6,8 @@ import multer from "multer";
 import pool from "../config/database.js";
 import { NFSeService } from "../services/nfse-service.js";
 import { CertificateStorageService, EncryptionService } from "../utils/encryption.js";
+import { buildInvoiceData } from "../services/nfse-invoice-data.js";
+import { InvoiceGenerationBody } from "../types/invoice.js";
 
 const router: Router = Router();
 
@@ -60,28 +62,12 @@ interface CompanyRegistrationBody {
     };
 }
 
-interface InvoiceGenerationBody {
+// Updated to use the shared type and make it compatible with our API
+interface NFSeInvoiceGenerationBody {
     therapistId: string;
     sessionId: string;
-    customerData?: {
-        name?: string;
-        email?: string;
-        document?: string;
-        address?: {
-            street: string;
-            number: string;
-            complement?: string;
-            neighborhood: string;
-            city: string;
-            state: string;
-            zipCode: string;
-        };
-    };
-    serviceData?: {
-        description?: string;
-        value?: number;
-        serviceCode?: string;
-    };
+    customerData?: Partial<InvoiceGenerationBody["customerData"]>;
+    serviceData?: Partial<InvoiceGenerationBody["serviceData"]>;
 }
 
 interface NFSeSettingsBody {
@@ -94,6 +80,32 @@ interface NFSeSettingsBody {
         additionalInfo?: string;
     };
 }
+
+// Helper function to check if we're in test mode
+const isTestMode = async (): Promise<boolean> => {
+    try {
+        const result = await pool.query(
+            `SELECT value FROM app_configuration WHERE key = 'nfse_test_mode'`
+        );
+        return result.rows[0]?.value === 'true';
+    } catch (error) {
+        console.warn('Could not determine test mode, defaulting to true:', error);
+        return true; // Default to safe test mode
+    }
+};
+
+// Helper function to get current provider
+const getCurrentProvider = async (): Promise<string> => {
+    try {
+        const result = await pool.query(
+            `SELECT value FROM app_configuration WHERE key = 'nfse_current_provider'`
+        );
+        return result.rows[0]?.value || 'focus_nfe'; // Default fallback
+    } catch (error) {
+        console.warn('Could not determine current provider, defaulting to focus_nfe:', error);
+        return 'focus_nfe';
+    }
+};
 
 // Type-safe handler wrapper
 const asyncHandler = <T = any>(
@@ -295,12 +307,31 @@ router.post("/company/register", asyncHandler<CompanyRegistrationBody>(async (re
         // Register company with provider
         const companyId = await nfseService.registerCompany(parseInt(therapistId), companyData);
 
-        // Update therapist config
-        await upsertTherapistConfig(parseInt(therapistId), {
-            provider_company_id: companyId,
-            company_registration_status: 'active',
-            company_data: JSON.stringify(companyData)
-        });
+        // Store company data in individual columns (form-friendly approach)
+        await pool.query(
+            `UPDATE therapist_nfse_config 
+             SET provider_company_id = $1,
+                 company_cnpj = $2,
+                 company_name = $3,
+                 company_municipal_registration = $4,
+                 company_state_registration = $5,
+                 company_email = $6,
+                 company_phone = $7,
+                 company_address = $8,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE therapist_id = $9`,
+            [
+                companyId,
+                companyData.cnpj,
+                companyData.companyName,
+                companyData.municipalRegistration,
+                companyData.stateRegistration,
+                companyData.email,
+                companyData.phone,
+                JSON.stringify(companyData.address),
+                parseInt(therapistId)
+            ]
+        );
 
         return res.json({
             message: 'Company registered successfully',
@@ -314,8 +345,8 @@ router.post("/company/register", asyncHandler<CompanyRegistrationBody>(async (re
     }
 }));
 
-// 4. Generate test invoice (sandbox)
-router.post("/invoice/test", asyncHandler<InvoiceGenerationBody>(async (req, res) => {
+// 4. Generate invoice (single endpoint - test mode controlled by database config)
+router.post("/invoice/generate", asyncHandler<NFSeInvoiceGenerationBody>(async (req, res) => {
     const { therapistId, sessionId, customerData, serviceData } = req.body;
 
     if (!therapistId || !sessionId) {
@@ -323,98 +354,22 @@ router.post("/invoice/test", asyncHandler<InvoiceGenerationBody>(async (req, res
     }
 
     try {
-        const config = await getTherapistConfig(parseInt(therapistId));
+        const testMode = await isTestMode();
+        
+        // Only check for existing invoice if NOT in test mode
+        if (!testMode) {
+            const existingInvoice = await pool.query(
+                `SELECT * FROM nfse_invoices 
+                 WHERE session_id = $1 AND therapist_id = $2`,
+                [sessionId, therapistId]
+            );
 
-        if (!config || !config.provider_company_id) {
-            return res.status(400).json({ error: "Company must be registered first" });
-        }
-
-        // Get session data
-        const sessionResult = await pool.query(
-            `SELECT s.*, p.nome as patient_name, p.email as patient_email, p.preco 
-       FROM sessions s
-       JOIN patients p ON s.patient_id = p.id
-       WHERE s.id = $1 AND s.therapist_id = $2`,
-            [sessionId, therapistId]
-        );
-
-        if (sessionResult.rows.length === 0) {
-            return res.status(404).json({ error: "Session not found" });
-        }
-
-        const session = sessionResult.rows[0];
-        const settings = config.nfse_settings ? JSON.parse(config.nfse_settings) : {};
-
-        // Prepare invoice data
-        const invoiceData = {
-            providerCnpj: JSON.parse(config.company_data).cnpj,
-            providerMunicipalRegistration: JSON.parse(config.company_data).municipalRegistration,
-            customerName: customerData?.name || session.patient_name,
-            customerEmail: customerData?.email || session.patient_email,
-            customerDocument: customerData?.document,
-            customerAddress: customerData?.address,
-            serviceCode: serviceData?.serviceCode || settings.serviceCode || '14.01',
-            serviceDescription: serviceData?.description || settings.defaultServiceDescription || 'Serviços de Psicologia',
-            serviceValue: serviceData?.value || session.preco || 100,
-            taxRate: settings.taxRate || 5,
-            taxWithheld: settings.issWithholding || false,
-            sessionDate: session.date
-        };
-
-        // Generate test invoice
-        const result = await nfseService.generateTestInvoice(
-            config.provider_company_id,
-            invoiceData
-        );
-
-        // Record test invoice
-        await pool.query(
-            `INSERT INTO nfse_invoices 
-       (therapist_id, session_id, provider_invoice_id, invoice_status, invoice_data, is_test)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-            [
-                therapistId,
-                sessionId,
-                result.invoiceId,
-                result.status,
-                JSON.stringify(result),
-                true
-            ]
-        );
-
-        return res.json({
-            message: 'Test invoice generated successfully',
-            invoice: result
-        });
-    } catch (error) {
-        console.error('Test invoice generation error:', error);
-        return res.status(400).json({
-            error: `Test invoice generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-        });
-    }
-}));
-
-// 5. Generate production invoice
-router.post("/invoice/generate", asyncHandler<InvoiceGenerationBody>(async (req, res) => {
-    const { therapistId, sessionId, customerData, serviceData } = req.body;
-
-    if (!therapistId || !sessionId) {
-        return res.status(400).json({ error: "Therapist ID and session ID are required" });
-    }
-
-    try {
-        // Check if invoice already exists for this session
-        const existingInvoice = await pool.query(
-            `SELECT * FROM nfse_invoices 
-       WHERE session_id = $1 AND therapist_id = $2 AND is_test = false`,
-            [sessionId, therapistId]
-        );
-
-        if (existingInvoice.rows.length > 0) {
-            return res.status(400).json({
-                error: "Invoice already exists for this session",
-                existingInvoice: existingInvoice.rows[0]
-            });
+            if (existingInvoice.rows.length > 0) {
+                return res.status(400).json({
+                    error: "Invoice already exists for this session",
+                    existingInvoice: existingInvoice.rows[0]
+                });
+            }
         }
 
         const config = await getTherapistConfig(parseInt(therapistId));
@@ -426,9 +381,9 @@ router.post("/invoice/generate", asyncHandler<InvoiceGenerationBody>(async (req,
         // Get session data
         const sessionResult = await pool.query(
             `SELECT s.*, p.nome as patient_name, p.email as patient_email, p.preco 
-       FROM sessions s
-       JOIN patients p ON s.patient_id = p.id
-       WHERE s.id = $1 AND s.therapist_id = $2`,
+             FROM sessions s
+             JOIN patients p ON s.patient_id = p.id
+             WHERE s.id = $1 AND s.therapist_id = $2`,
             [sessionId, therapistId]
         );
 
@@ -437,77 +392,69 @@ router.post("/invoice/generate", asyncHandler<InvoiceGenerationBody>(async (req,
         }
 
         const session = sessionResult.rows[0];
-        const settings = config.nfse_settings ? JSON.parse(config.nfse_settings) : {};
 
-        // Prepare invoice data
-        const invoiceData = {
-            providerCnpj: JSON.parse(config.company_data).cnpj,
-            providerMunicipalRegistration: JSON.parse(config.company_data).municipalRegistration,
-            customerName: customerData?.name || session.patient_name,
-            customerEmail: customerData?.email || session.patient_email,
-            customerDocument: customerData?.document,
-            customerAddress: customerData?.address,
-            serviceCode: serviceData?.serviceCode || settings.serviceCode || '14.01',
-            serviceDescription: serviceData?.description || settings.defaultServiceDescription || 'Serviços de Psicologia',
-            serviceValue: serviceData?.value || session.preco || 100,
-            taxRate: settings.taxRate || 5,
-            taxWithheld: settings.issWithholding || false,
-            sessionDate: session.date
-        };
+        // Build invoice data using individual columns
+        const invoiceData = buildInvoiceData({
+            therapistConfig: config,
+            session,
+            customerData,
+            serviceData
+        });
 
-        // Generate production invoice
-        const result = await nfseService.generateInvoice(
-            config.provider_company_id,
-            invoiceData
-        );
+        // Generate invoice using appropriate method based on test mode
+        const result = testMode 
+            ? await nfseService.generateTestInvoice(config.provider_company_id, invoiceData)
+            : await nfseService.generateInvoice(config.provider_company_id, invoiceData);
 
-        // Record invoice in database
+        // Record invoice in database with current provider info
+        const currentProvider = await getCurrentProvider();
         const invoiceRecord = await pool.query(
             `INSERT INTO nfse_invoices 
-       (therapist_id, session_id, provider_invoice_id, invoice_number, invoice_amount, 
-        invoice_status, pdf_url, xml_url, invoice_data, is_test)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING *`,
+             (therapist_id, session_id, provider_used, provider_invoice_id, invoice_number, invoice_amount, 
+              invoice_status, pdf_url, xml_url, provider_response)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             RETURNING *`,
             [
                 therapistId,
                 sessionId,
+                currentProvider,
                 result.invoiceId,
-                result.invoiceNumber,
+                result.invoiceNumber || null,
                 invoiceData.serviceValue,
                 result.status,
-                result.pdfUrl,
-                result.xmlUrl,
-                JSON.stringify(result),
-                false
+                result.pdfUrl || null,
+                result.xmlUrl || null,
+                JSON.stringify(result)
             ]
         );
 
         return res.json({
-            message: 'Production invoice generated successfully',
+            message: `${testMode ? 'Test' : 'Production'} invoice generated successfully`,
             invoice: result,
-            invoiceRecord: invoiceRecord.rows[0]
+            invoiceRecord: invoiceRecord.rows[0],
+            testMode
         });
     } catch (error) {
-        console.error('Production invoice generation error:', error);
+        console.error('Invoice generation error:', error);
         return res.status(400).json({
             error: `Invoice generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
         });
     }
 }));
 
-// 6. Get therapist's invoices
+// 5. Get therapist's invoices
 router.get("/invoices/:therapistId", asyncHandler(async (req, res) => {
     const { therapistId } = req.params;
-    const { limit = '50', offset = '0', status, isTest } = req.query;
+    const { limit = '50', offset = '0', status } = req.query;
 
     try {
         let query = `
-      SELECT i.*, s.date as session_date, p.nome as patient_name
-      FROM nfse_invoices i
-      JOIN sessions s ON i.session_id = s.id
-      JOIN patients p ON s.patient_id = p.id
-      WHERE i.therapist_id = $1
-    `;
+          SELECT i.*, s.date as session_date, p.nome as patient_name
+          FROM nfse_invoices i
+          JOIN sessions s ON i.session_id = s.id
+          JOIN patients p ON s.patient_id = p.id
+          WHERE i.therapist_id = $1
+        `;
 
         const queryParams = [therapistId];
         let paramCount = 1;
@@ -517,18 +464,15 @@ router.get("/invoices/:therapistId", asyncHandler(async (req, res) => {
             queryParams.push(status as string);
         }
 
-        if (isTest !== undefined) {
-            query += ` AND i.is_test = $${++paramCount}`;
-            queryParams.push(isTest === 'true' ? 'true' : 'false');
-        }
-
         query += ` ORDER BY i.created_at DESC LIMIT $${++paramCount} OFFSET $${++paramCount}`;
         queryParams.push(limit as string, offset as string);
 
         const result = await pool.query(query, queryParams);
+        const testMode = await isTestMode();
 
         return res.json({
             invoices: result.rows,
+            testMode,
             pagination: {
                 limit: parseInt(limit as string),
                 offset: parseInt(offset as string),
@@ -541,16 +485,16 @@ router.get("/invoices/:therapistId", asyncHandler(async (req, res) => {
     }
 }));
 
-// 7. Get invoice status
+// 6. Get invoice status
 router.get("/invoice/:invoiceId/status", asyncHandler(async (req, res) => {
     const { invoiceId } = req.params;
 
     try {
         const result = await pool.query(
             `SELECT i.*, t.provider_company_id 
-       FROM nfse_invoices i
-       JOIN therapist_nfse_config t ON i.therapist_id = t.therapist_id
-       WHERE i.id = $1`,
+             FROM nfse_invoices i
+             JOIN therapist_nfse_config t ON i.therapist_id = t.therapist_id
+             WHERE i.id = $1`,
             [invoiceId]
         );
 
@@ -570,8 +514,8 @@ router.get("/invoice/:invoiceId/status", asyncHandler(async (req, res) => {
         if (status.status !== invoice.invoice_status) {
             await pool.query(
                 `UPDATE nfse_invoices 
-         SET invoice_status = $1, pdf_url = $2, xml_url = $3, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $4`,
+                 SET invoice_status = $1, pdf_url = $2, xml_url = $3, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $4`,
                 [status.status, status.pdfUrl, status.xmlUrl, invoiceId]
             );
         }
@@ -583,7 +527,7 @@ router.get("/invoice/:invoiceId/status", asyncHandler(async (req, res) => {
     }
 }));
 
-// 8. Update NFSe settings
+// 7. Update NFSe settings
 router.put("/settings", asyncHandler<NFSeSettingsBody>(async (req, res) => {
     const { therapistId, settings } = req.body;
 
@@ -610,9 +554,9 @@ router.put("/settings", asyncHandler<NFSeSettingsBody>(async (req, res) => {
             // Create new record with required fields
             await pool.query(
                 `INSERT INTO therapist_nfse_config 
-                 (therapist_id, default_service_code, default_tax_rate, default_service_description, company_cnpj, company_name)
-                 VALUES ($1, $2, $3, $4, $5, $6)`,
-                [parseInt(therapistId), settings.serviceCode, settings.taxRate, settings.defaultServiceDescription, 'PENDING', 'PENDING']
+                 (therapist_id, default_service_code, default_tax_rate, default_service_description)
+                 VALUES ($1, $2, $3, $4)`,
+                [parseInt(therapistId), settings.serviceCode, settings.taxRate, settings.defaultServiceDescription]
             );
         }
 
@@ -626,7 +570,7 @@ router.put("/settings", asyncHandler<NFSeSettingsBody>(async (req, res) => {
     }
 }));
 
-// 9. Get NFSe settings
+// 8. Get NFSe settings
 router.get("/settings/:therapistId", asyncHandler(async (req, res) => {
     const { therapistId } = req.params;
 
@@ -653,15 +597,18 @@ router.get("/settings/:therapistId", asyncHandler(async (req, res) => {
     }
 }));
 
-// 10. Test provider connection
+// 9. Test provider connection
 router.get("/test-connection", asyncHandler(async (req, res) => {
     try {
         const isConnected = await nfseService.testConnection();
+        const testMode = await isTestMode();
+        const currentProvider = await getCurrentProvider();
 
         return res.json({
             connected: isConnected,
-            provider: 'PlugNotas',
-            environment: process.env.PLUGNOTAS_SANDBOX === 'true' ? 'sandbox' : 'production'
+            currentProvider,
+            testMode,
+            environment: testMode ? 'sandbox' : 'production'
         });
     } catch (error) {
         console.error('Test connection error:', error);
@@ -672,7 +619,7 @@ router.get("/test-connection", asyncHandler(async (req, res) => {
     }
 }));
 
-// 11. Get available service codes
+// 10. Get available service codes
 router.get("/service-codes", asyncHandler(async (req, res) => {
     const { cityCode } = req.query;
 

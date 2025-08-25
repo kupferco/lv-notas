@@ -13,7 +13,7 @@ export interface NFSeProvider {
   validateCertificate(certificate: Buffer, password: string): Promise<CertificateValidation>;
   cancelInvoice?(companyId: string, invoiceId: string, reason: string): Promise<boolean>;
   testConnection?(): Promise<boolean>;
-  getServiceCodes?(cityCode?: string): Promise<Array<{code: string, description: string}>>;
+  getServiceCodes?(cityCode?: string): Promise<Array<{ code: string, description: string }>>;
 }
 
 export interface CompanyRegistration {
@@ -39,19 +39,22 @@ export interface CompanyRegistration {
 export interface InvoiceRequest {
   providerCnpj: string;
   providerMunicipalRegistration?: string;
+  providerCityCode?: string; // NEW (IBGE, e.g. "3550308")
   customerName: string;
   customerEmail?: string;
-  customerDocument?: string;
+  customerDocument?: string; // CPF (11) or CNPJ (14)
   customerAddress?: {
     street: string;
     number: string;
     complement?: string;
     neighborhood: string;
-    city: string;
+    city?: string;     // optional free-text
     state: string;
     zipCode: string;
+    cityCode?: string; // NEW (IBGE)
   };
-  serviceCode: string;
+  serviceCode: string;            // maps to codigo_tributario_municipio
+  itemListaServico?: string;      // NEW (ABRASF), e.g. "1401"
   serviceDescription: string;
   serviceValue: number;
   taxRate?: number;
@@ -112,7 +115,7 @@ export class NFSeService {
     const provider = new FocusNFeProvider(focusNFeConfig);
     console.log('✅ Focus NFe provider initialized');
     console.log(`🔧 Mode: ${focusNFeConfig.sandbox ? 'SANDBOX' : 'PRODUCTION'}`);
-    
+
     return provider;
   }
 
@@ -124,13 +127,13 @@ export class NFSeService {
       'SELECT * FROM therapist_nfse_config WHERE therapist_id = $1',
       [therapistId]
     );
-    
+
     if (result.rows.length === 0) {
       return null;
     }
 
     const config = result.rows[0];
-    
+
     // Decrypt sensitive data for use
     if (config.certificate_password_encrypted) {
       try {
@@ -169,22 +172,22 @@ export class NFSeService {
     send_email_to_patient?: boolean;
   }): Promise<any> {
     const existing = await this.getTherapistConfig(therapistId);
-    
+
     if (existing) {
       // Update existing configuration
       const result = await pool.query(`
-        UPDATE therapist_nfse_config 
-        SET nfse_provider = $2, provider_company_id = $3, company_cnpj = $4,
-            company_name = $5, company_email = $6, company_phone = $7,
-            company_municipal_registration = $8, company_state_registration = $9,
-            company_address = $10, default_service_code = $11, default_tax_rate = $12,
-            default_service_description = $13, auto_generate_invoices = $14,
-            send_email_to_patient = $15, updated_at = CURRENT_TIMESTAMP
-        WHERE therapist_id = $1 
-        RETURNING *
-      `, [
-        therapistId, 
-        configData.nfse_provider || 'focus_nfe',
+  UPDATE therapist_nfse_config 
+  SET provider_company_id = $2, company_cnpj = $3,
+      company_name = $4, company_email = $5, company_phone = $6,
+      company_municipal_registration = $7, company_state_registration = $8,
+      company_address = $9, default_service_code = $10, default_tax_rate = $11,
+      default_service_description = $12, auto_generate_invoices = $13,
+      send_email_to_patient = $14, updated_at = CURRENT_TIMESTAMP
+  WHERE therapist_id = $1 
+  RETURNING *
+`, [
+        therapistId,
+        // REMOVED: configData.nfse_provider || 'focus_nfe',
         configData.provider_company_id || configData.company_cnpj,
         configData.company_cnpj, configData.company_name, configData.company_email,
         configData.company_phone, configData.company_municipal_registration,
@@ -198,17 +201,16 @@ export class NFSeService {
     } else {
       // Create new configuration
       const result = await pool.query(`
-        INSERT INTO therapist_nfse_config (
-          therapist_id, nfse_provider, provider_company_id, company_cnpj,
-          company_name, company_email, company_phone, company_municipal_registration,
-          company_state_registration, company_address, default_service_code,
-          default_tax_rate, default_service_description, auto_generate_invoices,
-          send_email_to_patient
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-        RETURNING *
-      `, [
-        therapistId, 
-        configData.nfse_provider || 'focus_nfe',
+  INSERT INTO therapist_nfse_config (
+    therapist_id, provider_company_id, company_cnpj,
+    company_name, company_email, company_phone, company_municipal_registration,
+    company_state_registration, company_address, default_service_code,
+    default_tax_rate, default_service_description, auto_generate_invoices,
+    send_email_to_patient
+  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+  RETURNING *
+`, [
+        therapistId,
         configData.provider_company_id || configData.company_cnpj,
         configData.company_cnpj, configData.company_name, configData.company_email,
         configData.company_phone, configData.company_municipal_registration,
@@ -227,9 +229,9 @@ export class NFSeService {
    */
   async registerCompany(therapistId: number, companyData: CompanyRegistration): Promise<string> {
     console.log(`Registering company with Focus NFe for therapist ${therapistId}`);
-    
+
     const companyId = await this.provider.registerCompany(companyData);
-    
+
     // Update therapist config with company ID
     await this.updateTherapistConfig(therapistId, {
       provider_company_id: companyId,
@@ -241,7 +243,7 @@ export class NFSeService {
       company_state_registration: companyData.stateRegistration,
       company_address: companyData.address
     });
-    
+
     return companyId;
   }
 
@@ -260,29 +262,29 @@ export class NFSeService {
     }
 
     console.log(`Generating invoice with Focus NFe for therapist ${therapistId}`);
-    
+
     // Generate invoice with Focus NFe
     const result = await this.provider.generateInvoice(companyId, invoiceData);
-    
+
     // Store invoice in database if successful
     if (result.status !== 'error') {
       try {
         const dbResult = await pool.query(`
-          INSERT INTO nfse_invoices (
-            therapist_id, nfse_config_id, nfse_provider, provider_invoice_id,
-            invoice_number, invoice_amount, service_description, service_code,
-            tax_rate, recipient_name, recipient_email, invoice_status,
-            pdf_url, xml_url, provider_response, issued_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-          RETURNING id
-        `, [
-          therapistId, config.id, 'focus_nfe', result.invoiceId,
+  INSERT INTO nfse_invoices (
+    therapist_id, provider_used, provider_invoice_id,
+    invoice_number, invoice_amount, service_description, service_code,
+    tax_rate, recipient_name, recipient_email, invoice_status,
+    pdf_url, xml_url, provider_response, issued_at
+  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+  RETURNING id
+`, [
+          therapistId, 'focus_nfe', result.invoiceId,
           result.invoiceNumber, invoiceData.serviceValue, invoiceData.serviceDescription,
           invoiceData.serviceCode, invoiceData.taxRate, invoiceData.customerName,
           invoiceData.customerEmail, result.status, result.pdfUrl, result.xmlUrl,
           JSON.stringify(result), result.issueDate
         ]);
-        
+
         result.databaseId = dbResult.rows[0].id;
         console.log(`✅ Invoice stored in database with ID: ${result.databaseId}`);
       } catch (error) {
@@ -308,17 +310,17 @@ export class NFSeService {
     // Get invoice from database
     const invoice = await this.getInvoice(invoiceId, therapistId);
     const config = await this.getTherapistConfig(therapistId);
-    
+
     if (!config) {
       throw new Error('Therapist NFS-e configuration not found');
     }
 
     console.log(`Getting invoice status from Focus NFe for invoice ${invoiceId}`);
     const status = await this.provider.getInvoiceStatus(
-      config.provider_company_id || config.company_cnpj, 
+      config.provider_company_id || config.company_cnpj,
       invoice.provider_invoice_id
     );
-    
+
     // Update database with latest status
     if (status.status !== invoice.invoice_status) {
       await pool.query(`
@@ -326,10 +328,10 @@ export class NFSeService {
         SET invoice_status = $1, pdf_url = $2, xml_url = $3, updated_at = CURRENT_TIMESTAMP
         WHERE id = $4
       `, [status.status, status.pdfUrl || invoice.pdf_url, status.xmlUrl || invoice.xml_url, invoiceId]);
-      
+
       console.log(`📋 Invoice ${invoiceId} status updated: ${invoice.invoice_status} → ${status.status}`);
     }
-    
+
     return status;
   }
 
@@ -359,9 +361,9 @@ export class NFSeService {
   /**
    * Get available service codes from Focus NFe
    */
-  async getServiceCodes(cityCode?: string): Promise<Array<{code: string, description: string}>> {
+  async getServiceCodes(cityCode?: string): Promise<Array<{ code: string, description: string }>> {
     console.log('📋 Getting service codes from Focus NFe');
-    
+
     if (!this.provider.getServiceCodes) {
       // Return default therapy service codes
       return [
@@ -432,7 +434,7 @@ export class NFSeService {
   async cancelInvoice(invoiceId: number, therapistId: number, reason: string): Promise<boolean> {
     const invoice = await this.getInvoice(invoiceId, therapistId);
     const config = await this.getTherapistConfig(therapistId);
-    
+
     if (!config) {
       throw new Error('Therapist NFS-e configuration not found');
     }
@@ -443,8 +445,8 @@ export class NFSeService {
 
     console.log(`🗑️ Canceling invoice ${invoiceId} with Focus NFe`);
     const success = await this.provider.cancelInvoice(
-      config.provider_company_id || config.company_cnpj, 
-      invoice.provider_invoice_id, 
+      config.provider_company_id || config.company_cnpj,
+      invoice.provider_invoice_id,
       reason
     );
 
@@ -454,7 +456,7 @@ export class NFSeService {
         SET invoice_status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
       `, [invoiceId]);
-      
+
       console.log(`✅ Invoice ${invoiceId} cancelled successfully`);
     }
 
@@ -464,7 +466,7 @@ export class NFSeService {
   /**
    * Get provider information
    */
-  getProviderInfo(): {name: string, displayName: string, configured: boolean} {
+  getProviderInfo(): { name: string, displayName: string, configured: boolean } {
     return {
       name: 'focus_nfe',
       displayName: 'Focus NFe',

@@ -55,6 +55,16 @@ INSERT INTO app_configuration (key, value, description) VALUES
     'calendar_sync_enabled',
     'true',
     'Whether calendar synchronization is enabled globally'
+),
+(
+    'nfse_test_mode',
+    'true',
+    'Whether NFS-e invoices are generated in test/sandbox mode (true) or production (false)'
+),
+(
+    'nfse_current_provider',
+    'focus_nfe',
+    'Currently active NFS-e provider identifier'
 );
 
 -- =============================================================================
@@ -110,10 +120,11 @@ COMMENT ON TABLE app_configuration IS 'Global application configuration settings
 COMMENT ON TABLE therapist_settings IS 'Stores persistent UI preferences for each therapist';
 COMMENT ON COLUMN therapist_settings.setting_key IS 'Setting name: payment_mode, view_mode, auto_check_in_mode, etc.';
 COMMENT ON COLUMN therapist_settings.setting_value IS 'Setting value stored as string (parse as needed)';
-COMMENT ON COLUMN app_configuration.key IS 'Global setting key: calendar_mode, app_version, etc.';
+COMMENT ON COLUMN app_configuration.key IS 'Global setting key: calendar_mode, app_version, nfse_*, etc.';
 COMMENT ON COLUMN app_configuration.value IS 'Global setting value stored as string';
 
 -- Success message
 DO $$ BEGIN
     RAISE NOTICE 'Settings and app configuration tables created successfully!';
+    RAISE NOTICE 'NFS-e configuration added with provider-agnostic design.';
 END $$;

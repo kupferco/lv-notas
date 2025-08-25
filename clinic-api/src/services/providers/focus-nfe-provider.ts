@@ -37,10 +37,11 @@ export interface FocusNFeCompanyData {
 }
 
 export interface FocusNFeInvoiceData {
-    data_emissao: string; // YYYY-MM-DD format
+    data_emissao: string; // "YYYY-MM-DD"
     prestador: {
         cnpj: string;
         inscricao_municipal?: string;
+        codigo_municipio?: string; // IBGE code, e.g. "3550308" SP capital
     };
     tomador: {
         cnpj?: string;
@@ -52,19 +53,23 @@ export interface FocusNFeInvoiceData {
             numero: string;
             complemento?: string;
             bairro: string;
-            cidade: string;
+            codigo_municipio?: string; // IBGE
             uf: string;
             cep: string;
         };
     };
     servico: {
-        codigo_tributacao_municipio: string;
+        // Focus expects *codigo_tributario_municipio* (not "...tributacao...")
+        codigo_tributario_municipio: string;
+        // optional but frequently required by cities:
+        item_lista_servico?: string; // e.g. "1401"
         discriminacao: string;
         valor_servicos: number;
         aliquota?: number;
         iss_retido?: boolean;
     };
 }
+
 
 export class FocusNFeProvider implements NFSeProvider {
     private config: FocusNFeConfig;
@@ -84,7 +89,7 @@ export class FocusNFeProvider implements NFSeProvider {
             // Focus NFe doesn't require explicit company registration
             // The CNPJ acts as the company identifier
             // We just validate the certificate and return the CNPJ as the company ID
-            
+
             console.log('Focus NFe: Using CNPJ as company ID:', data.cnpj);
             return data.cnpj;
         } catch (error) {
@@ -98,46 +103,47 @@ export class FocusNFeProvider implements NFSeProvider {
             console.log('Generating invoice with Focus NFe:', { companyId, invoiceData: data });
 
             // Generate unique reference ID for Focus NFe
-            const reference = `lv-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const reference = `lv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-            // Convert our generic invoice data to Focus NFe format
+            const toDate = (d?: Date) =>
+                (d ? d : new Date()).toISOString().slice(0, 10); // YYYY-MM-DD
+
             const focusInvoice: FocusNFeInvoiceData = {
-                data_emissao: data.sessionDate ? 
-                    data.sessionDate.toISOString().split('T')[0] : 
-                    new Date().toISOString().split('T')[0],
+                data_emissao: toDate(data.sessionDate),
                 prestador: {
                     cnpj: data.providerCnpj,
-                    inscricao_municipal: data.providerMunicipalRegistration
+                    inscricao_municipal: data.providerMunicipalRegistration,
+                    codigo_municipio: data.providerCityCode, // <-- add to InvoiceRequest (see below)
                 },
                 tomador: {
-                    cpf: data.customerDocument?.length === 11 ? data.customerDocument : undefined,
-                    cnpj: data.customerDocument?.length === 14 ? data.customerDocument : undefined,
+                    cpf: data.customerDocument?.replace(/\D/g, '').length === 11 ? data.customerDocument : undefined,
+                    cnpj: data.customerDocument?.replace(/\D/g, '').length === 14 ? data.customerDocument : undefined,
                     razao_social: data.customerName,
                     email: data.customerEmail,
-                    endereco: data.customerAddress ? {
-                        logradouro: data.customerAddress.street,
-                        numero: data.customerAddress.number,
-                        complemento: data.customerAddress.complement,
-                        bairro: data.customerAddress.neighborhood,
-                        cidade: data.customerAddress.city,
-                        uf: data.customerAddress.state,
-                        cep: data.customerAddress.zipCode
-                    } : undefined
+                    endereco: data.customerAddress
+                        ? {
+                            logradouro: data.customerAddress.street,
+                            numero: data.customerAddress.number,
+                            complemento: data.customerAddress.complement,
+                            bairro: data.customerAddress.neighborhood,
+                            codigo_municipio: data.customerAddress.cityCode, // <-- prefer IBGE code
+                            uf: data.customerAddress.state,
+                            cep: data.customerAddress.zipCode,
+                        }
+                        : undefined,
                 },
                 servico: {
-                    codigo_tributacao_municipio: data.serviceCode,
+                    codigo_tributario_municipio: data.serviceCode, // e.g. "452000100" (varies by city)
+                    item_lista_servico: data.itemListaServico || '1401', // sensible default for psychology
                     discriminacao: data.serviceDescription,
                     valor_servicos: data.serviceValue,
                     aliquota: data.taxRate,
-                    iss_retido: data.taxWithheld || false
-                }
+                    iss_retido: !!data.taxWithheld,
+                },
             };
 
-            const response = await this.makeRequest(
-                'POST',
-                `/v2/nfse?ref=${reference}`,
-                focusInvoice
-            );
+            const response = await this.makeRequest('POST', `/v2/nfse?ref=${encodeURIComponent(reference)}`, focusInvoice);
+
 
             return {
                 invoiceId: reference, // Focus NFe uses reference as identifier
@@ -152,7 +158,7 @@ export class FocusNFeProvider implements NFSeProvider {
             };
         } catch (error) {
             console.error('Error generating invoice with Focus NFe:', error);
-            
+
             // Return error result instead of throwing
             return {
                 invoiceId: '',
@@ -164,10 +170,7 @@ export class FocusNFeProvider implements NFSeProvider {
 
     async getInvoiceStatus(companyId: string, invoiceId: string): Promise<InvoiceStatus> {
         try {
-            const response = await this.makeRequest(
-                'GET',
-                `/v2/nfse/${invoiceId}`
-            );
+            const response = await this.makeRequest('GET', `/v2/nfse/${encodeURIComponent(invoiceId)}`);
 
             return {
                 invoiceId: invoiceId,
@@ -189,9 +192,9 @@ export class FocusNFeProvider implements NFSeProvider {
             // Focus NFe doesn't have a separate certificate validation endpoint
             // Certificates are validated during invoice generation
             // We can do basic validation locally or just return success
-            
+
             console.log('Focus NFe: Certificate validation - checking basic format');
-            
+
             // Basic validation - check if it's a valid certificate file
             if (certificate.length < 100) {
                 return {
@@ -203,7 +206,7 @@ export class FocusNFeProvider implements NFSeProvider {
             // Check if it starts with certificate markers
             const certString = certificate.toString();
             const isPkcs12 = certificate[0] === 0x30 || certString.includes('PKCS12') || certString.includes('.p12');
-            
+
             if (!isPkcs12 && !certString.includes('BEGIN CERTIFICATE')) {
                 return {
                     isValid: false,
@@ -228,11 +231,7 @@ export class FocusNFeProvider implements NFSeProvider {
 
     async cancelInvoice(companyId: string, invoiceId: string, reason: string): Promise<boolean> {
         try {
-            const response = await this.makeRequest(
-                'DELETE',
-                `/v2/nfse/${invoiceId}`,
-                { justificativa: reason }
-            );
+            const response = await this.makeRequest('DELETE', `/v2/nfse/${encodeURIComponent(invoiceId)}`, { justificativa: reason });
 
             return response.status === 'cancelado' || response.cancelado === true;
         } catch (error) {
@@ -311,14 +310,13 @@ export class FocusNFeProvider implements NFSeProvider {
     // Helper method for testing connectivity
     async testConnection(): Promise<boolean> {
         try {
-            // Test with a simple GET request to check API connectivity
-            await this.makeRequest('GET', '/v2/nfse');
+            await this.makeRequest('GET', '/v2/cep/01001000'); // known-good endpoint
             return true;
-        } catch (error) {
-            console.error('Focus NFe connection test failed:', error);
+        } catch {
             return false;
         }
     }
+
 
     // Get available service codes
     async getServiceCodes(cityCode?: string): Promise<Array<{ code: string, description: string }>> {
@@ -326,7 +324,7 @@ export class FocusNFeProvider implements NFSeProvider {
             // Focus NFe doesn't provide a service codes endpoint
             // Return common therapy service codes as fallback
             console.log('Focus NFe: Using default service codes for therapy');
-            
+
             return [
                 { code: '14.01', description: 'Serviços de Psicologia e Psicanálise' },
                 { code: '14.13', description: 'Terapias de Qualquer Espécie Destinadas ao Tratamento Físico, Mental e Espiritual' },
