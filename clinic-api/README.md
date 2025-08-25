@@ -2,6 +2,10 @@
 
 A comprehensive Node.js/TypeScript REST API for managing therapy clinics with **calendar-only session management**, **monthly billing periods**, **WhatsApp payment automation**, **dual-mode system support**, and **complete Google Calendar read integration**.
 
+## 🚀 Getting Started
+
+**New to this project?** See the complete [**Getting Started Guide**](./GETTING_STARTED.md) for step-by-step setup instructions from a fresh machine.
+
 ## 🚀 Latest Features (July 2025)
 
 ### 📅 **Calendar-Only Session Management (NEW!)**
