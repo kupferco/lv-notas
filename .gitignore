@@ -40,7 +40,7 @@ yarn-error.*
 **/service-account-key.json
 
 # Certificate storage - never commit certificates
-/certificates/
+*/certificates/
 *.p12
 *.pfx
 *.pem

@@ -349,13 +349,20 @@ router.post("/company/register", asyncHandler<CompanyRegistrationBody>(async (re
 router.post("/invoice/generate", asyncHandler<NFSeInvoiceGenerationBody>(async (req, res) => {
     const { therapistId, sessionId, customerData, serviceData } = req.body;
 
+    console.log("=== INVOICE GENERATION DEBUG ===");
+    console.log("Request body:", JSON.stringify(req.body, null, 2));
+    console.log("Therapist ID:", therapistId);
+    console.log("Session ID:", sessionId);
+
     if (!therapistId || !sessionId) {
         return res.status(400).json({ error: "Therapist ID and session ID are required" });
     }
 
+    console.log("Looking for session with ID:", sessionId, "and therapist ID:", therapistId);
+
     try {
         const testMode = await isTestMode();
-        
+
         // Only check for existing invoice if NOT in test mode
         if (!testMode) {
             const existingInvoice = await pool.query(
@@ -402,9 +409,9 @@ router.post("/invoice/generate", asyncHandler<NFSeInvoiceGenerationBody>(async (
         });
 
         // Generate invoice using appropriate method based on test mode
-        const result = testMode 
-            ? await nfseService.generateTestInvoice(config.provider_company_id, invoiceData)
-            : await nfseService.generateInvoice(config.provider_company_id, invoiceData);
+        const result = testMode
+            ? await nfseService.generateTestInvoice(parseInt(therapistId), invoiceData)
+            : await nfseService.generateInvoice(parseInt(therapistId), invoiceData);
 
         // Record invoice in database with current provider info
         const currentProvider = await getCurrentProvider();

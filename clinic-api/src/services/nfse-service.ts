@@ -3,12 +3,12 @@
 
 import pool from '../config/database.js';
 import { FocusNFeProvider } from './providers/focus-nfe-provider.js';
-import { EncryptionService } from '../utils/encryption.js';
+import { CertificateStorageService, EncryptionService } from '../utils/encryption.js';
 
 // Types for NFS-e operations
 export interface NFSeProvider {
   registerCompany(companyData: CompanyRegistration): Promise<string>;
-  generateInvoice(companyId: string, data: InvoiceRequest): Promise<InvoiceResult>;
+  generateInvoice(companyId: string, data: InvoiceRequest, certificateData?: { buffer: Buffer, password: string }): Promise<InvoiceResult>;
   getInvoiceStatus(companyId: string, invoiceId: string): Promise<InvoiceStatus>;
   validateCertificate(certificate: Buffer, password: string): Promise<CertificateValidation>;
   cancelInvoice?(companyId: string, invoiceId: string, reason: string): Promise<boolean>;
@@ -261,23 +261,42 @@ export class NFSeService {
       throw new Error('Company not registered with Focus NFe. Please complete NFS-e setup first.');
     }
 
+    // Retrieve certificate if available
+    let certificateData: { buffer: Buffer, password: string } | undefined;
+
+    if (config.certificate_file_path && config.certificate_password_encrypted) {
+      try {
+        const encryptedPassword = JSON.parse(config.certificate_password_encrypted);
+        const { certificateBuffer, password } = await CertificateStorageService.retrieveCertificate(
+          config.certificate_file_path,
+          encryptedPassword
+        );
+
+        certificateData = { buffer: certificateBuffer, password };
+        console.log('Using stored certificate for invoice generation');
+      } catch (error) {
+        console.error('Failed to retrieve certificate:', error);
+        throw new Error('Certificate retrieval failed. Please re-upload your certificate.');
+      }
+    }
+
     console.log(`Generating invoice with Focus NFe for therapist ${therapistId}`);
 
-    // Generate invoice with Focus NFe
-    const result = await this.provider.generateInvoice(companyId, invoiceData);
+    // Generate invoice with Focus NFe using certificate
+    const result = await this.provider.generateInvoice(companyId, invoiceData, certificateData);
 
     // Store invoice in database if successful
     if (result.status !== 'error') {
       try {
         const dbResult = await pool.query(`
-  INSERT INTO nfse_invoices (
-    therapist_id, provider_used, provider_invoice_id,
-    invoice_number, invoice_amount, service_description, service_code,
-    tax_rate, recipient_name, recipient_email, invoice_status,
-    pdf_url, xml_url, provider_response, issued_at
-  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-  RETURNING id
-`, [
+        INSERT INTO nfse_invoices (
+          therapist_id, provider_used, provider_invoice_id,
+          invoice_number, invoice_amount, service_description, service_code,
+          tax_rate, recipient_name, recipient_email, invoice_status,
+          pdf_url, xml_url, provider_response, issued_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        RETURNING id
+      `, [
           therapistId, 'focus_nfe', result.invoiceId,
           result.invoiceNumber, invoiceData.serviceValue, invoiceData.serviceDescription,
           invoiceData.serviceCode, invoiceData.taxRate, invoiceData.customerName,
@@ -286,9 +305,9 @@ export class NFSeService {
         ]);
 
         result.databaseId = dbResult.rows[0].id;
-        console.log(`✅ Invoice stored in database with ID: ${result.databaseId}`);
+        console.log(`Invoice stored in database with ID: ${result.databaseId}`);
       } catch (error) {
-        console.error('❌ Error storing invoice in database:', error);
+        console.error('Error storing invoice in database:', error);
       }
     }
 

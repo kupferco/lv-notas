@@ -16,6 +16,8 @@ import {
 } from "../services/auth-service.js";
 import pool from "../config/database.js";
 
+const SESSION_DEBUG = false;
+
 const router: Router = Router();
 
 // Use the same asyncHandler pattern as patients.ts
@@ -379,18 +381,19 @@ router.get("/session-status", asyncHandler(async (req, res) => {
 
     const warningActive = now >= warningStartsAt && now < sessionExpiresAt;
 
-    console.log('⏱️ Session timing (READ-ONLY):', {
-        sessionId: decoded.sessionId,
-        now: now.toISOString(),
-        lastActivity: lastActivity.toISOString(),
-        sessionExpiresAt: sessionExpiresAt.toISOString(),
-        warningStartsAt: warningStartsAt.toISOString(),
-        timeUntilExpiry: Math.round(timeUntilExpiry / 1000),
-        timeUntilWarning: Math.round(timeUntilWarning / 1000),
-        warningActive,
-        // IMPORTANT: No activity update performed
-        activityUpdated: false
-    });
+    if (SESSION_DEBUG)
+        console.log('⏱️ Session timing (READ-ONLY):', {
+            sessionId: decoded.sessionId,
+            now: now.toISOString(),
+            lastActivity: lastActivity.toISOString(),
+            sessionExpiresAt: sessionExpiresAt.toISOString(),
+            warningStartsAt: warningStartsAt.toISOString(),
+            timeUntilExpiry: Math.round(timeUntilExpiry / 1000),
+            timeUntilWarning: Math.round(timeUntilWarning / 1000),
+            warningActive,
+            // IMPORTANT: No activity update performed
+            activityUpdated: false
+        });
 
     res.json({
         status: session.status,

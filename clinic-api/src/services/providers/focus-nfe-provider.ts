@@ -98,7 +98,61 @@ export class FocusNFeProvider implements NFSeProvider {
         }
     }
 
-    async generateInvoice(companyId: string, data: InvoiceRequest): Promise<InvoiceResult> {
+    private async makeRequestWithCertificate(method: string, endpoint: string, data: any, certificateData: { buffer: Buffer, password: string }): Promise<any> {
+        const url = `${this.baseUrl}${endpoint}`;
+
+        // Create FormData for multipart request
+        const formData = new FormData();
+        formData.append('dados', JSON.stringify(data));
+        formData.append('certificado', new Blob([new Uint8Array(certificateData.buffer)]), 'certificate.p12');
+        formData.append('senha_certificado', certificateData.password);
+
+        const headers: Record<string, string> = {
+            'Authorization': `Basic ${Buffer.from(this.config.apiKey + ':').toString('base64')}`,
+            'User-Agent': 'LV-Notas/1.0'
+            // Don't set Content-Type for FormData - browser will set it with boundary
+        };
+
+        console.log(`Making ${method} request with certificate to: ${url}`);
+
+        try {
+            const response = await fetch(url, {
+                method,
+                headers,
+                body: formData
+            });
+
+            const responseText = await response.text();
+            let responseData: any;
+
+            try {
+                responseData = JSON.parse(responseText);
+            } catch {
+                responseData = { message: responseText };
+            }
+
+            console.log(`Focus NFe Response (${response.status}):`, responseData);
+
+            if (!response.ok) {
+                const errorMessage = responseData.erros?.[0]?.mensagem ||
+                    responseData.erro?.mensagem ||
+                    responseData.mensagem ||
+                    responseData.message ||
+                    `HTTP ${response.status}: ${response.statusText}`;
+
+                throw new Error(errorMessage);
+            }
+
+            return responseData;
+        } catch (error) {
+            if (error instanceof TypeError && error.message.includes('fetch')) {
+                throw new Error('Network error: Unable to connect to Focus NFe API');
+            }
+            throw error;
+        }
+    }
+
+    async generateInvoice(companyId: string, data: InvoiceRequest, certificateData?: { buffer: Buffer, password: string }): Promise<InvoiceResult> {
         try {
             console.log('Generating invoice with Focus NFe:', { companyId, invoiceData: data });
 
@@ -141,6 +195,22 @@ export class FocusNFeProvider implements NFSeProvider {
                     iss_retido: !!data.taxWithheld,
                 },
             };
+
+            // If certificate is provided, use multipart form data
+            if (certificateData) {
+                const response = await this.makeRequestWithCertificate('POST', `/v2/nfse?ref=${encodeURIComponent(reference)}`, focusInvoice, certificateData);
+                return {
+                    invoiceId: reference,
+                    invoiceNumber: response.numero_nfse,
+                    status: this.mapStatus(response.status),
+                    pdfUrl: response.caminho_pdf_nfse,
+                    xmlUrl: response.caminho_xml_nfse,
+                    verificationCode: response.codigo_verificacao,
+                    accessKey: response.chave_nfse,
+                    issueDate: response.data_emissao ? new Date(response.data_emissao) : undefined,
+                    error: response.erros ? response.erros[0]?.mensagem : undefined
+                };
+            }
 
             const response = await this.makeRequest('POST', `/v2/nfse?ref=${encodeURIComponent(reference)}`, focusInvoice);
 
@@ -242,7 +312,6 @@ export class FocusNFeProvider implements NFSeProvider {
 
     private async makeRequest(method: string, endpoint: string, data?: any): Promise<any> {
         const url = `${this.baseUrl}${endpoint}`;
-        console.log(this.config.apiKey)
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
             'Authorization': `Basic ${Buffer.from(this.config.apiKey + ':').toString('base64')}`,
@@ -311,21 +380,21 @@ export class FocusNFeProvider implements NFSeProvider {
 
     // Helper method for testing connectivity
     async testConnection(): Promise<boolean> {
-    try {
-        await this.makeRequest('GET', '/v2/nfe/ping-test-123');
-        return true;
-    } catch (error) {
-        // 404 with "nota não encontrada" means API is working correctly
-        if (error instanceof Error && error.message.includes('Nota fiscal não encontrada')) {
-            console.log('✅ Focus NFe API working correctly (test invoice not found as expected)');
+        try {
+            await this.makeRequest('GET', '/v2/nfe/ping-test-123');
             return true;
+        } catch (error) {
+            // 404 with "nota não encontrada" means API is working correctly
+            if (error instanceof Error && error.message.includes('Nota fiscal não encontrada')) {
+                console.log('✅ Focus NFe API working correctly (test invoice not found as expected)');
+                return true;
+            }
+
+            // Real connection failures would be network errors or 403 auth failures
+            console.log('❌ Focus NFe connection failed:', error);
+            return false;
         }
-        
-        // Real connection failures would be network errors or 403 auth failures
-        console.log('❌ Focus NFe connection failed:', error);
-        return false;
     }
-}
 
 
     // Get available service codes

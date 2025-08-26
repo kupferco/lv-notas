@@ -5,6 +5,7 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert, ScrollView
 import { Picker } from '@react-native-picker/picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { api } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface CertificateStatus {
   hasValidCertificate: boolean;
@@ -55,11 +56,31 @@ export const NFSeTestingSection: React.FC = () => {
   const [uploadingCertificate, setUploadingCertificate] = useState(false);
   const [testingInvoice, setTestingInvoice] = useState(false);
   const [registeringCompany, setRegisteringCompany] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
   const [lastTestResult, setLastTestResult] = useState<TestInvoiceResult | null>(null);
   const [certificateUploadError, setCertificateUploadError] = useState<string>('');
 
-  // Mock therapist ID - in real app, get from auth context
-  const therapistId = "1"; // Replace with real therapist ID from context
+  const { user } = useAuth();
+  const [therapistId, setTherapistId] = useState<string | null>(null);
+
+  // Add this effect to fetch the therapist ID based on user email
+  useEffect(() => {
+    const fetchTherapistId = async () => {
+      if (user?.email) {
+        try {
+          const therapist = await api.therapists.getTherapistByEmail(user.email);
+          if (therapist) {
+            setTherapistId(therapist.id.toString());
+            console.log(`Using therapist ID ${therapist.id} for ${user.email}`);
+          }
+        } catch (error) {
+          console.error('Error fetching therapist ID:', error);
+        }
+      }
+    };
+
+    fetchTherapistId();
+  }, [user?.email]);
 
   // Load initial data
   useEffect(() => {
@@ -83,6 +104,7 @@ export const NFSeTestingSection: React.FC = () => {
   };
 
   const loadConnectionStatus = async () => {
+    setTestingConnection(true);
     try {
       const response = await api.nfse.testNFSeConnection();
       setConnectionStatus(response);
@@ -94,10 +116,13 @@ export const NFSeTestingSection: React.FC = () => {
         environment: 'unknown',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
+    } finally {
+      setTestingConnection(false);
     }
   };
 
   const loadCertificateStatus = async () => {
+    if (!therapistId) return;
     try {
       const response = await api.nfse.getCertificateStatus(therapistId);
       setCertificateStatus(response);
@@ -107,6 +132,7 @@ export const NFSeTestingSection: React.FC = () => {
   };
 
   const loadNFSeSettings = async () => {
+    if (!therapistId) return;
     try {
       const response = await api.nfse.getNFSeSettings(therapistId);
       setNFSeSettings(response.settings);
@@ -116,6 +142,7 @@ export const NFSeTestingSection: React.FC = () => {
   };
 
   const handleCertificateUpload = async () => {
+    if (!therapistId) return;
     try {
       setUploadingCertificate(true);
       setCertificateUploadError(''); // Clear previous errors
@@ -190,6 +217,7 @@ export const NFSeTestingSection: React.FC = () => {
   };
 
   const handleCompanyRegistration = async () => {
+    if (!therapistId) return;
     try {
       setRegisteringCompany(true);
 
@@ -224,12 +252,13 @@ export const NFSeTestingSection: React.FC = () => {
   };
 
   const handleTestInvoice = async () => {
+    if (!therapistId) return;
     try {
       setTestingInvoice(true);
 
       // Mock session and customer data for testing
       const testData = {
-        sessionId: '1', // Mock session ID
+        sessionId: '13', // Mock session ID
         customerData: {
           name: 'João Silva (Teste)',
           email: 'joao.teste@email.com',
@@ -269,6 +298,7 @@ export const NFSeTestingSection: React.FC = () => {
   };
 
   const handleSaveSettings = async () => {
+    if (!therapistId) return;
     try {
       await api.nfse.updateNFSeSettings(therapistId, nfseSettings);
       Alert.alert('Success', 'NFS-e settings saved successfully!');
@@ -331,11 +361,13 @@ export const NFSeTestingSection: React.FC = () => {
         )}
 
         <Pressable
-          style={styles.button}
+          style={[styles.button, testingConnection && styles.buttonDisabled]}
           onPress={loadConnectionStatus}
-          disabled={isLoading}
+          disabled={isLoading || testingConnection}
         >
-          <Text style={styles.buttonText}>Test Connection</Text>
+          <Text style={styles.buttonText}>
+            {testingConnection ? 'Testing...' : 'Test Connection'}
+          </Text>
         </Pressable>
       </View>
 

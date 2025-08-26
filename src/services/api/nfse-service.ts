@@ -204,7 +204,8 @@ export const nfseService = {
 
     try {
       console.log("📞 generateTestInvoice API call for therapist:", therapistId);
-      return await makeApiCall<{ invoice: InvoiceResult }>(`/api/nfse/invoice/test`, {
+      // Use the same endpoint - the backend determines test mode from database config
+      return await makeApiCall<{ invoice: InvoiceResult }>(`/api/nfse/invoice/generate`, {
         method: "POST",
         body: JSON.stringify({ therapistId, ...invoiceData }),
       });
