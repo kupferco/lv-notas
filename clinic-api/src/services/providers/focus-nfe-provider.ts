@@ -242,6 +242,7 @@ export class FocusNFeProvider implements NFSeProvider {
 
     private async makeRequest(method: string, endpoint: string, data?: any): Promise<any> {
         const url = `${this.baseUrl}${endpoint}`;
+        console.log(this.config.apiKey)
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
             'Authorization': `Basic ${Buffer.from(this.config.apiKey + ':').toString('base64')}`,
@@ -275,6 +276,7 @@ export class FocusNFeProvider implements NFSeProvider {
             if (!response.ok) {
                 const errorMessage = responseData.erros?.[0]?.mensagem ||
                     responseData.erro?.mensagem ||
+                    responseData.mensagem ||
                     responseData.message ||
                     `HTTP ${response.status}: ${response.statusText}`;
 
@@ -309,13 +311,21 @@ export class FocusNFeProvider implements NFSeProvider {
 
     // Helper method for testing connectivity
     async testConnection(): Promise<boolean> {
-        try {
-            await this.makeRequest('GET', '/v2/cep/01001000'); // known-good endpoint
+    try {
+        await this.makeRequest('GET', '/v2/nfe/ping-test-123');
+        return true;
+    } catch (error) {
+        // 404 with "nota não encontrada" means API is working correctly
+        if (error instanceof Error && error.message.includes('Nota fiscal não encontrada')) {
+            console.log('✅ Focus NFe API working correctly (test invoice not found as expected)');
             return true;
-        } catch {
-            return false;
         }
+        
+        // Real connection failures would be network errors or 403 auth failures
+        console.log('❌ Focus NFe connection failed:', error);
+        return false;
     }
+}
 
 
     // Get available service codes

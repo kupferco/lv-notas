@@ -38,3 +38,10 @@ yarn-error.*
 
 # Service account key
 **/service-account-key.json
+
+# Certificate storage - never commit certificates
+/certificates/
+*.p12
+*.pfx
+*.pem
+*.enc
