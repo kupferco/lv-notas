@@ -32,7 +32,7 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
 }) => {
   const { isAutoCheckInEnabled } = useSettings();
 
-  // Get state and functions from hooks
+  // Get state and functions from hooks - INCLUDING NEW INVOICE PROPS
   const {
     loading,
     billingSummary,
@@ -49,6 +49,11 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
     therapistId,
     showCancelConfirmation,
     patientToCancel,
+    // NEW invoice-related state
+    invoiceStatuses,
+    cancellingInvoices,
+    loadingInvoiceStatus,
+    // Functions
     setSelectedPatient,
     setShowPaymentForm,
     setPaymentFormData,
@@ -60,6 +65,9 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
     setGeneratedInvoices,
     loadBillingSummary,
     exportCSV,
+    // NEW invoice functions
+    checkInvoiceStatus,
+    cancelInvoice,
   } = useMonthlyBilling({
     therapistEmail,
     selectedYear,
@@ -89,6 +97,7 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
     setSelectedPatient,
     setShowPaymentForm,
     setPaymentFormData,
+    checkInvoiceStatus,  // Now properly destructured from useMonthlyBilling
   });
 
   // Handle cancel billing with modal
@@ -145,7 +154,7 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
           onExport={exportCSV}
         />
 
-        {/* Monthly Summary Cards */}
+        {/* Monthly Summary Cards - NOW WITH ALL INVOICE PROPS */}
         <View style={styles.summaryContainer}>
           {billingSummary.length > 0 ? (
             billingSummary.map(patient => (
@@ -157,10 +166,16 @@ export const MonthlyBillingOverview: React.FC<MonthlyBillingOverviewProps> = ({
                 generatedInvoices={generatedInvoices}
                 certificateStatus={certificateStatus}
                 generatingInvoices={generatingInvoices}
+                // NEW invoice props
+                invoiceStatuses={invoiceStatuses}
+                cancellingInvoices={cancellingInvoices}
+                loadingInvoiceStatus={loadingInvoiceStatus}
+                // Action handlers
                 onProcessCharges={processCharges}
                 onPaymentButtonPress={handlePaymentButtonPress}
                 onCancelBilling={handleCancelBilling}
                 onGenerateInvoice={generateInvoice}
+                onCancelInvoice={cancelInvoice} // NEW cancel invoice handler
                 onViewDetails={viewBillingPeriodDetails}
               />
             ))

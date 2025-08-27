@@ -14,7 +14,6 @@ export type {
   CertificateStatus, 
   NFSeSettings, 
   CompanyData, 
-  TestInvoiceData, 
   InvoiceResult, 
   ConnectionStatus, 
   ServiceCode, 

@@ -21,10 +21,10 @@ interface UseMonthlyBillingProps {
   selectedMonth: number;
 }
 
-export const useMonthlyBilling = ({ 
-  therapistEmail, 
-  selectedYear, 
-  selectedMonth 
+export const useMonthlyBilling = ({
+  therapistEmail,
+  selectedYear,
+  selectedMonth
 }: UseMonthlyBillingProps) => {
   const { user, isAuthenticated } = useAuth();
 
@@ -59,6 +59,11 @@ export const useMonthlyBilling = ({
   // Cancel confirmation state
   const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
   const [patientToCancel, setPatientToCancel] = useState<BillingSummary | null>(null);
+
+  // Invoicing
+  const [invoiceStatuses, setInvoiceStatuses] = useState<Map<number, any>>(new Map());
+  const [cancellingInvoices, setCancellingInvoices] = useState<Set<number>>(new Set());
+  const [loadingInvoiceStatus, setLoadingInvoiceStatus] = useState<Set<number>>(new Set());
 
   // Fetch therapist ID from email
   useEffect(() => {
@@ -101,6 +106,12 @@ export const useMonthlyBilling = ({
       loadPaymentMatches();
     }
   }, [therapistId, billingSummary.length, isAuthenticated]);
+
+  useEffect(() => {
+    if (billingSummary.length > 0 && isAuthenticated) {
+      loadAllInvoiceStatuses();
+    }
+  }, [billingSummary, isAuthenticated]);
 
   const loadCertificateStatus = async () => {
     try {
@@ -178,9 +189,104 @@ export const useMonthlyBilling = ({
 
     } catch (error: any) {
       console.error('❌ Error loading monthly billing summary:', error);
-      Alert.alert('Erro', `Falha ao carregar resumo mensal: ${error.message}`);
+      console.log('Erro', `Falha ao carregar resumo mensal: ${error.message}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Function to check invoice status for a billing period
+  const checkInvoiceStatus = async (billingPeriodId: number) => {
+    try {
+      setLoadingInvoiceStatus(prev => new Set(prev).add(billingPeriodId));
+
+      const invoice = await nfseService.getInvoiceForBillingPeriod(billingPeriodId);
+
+      if (invoice) {
+        console.log(`📄 Found invoice for billing period ${billingPeriodId}:`, invoice);
+        setInvoiceStatuses(prev => new Map(prev).set(billingPeriodId, invoice));
+
+        // If invoice exists and is issued/processing, add to generatedInvoices
+        if (invoice.invoice_status === 'issued' || invoice.invoice_status === 'processing') {
+          const patient = billingSummary.find(p => p.billingPeriodId === billingPeriodId);
+          if (patient) {
+            setGeneratedInvoices(prev => new Set(prev).add(patient.patientId));
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Error checking invoice status for billing period ${billingPeriodId}:`, error);
+    } finally {
+      setLoadingInvoiceStatus(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(billingPeriodId);
+        return newSet;
+      });
+    }
+  };
+
+  // Function to cancel an invoice
+  const cancelInvoice = async (patient: BillingSummary, reason?: string) => {
+    if (!patient.billingPeriodId) {
+      Alert.alert('Erro', 'Período de cobrança não encontrado');
+      return;
+    }
+
+    const invoice = invoiceStatuses.get(patient.billingPeriodId);
+    if (!invoice) {
+      Alert.alert('Erro', 'Nota fiscal não encontrada');
+      return;
+    }
+
+    try {
+      setCancellingInvoices(prev => new Set(prev).add(patient.patientId));
+
+      const result = await nfseService.cancelInvoice(invoice.id.toString(), reason);
+      console.log('✅ Invoice cancelled successfully:', result);
+
+      // Update the invoice status in our state
+      setInvoiceStatuses(prev => {
+        const newMap = new Map(prev);
+        newMap.set(patient.billingPeriodId!, { ...invoice, invoice_status: 'cancelled' });
+        return newMap;
+      });
+
+      // Remove from generatedInvoices set
+      setGeneratedInvoices(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(patient.patientId);
+        return newSet;
+      });
+
+      Alert.alert('Sucesso', 'Nota fiscal cancelada com sucesso');
+
+      // Reload billing summary to reflect changes
+      await loadBillingSummary();
+
+    } catch (error: any) {
+      console.error('Error cancelling invoice:', error);
+      Alert.alert('Erro', `Erro ao cancelar nota fiscal: ${error.message}`);
+    } finally {
+      setCancellingInvoices(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(patient.patientId);
+        return newSet;
+      });
+    }
+  };
+
+  // Load all invoice statuses for paid billing periods
+  const loadAllInvoiceStatuses = async () => {
+    console.log('📋 Loading invoice statuses for all paid billing periods');
+
+    const paidPatients = billingSummary.filter(p =>
+      p.status === 'paid' && p.billingPeriodId
+    );
+
+    for (const patient of paidPatients) {
+      if (patient.billingPeriodId) {
+        await checkInvoiceStatus(patient.billingPeriodId);
+      }
     }
   };
 
@@ -200,7 +306,7 @@ export const useMonthlyBilling = ({
 
       console.log(`✅ CSV export completed successfully`);
 
-      Alert.alert(
+      console.log(
         'Exportação Concluída!',
         `Dados de cobrança de ${selectedMonth}/${selectedYear} exportados com sucesso.\n\n` +
         `Arquivo: ${filename}\n\n` +
@@ -209,7 +315,7 @@ export const useMonthlyBilling = ({
 
     } catch (error: any) {
       console.error('❌ Error exporting CSV:', error);
-      Alert.alert('Erro na Exportação', `Falha ao exportar CSV: ${error.message}`);
+      console.log('Erro na Exportação', `Falha ao exportar CSV: ${error.message}`);
     } finally {
       setIsExporting(false);
     }
@@ -236,6 +342,11 @@ export const useMonthlyBilling = ({
     showCancelConfirmation,
     patientToCancel,
 
+    // Invoice-related state
+    invoiceStatuses,
+    cancellingInvoices,
+    loadingInvoiceStatus,
+
     // Setters
     setSelectedPatient,
     setShowPaymentForm,
@@ -250,5 +361,7 @@ export const useMonthlyBilling = ({
     // Functions
     loadBillingSummary,
     exportCSV,
+    checkInvoiceStatus,
+    cancelInvoice,
   };
 };

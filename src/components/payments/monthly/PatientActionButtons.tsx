@@ -13,10 +13,14 @@ interface PatientActionButtonsProps {
   certificateStatus: CertificateStatus | null;
   generatingInvoices: Set<number>;
   generatedInvoices: Set<number>;
+  invoiceStatuses: Map<number, any>; // Add this
+  cancellingInvoices: Set<number>; // Add this
+  loadingInvoiceStatus: Set<number>; // Add this
   onProcessCharges: (patient: BillingSummary) => void;
   onPaymentButtonPress: (patient: BillingSummary) => void;
   onCancelBilling: (patient: BillingSummary) => void;
   onGenerateInvoice: (patient: BillingSummary) => void;
+  onCancelInvoice: (patient: BillingSummary) => void; // Add this
   onViewDetails: (billingPeriodId: number | undefined, patient?: BillingSummary) => void;
 }
 
@@ -27,12 +31,94 @@ export const PatientActionButtons: React.FC<PatientActionButtonsProps> = ({
   certificateStatus,
   generatingInvoices,
   generatedInvoices,
+  invoiceStatuses,
+  cancellingInvoices,
+  loadingInvoiceStatus,
   onProcessCharges,
   onPaymentButtonPress,
   onCancelBilling,
   onGenerateInvoice,
+  onCancelInvoice,
   onViewDetails
 }) => {
+  // Get invoice for this billing period if it exists
+  const invoice = patient.billingPeriodId ? invoiceStatuses.get(patient.billingPeriodId) : null;
+  const isLoadingInvoice = patient.billingPeriodId ? loadingInvoiceStatus.has(patient.billingPeriodId) : false;
+  const isCancellingInvoice = cancellingInvoices.has(patient.patientId);
+  
+  // Determine invoice status
+  const invoiceStatus = invoice?.invoice_status;
+  const hasIssuedInvoice = invoiceStatus === 'issued';
+  const hasProcessingInvoice = invoiceStatus === 'processing';
+  const hasCancelledInvoice = invoiceStatus === 'cancelled';
+  const hasErrorInvoice = invoiceStatus === 'error';
+  
+  // Helper to get invoice button style and text
+  const getInvoiceButtonConfig = () => {
+    if (hasIssuedInvoice) {
+      return {
+        style: styles.cancelInvoiceButton,
+        text: isCancellingInvoice ? '🔄 Cancelando...' : '❌ Cancelar NFS-e',
+        onPress: () => {
+          Alert.alert(
+            'Cancelar Nota Fiscal',
+            `Tem certeza que deseja cancelar a NFS-e de ${patient.patientName}?`,
+            [
+              { text: 'Não', style: 'cancel' },
+              { 
+                text: 'Sim, Cancelar', 
+                style: 'destructive',
+                onPress: () => onCancelInvoice(patient)
+              }
+            ]
+          );
+        },
+        disabled: isCancellingInvoice
+      };
+    }
+    
+    if (hasProcessingInvoice) {
+      return {
+        style: styles.processingInvoiceButton,
+        text: '⏳ Processando NFS-e...',
+        onPress: () => {},
+        disabled: true
+      };
+    }
+    
+    if (hasCancelledInvoice) {
+      return {
+        style: styles.regenerateInvoiceButton,
+        text: '🔄 Gerar Nova NFS-e',
+        onPress: () => onGenerateInvoice(patient),
+        disabled: generatingInvoices.has(patient.patientId)
+      };
+    }
+    
+    if (hasErrorInvoice) {
+      return {
+        style: styles.errorInvoiceButton,
+        text: '⚠️ Erro - Tentar Novamente',
+        onPress: () => {
+          console.log('Retry button clicked for patient:', patient.patientName);
+          console.log('Current invoice status:', invoiceStatus);
+          
+          // Directly call generate without the alert to see if it's working
+          onGenerateInvoice(patient);
+        },
+        disabled: generatingInvoices.has(patient.patientId)
+      };
+    }
+    
+    // Default: generate invoice button
+    return {
+      style: styles.nfseButton,
+      text: generatingInvoices.has(patient.patientId) ? '🔄 Gerando...' : '🧾 Gerar NFS-e',
+      onPress: () => onGenerateInvoice(patient),
+      disabled: generatingInvoices.has(patient.patientId)
+    };
+  };
+
   return (
     <View style={styles.actionButtons}>
       {/* Process Charges Button */}
@@ -81,20 +167,24 @@ export const PatientActionButtons: React.FC<PatientActionButtonsProps> = ({
       )}
 
       {/* NFS-e button for PAID patients */}
-      {patient.status === 'paid' && shouldShowNFSeButton(patient, certificateStatus, generatedInvoices) && (
-        <Pressable
-          style={[
-            styles.actionButton,
-            styles.nfseButton,
-            generatingInvoices.has(patient.patientId) && styles.nfseButtonDisabled
-          ]}
-          onPress={() => onGenerateInvoice(patient)}
-          disabled={generatingInvoices.has(patient.patientId)}
-        >
-          <Text style={styles.nfseButtonText}>
-            {generatingInvoices.has(patient.patientId) ? '🔄 Gerando...' : '🧾 Gerar NFS-e'}
-          </Text>
-        </Pressable>
+      {patient.status === 'paid' && certificateStatus?.hasValidCertificate && (
+        <>
+          {isLoadingInvoice ? (
+            <View style={[styles.actionButton, styles.loadingButton]}>
+              <Text style={styles.loadingButtonText}>📋 Verificando...</Text>
+            </View>
+          ) : (
+            <Pressable
+              style={[styles.actionButton, getInvoiceButtonConfig().style]}
+              onPress={getInvoiceButtonConfig().onPress}
+              disabled={getInvoiceButtonConfig().disabled}
+            >
+              <Text style={styles.nfseButtonText}>
+                {getInvoiceButtonConfig().text}
+              </Text>
+            </Pressable>
+          )}
+        </>
       )}
 
       {/* Certificate Warning for paid patients without valid certificate */}
@@ -125,6 +215,11 @@ export const PatientActionButtons: React.FC<PatientActionButtonsProps> = ({
       </Pressable>
     </View>
   );
+};
+
+// Helper functions
+const getInvoiceButtonConfig = () => {
+  // ... existing function code
 };
 
 const styles = StyleSheet.create({
@@ -175,9 +270,34 @@ const styles = StyleSheet.create({
     borderColor: '#0056b3',
     borderWidth: 1,
   },
-  nfseButtonDisabled: {
+  cancelInvoiceButton: {
+    backgroundColor: '#dc3545',
+    borderColor: '#bd2130',
+    borderWidth: 1,
+  },
+  processingInvoiceButton: {
     backgroundColor: '#6c757d',
-    borderColor: '#6c757d',
+    opacity: 0.7,
+  },
+  regenerateInvoiceButton: {
+    backgroundColor: '#17a2b8',
+    borderColor: '#138496',
+    borderWidth: 1,
+  },
+  errorInvoiceButton: {
+    backgroundColor: '#ffc107',
+    borderColor: '#e0a800',
+    borderWidth: 1,
+  },
+  loadingButton: {
+    backgroundColor: '#e9ecef',
+    borderColor: '#dee2e6',
+    borderWidth: 1,
+  },
+  loadingButtonText: {
+    color: '#6c757d',
+    fontSize: 12,
+    fontWeight: '500',
   },
   nfseButtonText: {
     color: '#fff',

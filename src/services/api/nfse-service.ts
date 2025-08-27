@@ -210,22 +210,62 @@ export const nfseService = {
   // INVOICE GENERATION
   // ==========================================
 
-  // async generateTestInvoice(therapistId: string, invoiceData: InvoiceData): Promise<{ invoice: InvoiceResult }> {
-  //   if (!canMakeAuthenticatedCall()) {
-  //     throw new Error("Authentication required for invoice generation");
-  //   }
+  // Add these methods to your nfse-service.ts file in the INVOICE MANAGEMENT section
 
-  //   try {
-  //     console.log("📞 generateTestInvoice API call for therapist:", therapistId);
-  //     // Use the same endpoint - the backend determines test mode from database config
-  //     return await makeApiCall<{ invoice: InvoiceResult }>(`/api/nfse/invoice/generate`, {
-  //       method: "POST",
-  //       body: JSON.stringify({ therapistId, ...invoiceData }),
-  //     });
-  //   } catch (error) {
-  //     return handleApiError(error as Error, 'generateTestInvoice');
-  //   }
-  // },
+async getInvoiceForBillingPeriod(billingPeriodId: number): Promise<any> {
+  if (!canMakeAuthenticatedCall()) {
+    throw new Error("Authentication required for invoice operations");
+  }
+
+  try {
+    console.log("📞 getInvoiceForBillingPeriod API call for billing period:", billingPeriodId);
+    const response = await makeApiCall<any>(`/api/nfse/billing-period/${billingPeriodId}/invoice`);
+    return response.invoice;
+  } catch (error) {
+    return handleApiError(error as Error, 'getInvoiceForBillingPeriod');
+  }
+},
+
+async cancelInvoice(invoiceId: string, reason?: string): Promise<any> {
+  if (!canMakeAuthenticatedCall()) {
+    throw new Error("Authentication required for invoice operations");
+  }
+
+  try {
+    console.log("📞 cancelInvoice API call for invoice:", invoiceId);
+    return await makeApiCall(`/api/nfse/invoice/${invoiceId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ reason: reason || 'Cancelamento solicitado pelo usuário' }),
+    });
+  } catch (error) {
+    return handleApiError(error as Error, 'cancelInvoice');
+  }
+},
+
+async generateNFSeInvoice(therapistId: number, patientId: number, year: number, month: number, customerData?: any): Promise<any> {
+  if (!canMakeAuthenticatedCall()) {
+    throw new Error("Authentication required for invoice generation");
+  }
+
+  try {
+    console.log("📞 generateNFSeInvoice API call", { therapistId, patientId, year, month });
+    const response = await makeApiCall<any>(`/api/nfse/invoice/generate`, {
+      method: "POST",
+      body: JSON.stringify({
+        therapistId,
+        patientId,
+        year,
+        month,
+        customerData,
+        testMode: false
+      }),
+    });
+    console.log("✅ NFS-e invoice generated successfully", response);
+    return response;
+  } catch (error) {
+    return handleApiError(error as Error, 'generateNFSeInvoice');
+  }
+},
 
   async generateInvoice(therapistId: string, invoiceData: InvoiceData): Promise<{ invoice: InvoiceResult; invoiceRecord: any }> {
     if (!canMakeAuthenticatedCall()) {

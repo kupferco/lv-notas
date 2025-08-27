@@ -766,6 +766,103 @@ router.get("/service-codes", asyncHandler(async (req, res) => {
     }
 }));
 
+// Add this route to your nfse.ts file after the other invoice routes
+
+// 11. Cancel invoice
+router.post("/invoice/:invoiceId/cancel", asyncHandler(async (req, res) => {
+    const { invoiceId } = req.params;
+    const { reason } = req.body;
+
+    try {
+        // Get invoice details
+        const result = await pool.query(
+            `SELECT i.*, t.provider_company_id, t.certificate_file_path, t.certificate_password_encrypted
+             FROM nfse_invoices i
+             JOIN therapist_nfse_config t ON i.therapist_id = t.therapist_id
+             WHERE i.id = $1`,
+            [invoiceId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Invoice not found" });
+        }
+
+        const invoice = result.rows[0];
+
+        // Check if invoice can be cancelled
+        if (invoice.invoice_status === 'cancelled') {
+            return res.status(400).json({ error: "Invoice is already cancelled" });
+        }
+
+        if (invoice.invoice_status === 'error') {
+            return res.status(400).json({ error: "Cannot cancel an invoice with error status" });
+        }
+
+        // Cancel with provider
+        const cancellationResult = await nfseService.cancelInvoice(
+            invoice.provider_company_id,
+            invoice.provider_invoice_id,
+            reason || 'Cancelamento solicitado pelo usuário'
+        );
+
+        // Update database
+        await pool.query(
+            `UPDATE nfse_invoices 
+             SET invoice_status = 'cancelled', 
+                 cancellation_reason = $1,
+                 cancelled_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [reason || 'Cancelamento solicitado pelo usuário', invoiceId]
+        );
+
+        // Also update the billing period invoice status
+        await pool.query(
+            `UPDATE billing_period_invoices 
+             SET invoice_status = 'cancelled',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE invoice_id = $1`,
+            [invoiceId]
+        );
+
+        return res.json({
+            message: 'Invoice cancelled successfully',
+            cancellationResult
+        });
+    } catch (error) {
+        console.error('Invoice cancellation error:', error);
+        return res.status(400).json({
+            error: `Invoice cancellation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        });
+    }
+}));
+
+// 12. Get invoice details for a billing period
+router.get("/billing-period/:billingPeriodId/invoice", asyncHandler(async (req, res) => {
+    const { billingPeriodId } = req.params;
+
+    try {
+        const result = await pool.query(
+            `SELECT i.*, bpi.billing_period_id
+             FROM billing_period_invoices bpi
+             JOIN nfse_invoices i ON bpi.invoice_id = i.id
+             WHERE bpi.billing_period_id = $1
+             ORDER BY i.created_at DESC
+             LIMIT 1`,
+            [billingPeriodId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.json({ invoice: null });
+        }
+
+        return res.json({ invoice: result.rows[0] });
+    } catch (error) {
+        console.error('Get billing period invoice error:', error);
+        return res.status(500).json({ error: 'Failed to get invoice details' });
+    }
+}));
+
 // Generate period-based invoice (for monthly billing periods)
 router.post("/invoice/generate-period", asyncHandler(async (req, res) => {
     const { therapistId, patientId, year, month, customerData } = req.body;
@@ -844,39 +941,38 @@ router.post("/invoice/generate-period", asyncHandler(async (req, res) => {
     }
 }));
 
-// In src/routes/nfse.ts
-router.get("/billing/first-available/:therapistId", asyncHandler(async (req, res) => {
-    const { therapistId } = req.params;
+// router.get("/billing/first-available/:therapistId", asyncHandler(async (req, res) => {
+//     const { therapistId } = req.params;
 
-    // Get the most recent billing period with sessions
-    const result = await pool.query(
-        `SELECT 
-            bp.id as billing_period_id,
-            bp.patient_id,
-            bp.billing_year as year,
-            bp.billing_month as month,
-            bp.session_count,
-            bp.total_amount,
-            p.nome as patient_name,
-            p.cpf as patient_document
-        FROM monthly_billing_periods bp
-        JOIN patients p ON bp.patient_id = p.id
-        WHERE bp.therapist_id = $1 
-            AND bp.status != 'void'
-            AND bp.session_count > 0
-        ORDER BY bp.billing_year DESC, bp.billing_month DESC
-        LIMIT 1`,
-        [therapistId]
-    );
+//     // Get the most recent billing period with sessions
+//     const result = await pool.query(
+//         `SELECT 
+//             bp.id as billing_period_id,
+//             bp.patient_id,
+//             bp.billing_year as year,
+//             bp.billing_month as month,
+//             bp.session_count,
+//             bp.total_amount,
+//             p.nome as patient_name,
+//             p.cpf as patient_document
+//         FROM monthly_billing_periods bp
+//         JOIN patients p ON bp.patient_id = p.id
+//         WHERE bp.therapist_id = $1 
+//             AND bp.status != 'void'
+//             AND bp.session_count > 0
+//         ORDER BY bp.billing_year DESC, bp.billing_month DESC
+//         LIMIT 1`,
+//         [therapistId]
+//     );
 
-    if (result.rows.length === 0) {
-        return res.status(404).json({
-            error: "No billing periods available. Process monthly charges first."
-        });
-    }
+//     if (result.rows.length === 0) {
+//         return res.status(404).json({
+//             error: "No billing periods available. Process monthly charges first."
+//         });
+//     }
 
-    return res.json(result.rows[0]);
-}));
+//     return res.json(result.rows[0]);
+// }));
 
 // Error handling middleware
 const errorHandler = (error: Error, req: Request, res: Response, next: NextFunction): void => {
