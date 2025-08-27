@@ -70,13 +70,19 @@ router.post("/login", asyncHandler(async (req, res) => {
             'UPDATE user_credentials SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1',
             [user.id]
         );
+        // Get therapist ID if user is a therapist
+        const therapistResult = await pool.query(
+            'SELECT id FROM therapists WHERE email = $1',
+            [user.email]
+        );
 
         res.json({
             message: 'Login successful',
             user: {
                 id: user.id,
                 email: user.email,
-                displayName: user.displayName
+                displayName: user.displayName,
+                therapistId: therapistResult.rows[0]?.id || null
             },
             sessionToken,
             sessionId,
@@ -283,12 +289,19 @@ router.get("/me", asyncHandler(async (req, res) => {
             });
         }
 
+        // Get therapist ID if user is a therapist
+        const therapistResult = await pool.query(
+            'SELECT id FROM therapists WHERE email = $1',
+            [user.email]
+        );
+
         console.log('✅ Valid session for user:', user.email);
         return res.json({
             user: {
                 id: user.id,
                 email: user.email,
-                displayName: user.displayName
+                displayName: user.displayName,
+                therapistId: therapistResult.rows[0]?.id || null
             },
             permissions: user.permissions,
             session: {

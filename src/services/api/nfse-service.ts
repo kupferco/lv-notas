@@ -11,6 +11,7 @@ export interface CertificateStatus {
   certificateInfo?: {
     commonName: string;
     issuer: string;
+    cnpj: string;
   };
 }
 
@@ -42,11 +43,11 @@ export interface CompanyData {
   };
 }
 
-export interface TestInvoiceData {
-  sessionId: string;
+export interface InvoiceData {
+  patientId: string;
+  year: number;
+  month: number;
   customerData?: {
-    name?: string;
-    email?: string;
     document?: string;
     address?: {
       street: string;
@@ -56,12 +57,8 @@ export interface TestInvoiceData {
       city: string;
       state: string;
       zipCode: string;
+      cityCode?: string;
     };
-  };
-  serviceData?: {
-    description?: string;
-    value?: number;
-    serviceCode?: string;
   };
 }
 
@@ -105,6 +102,17 @@ export interface Invoice {
   patientName: string;
 }
 
+interface BillingPeriodInfo {
+  billing_period_id: number;
+  patient_id: number;
+  year: number;
+  month: number;
+  session_count: number;
+  total_amount: number;
+  patient_name: string;
+  patient_document?: string;
+}
+
 const { makeApiCall, canMakeAuthenticatedCall, handleApiError } = baseApiService;
 
 export const nfseService = {
@@ -112,7 +120,7 @@ export const nfseService = {
   // CERTIFICATE MANAGEMENT
   // ==========================================
 
-  async uploadCertificate(therapistId: string, certificateFile: any, password: string): Promise<void> {
+  async uploadCertificate(therapistId: string, certificateFile: any, password: string): Promise<any> {  // Change return type
     if (!canMakeAuthenticatedCall()) {
       throw new Error("Authentication required for certificate operations");
     }
@@ -153,7 +161,10 @@ export const nfseService = {
         throw new Error(error.error || "Failed to upload certificate");
       }
 
+      const data = await response.json();  // ADD THIS
       console.log("✅ Certificate uploaded successfully");
+      return data;  // ADD THIS
+
     } catch (error) {
       return handleApiError(error as Error, 'uploadCertificate');
     }
@@ -197,37 +208,41 @@ export const nfseService = {
   // INVOICE GENERATION
   // ==========================================
 
-  async generateTestInvoice(therapistId: string, invoiceData: TestInvoiceData): Promise<{ invoice: InvoiceResult }> {
+  // async generateTestInvoice(therapistId: string, invoiceData: InvoiceData): Promise<{ invoice: InvoiceResult }> {
+  //   if (!canMakeAuthenticatedCall()) {
+  //     throw new Error("Authentication required for invoice generation");
+  //   }
+
+  //   try {
+  //     console.log("📞 generateTestInvoice API call for therapist:", therapistId);
+  //     // Use the same endpoint - the backend determines test mode from database config
+  //     return await makeApiCall<{ invoice: InvoiceResult }>(`/api/nfse/invoice/generate`, {
+  //       method: "POST",
+  //       body: JSON.stringify({ therapistId, ...invoiceData }),
+  //     });
+  //   } catch (error) {
+  //     return handleApiError(error as Error, 'generateTestInvoice');
+  //   }
+  // },
+
+  async generateInvoice(therapistId: string, invoiceData: InvoiceData): Promise<{ invoice: InvoiceResult; invoiceRecord: any }> {
     if (!canMakeAuthenticatedCall()) {
       throw new Error("Authentication required for invoice generation");
     }
 
     try {
-      console.log("📞 generateTestInvoice API call for therapist:", therapistId);
-      // Use the same endpoint - the backend determines test mode from database config
-      return await makeApiCall<{ invoice: InvoiceResult }>(`/api/nfse/invoice/generate`, {
-        method: "POST",
-        body: JSON.stringify({ therapistId, ...invoiceData }),
-      });
-    } catch (error) {
-      return handleApiError(error as Error, 'generateTestInvoice');
-    }
-  },
-
-  async generateProductionInvoice(therapistId: string, invoiceData: TestInvoiceData): Promise<{ invoice: InvoiceResult; invoiceRecord: any }> {
-    if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for invoice generation");
-    }
-
-    try {
-      console.log("📞 generateProductionInvoice API call for therapist:", therapistId);
+      console.log("📞 generateInvoice API call for therapist:", therapistId);
       return await makeApiCall<{ invoice: InvoiceResult; invoiceRecord: any }>(`/api/nfse/invoice/generate`, {
         method: "POST",
         body: JSON.stringify({ therapistId, ...invoiceData }),
       });
     } catch (error) {
-      return handleApiError(error as Error, 'generateProductionInvoice');
+      return handleApiError(error as Error, 'generateInvoice');
     }
+  },
+
+  async getFirstAvailableBillingPeriod(therapistId: string): Promise<BillingPeriodInfo> {
+    return await makeApiCall<BillingPeriodInfo>(`/api/nfse/billing/first-available/${therapistId}`);
   },
 
   // ==========================================
@@ -285,11 +300,11 @@ export const nfseService = {
 
     try {
       console.log("📞 updateNFSeSettings API call for therapist:", therapistId);
-      await makeApiCall(`/api/nfse/settings`, {
+      const result = await makeApiCall(`/api/nfse/settings`, {
         method: "PUT",
         body: JSON.stringify({ therapistId, settings }),
       });
-      console.log("✅ NFS-e settings updated successfully");
+      console.log("✅ NFS-e settings updated successfully", result);
     } catch (error) {
       return handleApiError(error as Error, 'updateNFSeSettings');
     }

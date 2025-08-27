@@ -10,6 +10,7 @@ export interface User {
     displayName: string;
     permissions: string[];
     sessionId?: string;
+    therapistId?: number;
 }
 
 export interface LoginResponse {

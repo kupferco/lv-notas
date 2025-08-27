@@ -8,6 +8,7 @@ import { NFSeService } from "../services/nfse-service.js";
 import { CertificateStorageService, EncryptionService } from "../utils/encryption.js";
 import { buildInvoiceData } from "../services/nfse-invoice-data.js";
 import { InvoiceGenerationBody } from "../types/invoice.js";
+import { FocusNFeProvider } from "../services/providers/focus-nfe-provider.js";
 
 const router: Router = Router();
 
@@ -187,13 +188,13 @@ router.post("/certificate", upload.single('certificate'), asyncHandler<Certifica
             // Update existing record
             await pool.query(
                 `UPDATE therapist_nfse_config 
-         SET certificate_file_path = $1,
-             certificate_password_encrypted = $2,
-             certificate_expires_at = $3,
-             certificate_status = $4,
-             certificate_info = $5,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE therapist_id = $6`,
+                 SET certificate_file_path = $1,
+                     certificate_password_encrypted = $2,
+                     certificate_expires_at = $3,
+                     certificate_status = $4,
+                     certificate_info = $5,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE therapist_id = $6`,
                 [
                     filePath,
                     JSON.stringify(encryptedPassword),
@@ -207,9 +208,9 @@ router.post("/certificate", upload.single('certificate'), asyncHandler<Certifica
             // Create new record with only certificate fields
             await pool.query(
                 `INSERT INTO therapist_nfse_config 
-         (therapist_id, certificate_file_path, certificate_password_encrypted, 
-          certificate_expires_at, certificate_status, certificate_info)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+                 (therapist_id, certificate_file_path, certificate_password_encrypted, 
+                  certificate_expires_at, certificate_status, certificate_info)
+                 VALUES ($1, $2, $3, $4, $5, $6)`,
                 [
                     parseInt(therapistId),
                     filePath,
@@ -221,15 +222,99 @@ router.post("/certificate", upload.single('certificate'), asyncHandler<Certifica
             );
         }
 
+        // Auto-register with Focus NFe if CNPJ is found in certificate
+        let autoRegistered = false;
+        let companyId = null;
+
+        // Auto-register with Focus NFe if CNPJ is found in certificate
+        if (certificateInfo.cnpj) {
+            try {
+                const config = await getTherapistConfig(parseInt(therapistId));
+
+                // Check if already registered with same CNPJ
+                if (config?.company_cnpj === certificateInfo.cnpj) {
+                    console.log('Company already registered with same CNPJ, skipping registration');
+                    autoRegistered = false;
+                } else {
+                    // MOCK MODE: Skip real Focus NFe calls
+                    if (process.env.USE_MOCK_FOCUS_NFE === 'true' || process.env.FOCUS_NFE_SANDBOX === 'true') {
+                        console.log('🔵 MOCK: Simulating company registration for CNPJ:', certificateInfo.cnpj);
+
+                        await pool.query(
+                            `UPDATE therapist_nfse_config 
+                     SET company_cnpj = $1, 
+                         provider_company_id = $2,
+                         company_name = $3,
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE therapist_id = $4`,
+                            [
+                                certificateInfo.cnpj,
+                                `mock_${certificateInfo.cnpj}`,
+                                certificateInfo.companyName || 'Empresa Mock',
+                                parseInt(therapistId)
+                            ]
+                        );
+
+                        autoRegistered = true;
+                        companyId = `mock_${certificateInfo.cnpj}`;
+                    }
+                    // PRODUCTION MODE (commented out for now)
+                    else {
+
+                        // Check if already registered
+                        const config = await getTherapistConfig(parseInt(therapistId));
+
+                        if (!config.company_cnpj || config.company_cnpj !== certificateInfo.cnpj) {
+                            // Not registered yet or different CNPJ - register now
+                            const companyData = {
+                                cnpj: certificateInfo.cnpj,
+                                companyName: certificateInfo.companyName || `Empresa ${certificateInfo.cnpj}`,
+                                email: certificateInfo.email || `nfe@empresa.com.br`,
+                                address: {
+                                    street: 'A definir',
+                                    number: 'S/N',
+                                    neighborhood: 'Centro',
+                                    city: certificateInfo.city || 'São Paulo',
+                                    state: certificateInfo.state || 'SP',
+                                    zipCode: '00000-000'
+                                }
+                            };
+
+                            // Register company using the service
+                            companyId = await nfseService.registerCompany(parseInt(therapistId), companyData);
+                            console.log(`Auto-registered company ${certificateInfo.cnpj} with Focus NFe`);
+                            autoRegistered = true;
+                        }
+
+                        // Now upload certificate to Focus NFe
+                        const provider = new FocusNFeProvider({
+                            apiKey: process.env.FOCUS_NFE_API_KEY || '',
+                            apiUrl: process.env.FOCUS_NFE_API_URL || 'https://api.focusnfe.com.br',
+                            sandbox: process.env.FOCUS_NFE_SANDBOX === 'true'
+                        });
+
+                        await provider.uploadCompanyCertificate(certificateInfo.cnpj, {
+                            buffer: file.buffer,
+                            password
+                        });
+
+                        console.log('Certificate uploaded to Focus NFe for CNPJ:', certificateInfo.cnpj);
+                    }
+                }
+            } catch (error) {
+                console.warn('Auto-registration or certificate upload failed (non-critical):', error);
+                // Don't fail the certificate upload if Focus NFe operations fail
+            }
+        }
+
         // Test certificate with provider
         try {
             const validation = await nfseService.validateCertificate(file.buffer, password);
             if (!validation.isValid) {
-                throw new Error(validation.error || 'Certificate validation failed');
+                console.warn('Certificate validation warning:', validation.error);
             }
         } catch (error) {
             console.warn(`Provider certificate validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            // Don't fail the upload, but log the warning
         }
 
         return res.json({
@@ -238,7 +323,11 @@ router.post("/certificate", upload.single('certificate'), asyncHandler<Certifica
                 commonName: certificateInfo.commonName,
                 issuer: certificateInfo.issuer,
                 expiresAt: certificateInfo.notAfter,
-                isValid: certificateInfo.isValid
+                isValid: certificateInfo.isValid,
+                cnpj: certificateInfo.cnpj,
+                companyName: certificateInfo.companyName,
+                autoRegistered: autoRegistered,
+                companyId: companyId
             }
         });
     } catch (error) {
@@ -280,7 +369,9 @@ router.get("/certificate/status/:therapistId", asyncHandler(async (req, res) => 
             expiresIn30Days,
             certificateInfo: {
                 commonName: certificateInfo.commonName,
-                issuer: certificateInfo.issuer
+                issuer: certificateInfo.issuer,
+                cnpj: certificateInfo.cnpj,
+                companyName: certificateInfo.companyName 
             }
         });
     } catch (error) {
@@ -346,34 +437,40 @@ router.post("/company/register", asyncHandler<CompanyRegistrationBody>(async (re
 }));
 
 // 4. Generate invoice (single endpoint - test mode controlled by database config)
-router.post("/invoice/generate", asyncHandler<NFSeInvoiceGenerationBody>(async (req, res) => {
-    const { therapistId, sessionId, customerData, serviceData } = req.body;
+router.post("/invoice/generate", asyncHandler(async (req, res) => {
+    const { therapistId, patientId, year, month, sessionIds, customerData } = req.body;
 
-    console.log("=== INVOICE GENERATION DEBUG ===");
+    console.log("=== INVOICE GENERATION ===");
     console.log("Request body:", JSON.stringify(req.body, null, 2));
-    console.log("Therapist ID:", therapistId);
-    console.log("Session ID:", sessionId);
 
-    if (!therapistId || !sessionId) {
-        return res.status(400).json({ error: "Therapist ID and session ID are required" });
+    // Validate required fields
+    if (!therapistId || !patientId || !year || !month) {
+        return res.status(400).json({
+            error: "Therapist ID, patient ID, year, and month are required"
+        });
     }
-
-    console.log("Looking for session with ID:", sessionId, "and therapist ID:", therapistId);
 
     try {
         const testMode = await isTestMode();
 
-        // Only check for existing invoice if NOT in test mode
+        // Check if invoice already exists for this billing period (unless in test mode)
         if (!testMode) {
             const existingInvoice = await pool.query(
-                `SELECT * FROM nfse_invoices 
-                 WHERE session_id = $1 AND therapist_id = $2`,
-                [sessionId, therapistId]
+                `SELECT i.* 
+                 FROM nfse_invoices i
+                 JOIN billing_period_invoices bpi ON i.id = bpi.invoice_id
+                 JOIN monthly_billing_periods bp ON bpi.billing_period_id = bp.id
+                 WHERE bp.therapist_id = $1 
+                   AND bp.patient_id = $2 
+                   AND bp.billing_year = $3 
+                   AND bp.billing_month = $4
+                   AND i.invoice_status NOT IN ('cancelled', 'error')`,
+                [therapistId, patientId, year, month]
             );
 
             if (existingInvoice.rows.length > 0) {
                 return res.status(400).json({
-                    error: "Invoice already exists for this session",
+                    error: "Invoice already exists for this billing period",
                     existingInvoice: existingInvoice.rows[0]
                 });
             }
@@ -385,60 +482,41 @@ router.post("/invoice/generate", asyncHandler<NFSeInvoiceGenerationBody>(async (
             return res.status(400).json({ error: "Company must be registered first" });
         }
 
-        // Get session data
-        const sessionResult = await pool.query(
-            `SELECT s.*, p.nome as patient_name, p.email as patient_email, p.preco 
-             FROM sessions s
-             JOIN patients p ON s.patient_id = p.id
-             WHERE s.id = $1 AND s.therapist_id = $2`,
-            [sessionId, therapistId]
+        // Check if billing period exists
+        const billingPeriod = await pool.query(
+            `SELECT * FROM monthly_billing_periods 
+             WHERE therapist_id = $1 
+               AND patient_id = $2 
+               AND billing_year = $3 
+               AND billing_month = $4
+               AND status != 'void'`,
+            [therapistId, patientId, year, month]
         );
 
-        if (sessionResult.rows.length === 0) {
-            return res.status(404).json({ error: "Session not found" });
+        if (billingPeriod.rows.length === 0) {
+            return res.status(404).json({
+                error: "No billing period found for this patient and month. Please process monthly charges first."
+            });
         }
 
-        const session = sessionResult.rows[0];
-
-        // Build invoice data using individual columns
-        const invoiceData = buildInvoiceData({
-            therapistConfig: config,
-            session,
-            customerData,
-            serviceData
-        });
-
-        // Generate invoice using appropriate method based on test mode
-        const result = testMode
-            ? await nfseService.generateTestInvoice(parseInt(therapistId), invoiceData)
-            : await nfseService.generateInvoice(parseInt(therapistId), invoiceData);
-
-        // Record invoice in database with current provider info
-        const currentProvider = await getCurrentProvider();
-        const invoiceRecord = await pool.query(
-            `INSERT INTO nfse_invoices 
-             (therapist_id, session_id, provider_used, provider_invoice_id, invoice_number, invoice_amount, 
-              invoice_status, pdf_url, xml_url, provider_response)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-             RETURNING *`,
-            [
-                therapistId,
-                sessionId,
-                currentProvider,
-                result.invoiceId,
-                result.invoiceNumber || null,
-                invoiceData.serviceValue,
-                result.status,
-                result.pdfUrl || null,
-                result.xmlUrl || null,
-                JSON.stringify(result)
-            ]
+        // Generate invoice using the unified method
+        const result = await nfseService.generateInvoiceForSessions(
+            parseInt(therapistId),
+            parseInt(patientId),
+            parseInt(year),
+            parseInt(month),
+            sessionIds, // Optional: specific sessions only
+            customerData
         );
 
         return res.json({
             message: `${testMode ? 'Test' : 'Production'} invoice generated successfully`,
             invoice: result,
-            invoiceRecord: invoiceRecord.rows[0],
+            billingPeriod: {
+                id: billingPeriod.rows[0].id,
+                sessionCount: billingPeriod.rows[0].session_count,
+                totalAmount: billingPeriod.rows[0].total_amount
+            },
             testMode
         });
     } catch (error) {
@@ -447,7 +525,7 @@ router.post("/invoice/generate", asyncHandler<NFSeInvoiceGenerationBody>(async (
             error: `Invoice generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
         });
     }
-}));
+}))
 
 // 5. Get therapist's invoices
 router.get("/invoices/:therapistId", asyncHandler(async (req, res) => {
@@ -638,6 +716,118 @@ router.get("/service-codes", asyncHandler(async (req, res) => {
         console.error('Get service codes error:', error);
         return res.status(500).json({ error: 'Failed to get service codes' });
     }
+}));
+
+// Generate period-based invoice (for monthly billing periods)
+router.post("/invoice/generate-period", asyncHandler(async (req, res) => {
+    const { therapistId, patientId, year, month, customerData } = req.body;
+
+    console.log("=== PERIOD INVOICE GENERATION ===");
+    console.log("Request:", { therapistId, patientId, year, month });
+
+    if (!therapistId || !patientId || !year || !month) {
+        return res.status(400).json({
+            error: "Therapist ID, patient ID, year, and month are required"
+        });
+    }
+
+    try {
+        // Check if period invoice already exists
+        const existingInvoice = await pool.query(
+            `SELECT i.* 
+             FROM nfse_invoices i
+             JOIN billing_period_invoices bpi ON i.id = bpi.invoice_id
+             JOIN monthly_billing_periods bp ON bpi.billing_period_id = bp.id
+             WHERE bp.therapist_id = $1 
+               AND bp.patient_id = $2 
+               AND bp.billing_year = $3 
+               AND bp.billing_month = $4
+               AND i.invoice_status NOT IN ('cancelled', 'error')`,
+            [therapistId, patientId, year, month]
+        );
+
+        if (existingInvoice.rows.length > 0) {
+            return res.status(400).json({
+                error: "Invoice already exists for this billing period",
+                existingInvoice: existingInvoice.rows[0]
+            });
+        }
+
+        // Check if billing period exists
+        const billingPeriod = await pool.query(
+            `SELECT * FROM monthly_billing_periods 
+             WHERE therapist_id = $1 
+               AND patient_id = $2 
+               AND billing_year = $3 
+               AND billing_month = $4
+               AND status != 'void'`,
+            [therapistId, patientId, year, month]
+        );
+
+        if (billingPeriod.rows.length === 0) {
+            return res.status(404).json({
+                error: "No billing period found for this patient and month"
+            });
+        }
+
+        // Generate the period invoice
+        const result = await nfseService.generateInvoiceForSessions(
+            parseInt(therapistId),
+            parseInt(patientId),
+            parseInt(year),
+            parseInt(month),
+            customerData
+        );
+
+        return res.json({
+            message: 'Period invoice generated successfully',
+            invoice: result,
+            billingPeriod: {
+                id: billingPeriod.rows[0].id,
+                sessionCount: billingPeriod.rows[0].session_count,
+                totalAmount: billingPeriod.rows[0].total_amount
+            }
+        });
+    } catch (error) {
+        console.error('Period invoice generation error:', error);
+        return res.status(400).json({
+            error: `Period invoice generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        });
+    }
+}));
+
+// In src/routes/nfse.ts
+router.get("/billing/first-available/:therapistId", asyncHandler(async (req, res) => {
+    const { therapistId } = req.params;
+
+    // Get the most recent billing period with sessions
+    const result = await pool.query(
+        `SELECT 
+            bp.id as billing_period_id,
+            bp.patient_id,
+            bp.billing_year as year,
+            bp.billing_month as month,
+            bp.session_count,
+            bp.total_amount,
+            p.nome as patient_name,
+            p.cpf as patient_document
+        FROM monthly_billing_periods bp
+        JOIN patients p ON bp.patient_id = p.id
+        WHERE bp.therapist_id = $1 
+            AND bp.status != 'void'
+            AND bp.session_count > 0
+        ORDER BY bp.billing_year DESC, bp.billing_month DESC
+        LIMIT 1`,
+        [therapistId]
+    );
+
+    if (result.rows.length === 0) {
+        return res.status(404).json({
+            error: "No billing periods available. Process monthly charges first."
+        });
+    }
+
+    return res.json(result.rows[0]);
 }));
 
 // Error handling middleware

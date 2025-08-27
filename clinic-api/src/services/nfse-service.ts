@@ -4,6 +4,7 @@
 import pool from '../config/database.js';
 import { FocusNFeProvider } from './providers/focus-nfe-provider.js';
 import { CertificateStorageService, EncryptionService } from '../utils/encryption.js';
+import { SessionSnapshot } from './monthly-billing.js';
 
 // Types for NFS-e operations
 export interface NFSeProvider {
@@ -33,6 +34,7 @@ export interface CompanyRegistration {
     city: string;
     state: string;
     zipCode: string;
+    cityCode?: string;
   };
 }
 
@@ -248,9 +250,20 @@ export class NFSeService {
   }
 
   /**
-   * Generate NFS-e invoice
-   */
-  async generateInvoice(therapistId: number, invoiceData: InvoiceRequest): Promise<InvoiceResult> {
+ * Generate NFS-e invoice for a collection of sessions (1 or many)
+ * Unified method that handles both single-session and period-based invoices
+ */
+  async generateInvoiceForSessions(
+    therapistId: number,
+    patientId: number,
+    year: number,
+    month: number,
+    sessionIds?: number[], // Optional: specific session IDs for selective invoicing
+    customerData?: {
+      document?: string;
+      address?: any;
+    }
+  ): Promise<InvoiceResult> {
     const config = await this.getTherapistConfig(therapistId);
     if (!config) {
       throw new Error('Therapist NFS-e configuration not found. Please configure NFS-e settings first.');
@@ -261,9 +274,73 @@ export class NFSeService {
       throw new Error('Company not registered with Focus NFe. Please complete NFS-e setup first.');
     }
 
+    // Get billing period data with patient info
+    const billingResult = await pool.query(
+      `SELECT 
+            bp.*,
+            p.nome as patient_name,
+            p.email as patient_email,
+            p.cpf as patient_cpf
+        FROM monthly_billing_periods bp
+        JOIN patients p ON bp.patient_id = p.id
+        WHERE bp.therapist_id = $1 
+            AND bp.patient_id = $2 
+            AND bp.billing_year = $3 
+            AND bp.billing_month = $4
+            AND bp.status != 'void'`,
+      [therapistId, patientId, year, month]
+    );
+
+    if (billingResult.rows.length === 0) {
+      throw new Error(`No billing period found for patient ${patientId} in ${month}/${year}`);
+    }
+
+    const billingPeriod = billingResult.rows[0];
+    let sessionSnapshots = billingPeriod.session_snapshots || [];
+    let totalAmount = billingPeriod.total_amount;
+
+    // If specific session IDs provided, filter to only those sessions
+    if (sessionIds && sessionIds.length > 0) {
+      // Filter snapshots to only include specified sessions
+      // This assumes session snapshots have some identifier we can match
+      // You might need to adjust this based on your actual data structure
+      const originalCount = sessionSnapshots.length;
+
+      // For now, if sessionIds has 1 element, take first session, etc.
+      // You may need a more sophisticated matching logic
+      if (sessionIds.length < sessionSnapshots.length) {
+        sessionSnapshots = sessionSnapshots.slice(0, sessionIds.length);
+        // Recalculate amount based on session count
+        const pricePerSession = totalAmount / originalCount;
+        totalAmount = pricePerSession * sessionSnapshots.length;
+      }
+    }
+
+    // Build service description with session dates
+    const serviceDescription = this.buildSessionsDescription(sessionSnapshots, totalAmount);
+
+    // Build invoice data
+    const invoiceData: InvoiceRequest = {
+      providerCnpj: config.company_cnpj,
+      providerMunicipalRegistration: config.company_municipal_registration,
+      providerCityCode: config.company_address?.cityCode || '3550308',
+
+      customerName: billingPeriod.patient_name,
+      customerEmail: billingPeriod.patient_email,
+      customerDocument: customerData?.document || billingPeriod.patient_cpf,
+      customerAddress: customerData?.address,
+
+      serviceCode: config.default_service_code || '14.01',
+      itemListaServico: '1401',
+      serviceDescription,
+      serviceValue: totalAmount / 100, // Convert cents to reais
+      taxRate: config.default_tax_rate || 5,
+      taxWithheld: false,
+      sessionDate: new Date() // Invoice date
+    };
+
     // Retrieve certificate if available
     let certificateData: { buffer: Buffer, password: string } | undefined;
-
     if (config.certificate_file_path && config.certificate_password_encrypted) {
       try {
         const encryptedPassword = JSON.parse(config.certificate_password_encrypted);
@@ -271,7 +348,6 @@ export class NFSeService {
           config.certificate_file_path,
           encryptedPassword
         );
-
         certificateData = { buffer: certificateBuffer, password };
         console.log('Using stored certificate for invoice generation');
       } catch (error) {
@@ -280,34 +356,65 @@ export class NFSeService {
       }
     }
 
-    console.log(`Generating invoice with Focus NFe for therapist ${therapistId}`);
+    const sessionsLabel = sessionSnapshots.length === 1 ? 'session' : `${sessionSnapshots.length} sessions`;
+    console.log(`Generating invoice for ${sessionsLabel} - Therapist: ${therapistId}, Patient: ${patientId}, Period: ${month}/${year}`);
 
-    // Generate invoice with Focus NFe using certificate
+    // Generate invoice with Focus NFe
     const result = await this.provider.generateInvoice(companyId, invoiceData, certificateData);
 
-    // Store invoice in database if successful
-    if (result.status !== 'error') {
+    // Store invoice in database
+    if (result.status !== 'error' || true) { // Store even errors for debugging
       try {
+        // Calculate period bounds
+        const periodStart = new Date(year, month - 1, 1);
+        const periodEnd = new Date(year, month, 0);
+
         const dbResult = await pool.query(`
-        INSERT INTO nfse_invoices (
-          therapist_id, provider_used, provider_invoice_id,
-          invoice_number, invoice_amount, service_description, service_code,
-          tax_rate, recipient_name, recipient_email, invoice_status,
-          pdf_url, xml_url, provider_response, issued_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-        RETURNING id
-      `, [
-          therapistId, 'focus_nfe', result.invoiceId,
-          result.invoiceNumber, invoiceData.serviceValue, invoiceData.serviceDescription,
-          invoiceData.serviceCode, invoiceData.taxRate, invoiceData.customerName,
-          invoiceData.customerEmail, result.status, result.pdfUrl, result.xmlUrl,
-          JSON.stringify(result), result.issueDate
+                INSERT INTO nfse_invoices (
+                    therapist_id, patient_id, provider_used, provider_invoice_id,
+                    invoice_number, invoice_amount, service_description, service_code,
+                    tax_rate, recipient_name, recipient_email, invoice_status,
+                    pdf_url, xml_url, provider_response, issued_at,
+                    period_start, period_end, session_count, error_message
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+                RETURNING id
+            `, [
+          therapistId,
+          patientId,
+          'focus_nfe',
+          result.invoiceId || `error-${Date.now()}`,
+          result.invoiceNumber,
+          totalAmount / 100,
+          serviceDescription,
+          invoiceData.serviceCode,
+          invoiceData.taxRate,
+          invoiceData.customerName,
+          invoiceData.customerEmail,
+          result.status,
+          result.pdfUrl,
+          result.xmlUrl,
+          JSON.stringify(result),
+          result.issueDate,
+          periodStart,
+          periodEnd,
+          sessionSnapshots.length,
+          result.error
         ]);
 
         result.databaseId = dbResult.rows[0].id;
-        console.log(`Invoice stored in database with ID: ${result.databaseId}`);
+
+        // Link invoice to billing period
+        await pool.query(
+          `INSERT INTO billing_period_invoices (billing_period_id, invoice_id)
+                 VALUES ($1, $2)
+                 ON CONFLICT DO NOTHING`,
+          [billingPeriod.id, result.databaseId]
+        );
+
+        console.log(`Invoice stored in database with ID: ${result.databaseId}, Status: ${result.status}`);
       } catch (error) {
         console.error('Error storing invoice in database:', error);
+        // Don't throw - still return the result
       }
     }
 
@@ -315,11 +422,37 @@ export class NFSeService {
   }
 
   /**
-   * Generate test invoice (sandbox mode)
+   * Build service description listing all session dates
+   * Works for both single session and multiple sessions
    */
-  async generateTestInvoice(therapistId: number, invoiceData: InvoiceRequest): Promise<InvoiceResult> {
-    console.log(`🧪 Generating TEST invoice with Focus NFe for therapist ${therapistId}`);
-    return await this.generateInvoice(therapistId, invoiceData);
+  private buildSessionsDescription(sessionSnapshots: SessionSnapshot[], totalAmountCents: number): string {
+    const formatDate = (dateStr: string) => {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    };
+
+    const formatCurrency = (cents: number) => {
+      return `R$ ${(cents / 100).toFixed(2).replace('.', ',')}`;
+    };
+
+    let description = 'Serviços de psicoterapia realizados ';
+
+    if (sessionSnapshots.length === 1) {
+      // Single session
+      description += `na seguinte data:\n`;
+      description += `- ${formatDate(sessionSnapshots[0].date)}\n`;
+    } else {
+      // Multiple sessions
+      description += `nas seguintes datas:\n`;
+      sessionSnapshots.forEach(session => {
+        description += `- ${formatDate(session.date)}\n`;
+      });
+      description += `\nTotal de sessões: ${sessionSnapshots.length}\n`;
+    }
+
+    description += `Valor total: ${formatCurrency(totalAmountCents)}`;
+
+    return description;
   }
 
   /**

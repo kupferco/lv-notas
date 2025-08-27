@@ -251,47 +251,62 @@ export const NFSeTestingSection: React.FC = () => {
     }
   };
 
-  const handleTestInvoice = async () => {
+  const handleInvoiceGeneration = async () => {
     if (!therapistId) return;
     try {
       setTestingInvoice(true);
 
-      // Mock session and customer data for testing
-      const testData = {
-        sessionId: '13', // Mock session ID
+      // Get first available billing period
+      const billingPeriod = await api.nfse.getFirstAvailableBillingPeriod(therapistId);
+
+      const invoiceData = {
+        patientId: billingPeriod.patient_id.toString(),
+        year: billingPeriod.year,
+        month: billingPeriod.month,
         customerData: {
-          name: 'João Silva (Teste)',
-          email: 'joao.teste@email.com',
-          document: '12345678901' // CPF
-        },
-        serviceData: {
-          description: nfseSettings.defaultServiceDescription,
-          value: 150.00,
-          serviceCode: nfseSettings.serviceCode
+          document: billingPeriod.patient_document || '12345678901',
+          address: {
+            street: 'Rua Teste',
+            number: '123',
+            neighborhood: 'Centro',
+            city: 'São Paulo',
+            state: 'SP',
+            zipCode: '01000-000',
+            cityCode: '3550308'
+          }
         }
       };
 
-      const result = await api.nfse.generateTestInvoice(therapistId, testData);
+      const result = await api.nfse.generateInvoice(therapistId, invoiceData);
       setLastTestResult(result.invoice);
 
-      Alert.alert(
-        'Test Invoice Generated!',
-        `Invoice ID: ${result.invoice.invoiceId}\nStatus: ${result.invoice.status}`,
-        [
-          { text: 'OK' },
-          ...(result.invoice.pdfUrl ? [{
-            text: 'View PDF',
-            onPress: () => {
-              // In a real app, open the PDF URL
-              console.log('Opening PDF:', result.invoice.pdfUrl);
-            }
-          }] : [])
-        ]
-      );
+      console.log(`Invoice generated for ${billingPeriod.patient_name} - ${billingPeriod.month}/${billingPeriod.year}`);
 
     } catch (error) {
-      console.error('Test invoice error:', error);
-      Alert.alert('Error', `Test invoice failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('Invoice generation error:', error);
+
+      // Type check the error
+      if (error instanceof Error) {
+        if (error.message.includes('No billing periods available')) {
+          setLastTestResult({
+            invoiceId: '',
+            status: 'error',
+            error: 'No billing periods found. Process monthly charges first.'
+          });
+        } else {
+          setLastTestResult({
+            invoiceId: '',
+            status: 'error',
+            error: error.message
+          });
+        }
+      } else {
+        setLastTestResult({
+          invoiceId: '',
+          status: 'error',
+          error: 'Unknown error occurred'
+        });
+      }
     } finally {
       setTestingInvoice(false);
     }
@@ -301,10 +316,10 @@ export const NFSeTestingSection: React.FC = () => {
     if (!therapistId) return;
     try {
       await api.nfse.updateNFSeSettings(therapistId, nfseSettings);
-      Alert.alert('Success', 'NFS-e settings saved successfully!');
+      console.log('Success', 'NFS-e settings saved successfully!');
     } catch (error) {
       console.error('Save settings error:', error);
-      Alert.alert('Error', `Failed to save settings: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.log('Error', `Failed to save settings: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -499,7 +514,7 @@ export const NFSeTestingSection: React.FC = () => {
 
         <Pressable
           style={[styles.button, testingInvoice && styles.buttonDisabled]}
-          onPress={handleTestInvoice}
+          onPress={handleInvoiceGeneration}
           disabled={testingInvoice || !certificateStatus?.hasValidCertificate}
         >
           <Text style={styles.buttonText}>
@@ -509,8 +524,12 @@ export const NFSeTestingSection: React.FC = () => {
 
         {lastTestResult && (
           <View style={styles.testResult}>
-            <Text style={styles.resultTitle}>Last Test Result:</Text>
-            <Text style={styles.resultText}>Invoice ID: {lastTestResult.invoiceId}</Text>
+            <Text style={styles.resultTitle}>
+              {lastTestResult.status === 'error' ? 'Generation Failed' : 'Invoice Generated'}
+            </Text>
+            {lastTestResult.invoiceId && (
+              <Text style={styles.resultText}>Invoice ID: {lastTestResult.invoiceId}</Text>
+            )}
             <Text style={styles.resultText}>Status: {lastTestResult.status}</Text>
             {lastTestResult.error && (
               <Text style={[styles.resultText, styles.errorText]}>

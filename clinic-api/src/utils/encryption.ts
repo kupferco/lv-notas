@@ -22,6 +22,11 @@ export interface CertificateInfo {
     notBefore?: Date;
     notAfter?: Date;
     serialNumber?: string;
+    cnpj?: string;
+    companyName?: string;
+    email?: string;
+    state?: string;
+    city?: string;
     error?: string;
 }
 
@@ -176,6 +181,19 @@ export class EncryptionService {
                     const commonNameField = cert.subject.getField('CN');
                     const issuerField = cert.issuer.getField('CN');
 
+                    // ADD THE CNPJ EXTRACTION HERE:
+                    const cnValue = commonNameField?.value || '';
+
+                    // Extract CNPJ and company name from CN field
+                    let cnpj: string | undefined;
+                    let companyName: string | undefined;
+
+                    const cnpjMatch = cnValue.match(/\d{14}/);
+                    if (cnpjMatch) {
+                        cnpj = cnpjMatch[0];
+                        companyName = cnValue.replace(/:?\d{14}:?/g, '').trim();
+                    }
+
                     console.log('✅ Certificate info extracted successfully');
 
                     return {
@@ -184,7 +202,12 @@ export class EncryptionService {
                         issuer: issuerField?.value || 'Unknown',
                         notBefore: cert.validity.notBefore,
                         notAfter: cert.validity.notAfter,
-                        serialNumber: cert.serialNumber
+                        serialNumber: cert.serialNumber,
+                        cnpj: cnpj,
+                        companyName: companyName,
+                        email: cert.subject.getField('emailAddress')?.value,
+                        state: cert.subject.getField('ST')?.value,
+                        city: cert.subject.getField('L')?.value
                     };
                 }
             } catch (forgeError) {
