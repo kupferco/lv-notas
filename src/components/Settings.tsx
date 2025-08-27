@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Modal, ScrollView } from "react-native";
 import { signOutUser, getCurrentUser, isDevelopment, onAuthStateChange } from "../config/firebase";
-import { apiService } from "../services/api";
+import { apiService, api } from "../services/api";
 import { CalendarSelection } from "./CalendarSelection";
 import type { Therapist } from "../types/index";
 import type { User } from "firebase/auth";
@@ -27,6 +27,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
   const [currentCalendarName, setCurrentCalendarName] = useState<string>("");
   const { signOut } = useAuth();
   const [showImportWizard, setShowImportWizard] = useState(false);
+  const [nfseConfigured, setNfseConfigured] = useState(false);
 
   // Get settings from context
   const {
@@ -50,6 +51,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
         // Development mode - load immediately
         await loadCurrentUser();
         await loadTherapistData();
+        await checkNFSeStatus();
         await loadSettingsFromDatabase();
       } else {
         // Production mode - wait for authentication
@@ -58,6 +60,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
           console.log("User already authenticated, loading data");
           await loadCurrentUser();
           await loadTherapistData();
+          await checkNFSeStatus();
           await loadSettingsFromDatabase();
         } else {
           console.log("Waiting for authentication...");
@@ -86,6 +89,26 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
       }
     };
   }, [therapistEmail]);
+
+  useEffect(() => {
+    if (therapist?.id) {
+      checkNFSeStatus();
+    }
+  }, [therapist]);
+
+  const checkNFSeStatus = async () => {
+    try {
+      const therapistId = therapist?.id?.toString() || "1";
+      const response = await api.nfse.getCertificateStatus(therapistId);
+      const isConfigured = !!(response?.hasValidCertificate &&
+        response?.certificateInfo?.cnpj &&
+        response?.status === 'active');
+      setNfseConfigured(isConfigured);
+    } catch (error) {
+      console.error("Error checking NFS-e status:", error);
+      setNfseConfigured(false);
+    }
+  };
 
   const loadTherapistData = async () => {
     try {
@@ -629,14 +652,14 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
 
         <View style={styles.infoRow}>
           <Text style={styles.label}>Status:</Text>
-          <Text style={[styles.value, styles.statusDisconnected]}>
-            ❌ Não configurado
+          <Text style={[styles.value, nfseConfigured ? styles.statusConnected : styles.statusDisconnected]}>
+            {nfseConfigured ? "✅ Configurado" : "❌ Não configurado"}
           </Text>
         </View>
 
         <Text style={styles.helpText}>
           Configure a emissão automática de notas fiscais para suas sessões de terapia.
-          Integração com PlugNotas para emissão simplificada de NFS-e.
+          Integração com Focus NFE para emissão simplificada de NFS-e (Nota Fiscal Paulista).
         </Text>
 
         <Pressable
