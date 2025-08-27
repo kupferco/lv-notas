@@ -167,6 +167,7 @@ export const styles = StyleSheet.create({
         color: '#1565c0',
         fontSize: 14,
         lineHeight: 20,
+        marginTop: 8
     },
     label: {
         fontSize: 14,

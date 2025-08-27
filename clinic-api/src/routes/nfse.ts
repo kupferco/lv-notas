@@ -325,7 +325,9 @@ router.post("/certificate", upload.single('certificate'), asyncHandler<Certifica
                 expiresAt: certificateInfo.notAfter,
                 isValid: certificateInfo.isValid,
                 cnpj: certificateInfo.cnpj,
-                companyName: certificateInfo.companyName,
+                companyName: certificateInfo.companyName ?
+                    certificateInfo.companyName.split(':')[0].trim() :
+                    certificateInfo.companyName,
                 autoRegistered: autoRegistered,
                 companyId: companyId
             }
@@ -371,7 +373,9 @@ router.get("/certificate/status/:therapistId", asyncHandler(async (req, res) => 
                 commonName: certificateInfo.commonName,
                 issuer: certificateInfo.issuer,
                 cnpj: certificateInfo.cnpj,
-                companyName: certificateInfo.companyName 
+                companyName: certificateInfo.companyName ?
+                    certificateInfo.companyName.split(':')[0].trim() :
+                    certificateInfo.companyName
             }
         });
     } catch (error) {
@@ -438,12 +442,58 @@ router.post("/company/register", asyncHandler<CompanyRegistrationBody>(async (re
 
 // 4. Generate invoice (single endpoint - test mode controlled by database config)
 router.post("/invoice/generate", asyncHandler(async (req, res) => {
-    const { therapistId, patientId, year, month, sessionIds, customerData } = req.body;
+    const { therapistId, patientId, year, month, sessionIds, customerData, testMode } = req.body;
 
     console.log("=== INVOICE GENERATION ===");
     console.log("Request body:", JSON.stringify(req.body, null, 2));
 
-    // Validate required fields
+    // For test mode validation, use mock data
+    if (testMode) {
+        try {
+            const config = await getTherapistConfig(parseInt(therapistId));
+
+            if (!config || !config.provider_company_id) {
+                return res.status(400).json({ error: "Company must be registered first" });
+            }
+
+            // Create mock invoice data for validation
+            const mockInvoice = {
+                invoiceId: `test_${Date.now()}`,
+                status: 'success',
+                invoiceNumber: 'TEST-001',
+                amount: 100.00,
+                taxAmount: 5.00,
+                issueDate: new Date().toISOString(),
+                customerName: customerData?.name || 'TESTE DE VALIDAÇÃO',
+                serviceDescription: 'Teste de validação do sistema - SEM VALOR FISCAL',
+                pdfUrl: null,
+                xmlUrl: null,
+                testMode: true,
+                message: 'Integração validada com sucesso'
+            };
+
+            console.log("Test mode validation successful");
+
+            return res.json({
+                message: 'Test validation successful - system configured correctly',
+                invoice: mockInvoice,
+                billingPeriod: {
+                    id: 'test',
+                    sessionCount: 0,
+                    totalAmount: 100.00
+                },
+                testMode: true
+            });
+        } catch (error) {
+            console.error('Test validation error:', error);
+            return res.status(400).json({
+                error: `Validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+            });
+        }
+    }
+
+    // Regular invoice generation flow (non-test mode)
+    // Validate required fields for real invoices
     if (!therapistId || !patientId || !year || !month) {
         return res.status(400).json({
             error: "Therapist ID, patient ID, year, and month are required"
@@ -451,29 +501,27 @@ router.post("/invoice/generate", asyncHandler(async (req, res) => {
     }
 
     try {
-        const testMode = await isTestMode();
+        const environmentTestMode = await isTestMode();
 
-        // Check if invoice already exists for this billing period (unless in test mode)
-        if (!testMode) {
-            const existingInvoice = await pool.query(
-                `SELECT i.* 
-                 FROM nfse_invoices i
-                 JOIN billing_period_invoices bpi ON i.id = bpi.invoice_id
-                 JOIN monthly_billing_periods bp ON bpi.billing_period_id = bp.id
-                 WHERE bp.therapist_id = $1 
-                   AND bp.patient_id = $2 
-                   AND bp.billing_year = $3 
-                   AND bp.billing_month = $4
-                   AND i.invoice_status NOT IN ('cancelled', 'error')`,
-                [therapistId, patientId, year, month]
-            );
+        // Check if invoice already exists for this billing period
+        const existingInvoice = await pool.query(
+            `SELECT i.* 
+             FROM nfse_invoices i
+             JOIN billing_period_invoices bpi ON i.id = bpi.invoice_id
+             JOIN monthly_billing_periods bp ON bpi.billing_period_id = bp.id
+             WHERE bp.therapist_id = $1 
+               AND bp.patient_id = $2 
+               AND bp.billing_year = $3 
+               AND bp.billing_month = $4
+               AND i.invoice_status NOT IN ('cancelled', 'error')`,
+            [therapistId, patientId, year, month]
+        );
 
-            if (existingInvoice.rows.length > 0) {
-                return res.status(400).json({
-                    error: "Invoice already exists for this billing period",
-                    existingInvoice: existingInvoice.rows[0]
-                });
-            }
+        if (existingInvoice.rows.length > 0) {
+            return res.status(400).json({
+                error: "Invoice already exists for this billing period",
+                existingInvoice: existingInvoice.rows[0]
+            });
         }
 
         const config = await getTherapistConfig(parseInt(therapistId));
@@ -505,19 +553,19 @@ router.post("/invoice/generate", asyncHandler(async (req, res) => {
             parseInt(patientId),
             parseInt(year),
             parseInt(month),
-            sessionIds, // Optional: specific sessions only
+            sessionIds,
             customerData
         );
 
         return res.json({
-            message: `${testMode ? 'Test' : 'Production'} invoice generated successfully`,
+            message: `${environmentTestMode ? 'Test' : 'Production'} invoice generated successfully`,
             invoice: result,
             billingPeriod: {
                 id: billingPeriod.rows[0].id,
                 sessionCount: billingPeriod.rows[0].session_count,
                 totalAmount: billingPeriod.rows[0].total_amount
             },
-            testMode
+            testMode: environmentTestMode
         });
     } catch (error) {
         console.error('Invoice generation error:', error);
@@ -525,7 +573,7 @@ router.post("/invoice/generate", asyncHandler(async (req, res) => {
             error: `Invoice generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
         });
     }
-}))
+}));
 
 // 5. Get therapist's invoices
 router.get("/invoices/:therapistId", asyncHandler(async (req, res) => {

@@ -13,6 +13,7 @@ export interface CertificateStatus {
     issuer: string;
     cnpj: string;
   };
+  validationStatus?: string;
 }
 
 export interface NFSeSettings {
@@ -21,6 +22,7 @@ export interface NFSeSettings {
   defaultServiceDescription: string;
   issWithholding: boolean;
   additionalInfo?: string;
+  isConfigured?: boolean;
 }
 
 export interface CompanyData {
@@ -327,7 +329,8 @@ export const nfseService = {
             serviceCode: '14.01',
             taxRate: 5,
             defaultServiceDescription: 'Serviços de Psicologia',
-            issWithholding: false
+            issWithholding: false,
+            // isConfigured: true
           }
         };
       }

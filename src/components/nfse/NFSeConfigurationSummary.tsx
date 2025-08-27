@@ -10,7 +10,7 @@ interface NFSeConfigurationSummaryProps {
   nfseSettings: NFSeSettings;
   onUpdateCertificate: () => void;
   onUpdateSettings: () => void;
-  onTestInvoice: () => void;
+//   onTestInvoice: () => void;
 }
 
 export const NFSeConfigurationSummary: React.FC<NFSeConfigurationSummaryProps> = ({
@@ -18,7 +18,7 @@ export const NFSeConfigurationSummary: React.FC<NFSeConfigurationSummaryProps> =
   nfseSettings,
   onUpdateCertificate,
   onUpdateSettings,
-  onTestInvoice
+//   onTestInvoice
 }) => {
   return (
     <ScrollView style={styles.container}>
@@ -33,7 +33,7 @@ export const NFSeConfigurationSummary: React.FC<NFSeConfigurationSummaryProps> =
         <Text style={styles.cardTitle}>Certificado Digital</Text>
         <View style={styles.successContainer}>
           <Text style={styles.successText}>
-            Empresa: {certificateStatus.certificateInfo?.commonName}
+            Empresa: {certificateStatus.certificateInfo?.companyName}
           </Text>
           <Text style={styles.successText}>
             CNPJ: {certificateStatus.certificateInfo?.cnpj}
@@ -59,12 +59,12 @@ export const NFSeConfigurationSummary: React.FC<NFSeConfigurationSummaryProps> =
         </Pressable>
       </View>
 
-      <View style={styles.card}>
+      {/* <View style={styles.card}>
         <Text style={styles.cardTitle}>Ações</Text>
         <Pressable style={styles.primaryButton} onPress={onTestInvoice}>
           <Text style={styles.primaryButtonText}>🧪 Gerar Nota de Teste</Text>
         </Pressable>
-      </View>
+      </View> */}
     </ScrollView>
   );
 };

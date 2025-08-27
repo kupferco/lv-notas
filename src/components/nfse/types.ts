@@ -5,11 +5,15 @@ export interface CertificateStatus {
   status: 'not_uploaded' | 'active' | 'expired' | 'invalid';
   expiresAt?: string;
   expiresIn30Days?: boolean;
+  validationStatus?: 'idle' | 'validating' | 'validated' | 'error';
+  validationError?: string;
   certificateInfo?: {
     commonName: string;
     issuer: string;
     cnpj?: string;
     companyName?: string;
+    autoRegistered?: boolean;
+    registrationError?: string;
   };
 }
 
@@ -19,6 +23,11 @@ export interface NFSeSettings {
   defaultServiceDescription: string;
   issWithholding: boolean;
   additionalInfo?: string;
+}
+
+export interface NFSeSettingsResponse {
+  settings: NFSeSettings;
+  isConfigured?: boolean;
 }
 
 export interface SetupStep {
