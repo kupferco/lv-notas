@@ -21,20 +21,16 @@ export const isListView = () => config.viewMode === 'list';
 // WhatsApp Message Templates (No-emoji version for maximum compatibility)
 export const messageTemplates = {
     paymentRequest: {
-        greeting: "Olá {patientName}!",
-        title: "*Cobrança de Sessões de Terapia*",
-        sessionDetails: `Última sessão: {lastSessionDate}
-Total de sessões: {totalSessions}
-Valor total: {totalAmount}
-Valor pendente: {pendingAmount}`,
-        paymentMethods: `*Formas de pagamento:*
-- PIX: [sua-chave-pix]
-- Transferência bancária
-- Cartão (presencial)`,
-        requestMessage: "Por favor, confirme o pagamento quando possível.",
-        closing: `Qualquer dúvida, estou à disposição!
-
-Abraços!`
+        // greeting: "Olá {patientName}!",
+        greeting: "Olá,",
+        title: "",
+        paymentMethods: "",
+        sessionDetails: `Em {mes}, foram {totalSessions} sessões:
+{sessionDatesList}
+Valor total: {totalAmount}`,
+        requestMessage: "Chave PIX: (11) 982212939",
+        closing: `Assim que confirmar o pagamento, vc receberá automaticamente a nota fiscal correspondente.
+Obrigada`
     },
 
     paymentReminder: {
@@ -59,36 +55,65 @@ export const generateWhatsAppMessage = (
     template: typeof messageTemplates.paymentRequest | typeof messageTemplates.paymentReminder,
     variables: {
         patientName: string;
-        lastSessionDate: string;
+        mes?: string;
         totalSessions?: number;
+        sessionDatesList?: string;
+        lastSessionDate?: string;
         totalAmount?: string;
-        pendingAmount: string;
+        pendingAmount?: string;
     }
 ): string => {
     const sections = [
         template.greeting.replace('{patientName}', variables.patientName),
-        '',
-        template.title,
-        ''
     ];
 
+    if (template.title) {
+        sections.push('', template.title);
+    }
+
     if ('intro' in template && template.intro) {
-        sections.push(template.intro, '');
+        sections.push('', template.intro);
     }
 
-    let sessionDetails = template.sessionDetails
-        .replace('{lastSessionDate}', variables.lastSessionDate)
-        .replace('{pendingAmount}', variables.pendingAmount);
+    if (template.sessionDetails) {
+        let sessionDetails = template.sessionDetails;
 
-    if (variables.totalSessions && variables.totalAmount) {
-        sessionDetails = sessionDetails
-            .replace('{totalSessions}', variables.totalSessions.toString())
-            .replace('{totalAmount}', variables.totalAmount);
+        // Replace all variables that exist
+        if (variables.mes) {
+            sessionDetails = sessionDetails.replace('{mes}', variables.mes);
+        }
+        if (variables.totalSessions !== undefined) {
+            sessionDetails = sessionDetails.replace('{totalSessions}', variables.totalSessions.toString());
+        }
+        if (variables.sessionDatesList) {
+            sessionDetails = sessionDetails.replace('{sessionDatesList}', variables.sessionDatesList);
+        }
+        if (variables.lastSessionDate) {
+            sessionDetails = sessionDetails.replace('{lastSessionDate}', variables.lastSessionDate);
+        }
+        if (variables.totalAmount) {
+            sessionDetails = sessionDetails.replace('{totalAmount}', variables.totalAmount);
+        }
+        if (variables.pendingAmount) {
+            sessionDetails = sessionDetails.replace('{pendingAmount}', variables.pendingAmount);
+        }
+
+        sections.push('', sessionDetails);
     }
 
-    sections.push(sessionDetails, '', template.paymentMethods, '', template.requestMessage, '', template.closing);
+    if (template.paymentMethods) {
+        sections.push('', template.paymentMethods);
+    }
 
-    return sections.join('\n');
+    if (template.requestMessage) {
+        sections.push('', template.requestMessage);
+    }
+
+    if (template.closing) {
+        sections.push('', template.closing);
+    }
+
+    return sections.filter(section => section !== undefined).join('\n');
 };
 
 // Status mappings for different modes (existing code...)

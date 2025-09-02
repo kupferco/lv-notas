@@ -378,32 +378,22 @@ export const useBillingActions = ({
         return;
       }
 
-      const paymentSummary: PatientPaymentSummary = {
-        patient_name: patientSummary.patientName,
-        telefone: fullPatientInfo.telefone || '',
-        total_sessions: patientSummary.sessionCount,
-        total_amount: patientSummary.totalAmount / 100,
-        pending_amount: patientSummary.totalAmount / 100,
-        last_session_date: new Date().toISOString(),
-        patient_id: patientSummary.patientId,
-        paid_amount: 0,
-        billing_cycle: `${selectedMonth}/${selectedYear}`,
-        payment_requested: false,
-        payment_count: 0,
-        pendente_sessions: 0,
-        aguardando_sessions: 0,
-        nao_cobrado_sessions: patientSummary.sessionCount,
-        paid_sessions: 0
+      // Add phone number to the BillingSummary data
+      const patientWithPhone = {
+        ...patientSummary,
+        telefone: fullPatientInfo.telefone || ''
       };
 
-      const whatsappData = whatsappService.previewMessage(paymentSummary, 'invoice');
+      // Use the preview message with BillingSummary directly
+      const whatsappData = whatsappService.previewMessage(patientWithPhone, 'invoice');
 
       const confirmed = window.confirm(
-        `Abrir WhatsApp para enviar cobrança para ${patientSummary.patientName} (telefone:${paymentSummary.telefone})?\n\n` +
+        `Abrir WhatsApp para enviar cobrança para ${patientSummary.patientName} (telefone:${fullPatientInfo.telefone})?\n\n` +
         `Sessões: ${patientSummary.sessionCount}\n` +
         `Valor: R$ ${(patientSummary.totalAmount / 100).toFixed(2).replace('.', ',')}\n\n` +
         'Prévia da mensagem:\n\n' +
-        whatsappData.message.substring(0, 150) + '...'
+        whatsappData.message
+        // whatsappData.message.substring(0, 300) + '...'
       );
 
       if (confirmed) {

@@ -61,26 +61,7 @@ export const NFSeTestingSection: React.FC = () => {
   const [certificateUploadError, setCertificateUploadError] = useState<string>('');
 
   const { user } = useAuth();
-  const [therapistId, setTherapistId] = useState<string | null>(null);
-
-  // Add this effect to fetch the therapist ID based on user email
-  useEffect(() => {
-    const fetchTherapistId = async () => {
-      if (user?.email) {
-        try {
-          const therapist = await api.therapists.getTherapistByEmail(user.email);
-          if (therapist) {
-            setTherapistId(therapist.id.toString());
-            console.log(`Using therapist ID ${therapist.id} for ${user.email}`);
-          }
-        } catch (error) {
-          console.error('Error fetching therapist ID:', error);
-        }
-      }
-    };
-
-    fetchTherapistId();
-  }, [user?.email]);
+  const therapistId = user?.therapistId?.toString() || "1"; // Fallback for testing
 
   // Load initial data
   useEffect(() => {

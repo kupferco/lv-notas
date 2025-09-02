@@ -74,7 +74,6 @@ router.get("/summary", asyncHandler(async (req, res) => {
     }
 }));
 
-// src/routes/monthly-billing.ts - Updated CSV export endpoint
 // GET /api/monthly-billing/export-csv?therapistEmail=&year=&month=
 // Fixed CSV export with correct table names and session dates column
 router.get("/export-csv", asyncHandler(async (req, res) => {
@@ -285,7 +284,6 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
     }
 }));
 
-// src/routes/monthly-billing.ts - Updated Excel export endpoint
 // GET /api/monthly-billing/export-excel?therapistEmail=&year=&month=
 // Excel export with correct table names and session dates column
 router.get("/export-excel", asyncHandler(async (req, res) => {

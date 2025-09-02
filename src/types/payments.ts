@@ -20,6 +20,7 @@ export interface PatientPaymentSummary {
   nao_cobrado_sessions: number;
   paid_sessions: number;
   telefone?: string;
+  session_dates?: string[];
 }
 
 export interface SessionPaymentDetail {
