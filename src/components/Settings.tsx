@@ -51,7 +51,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
         // Development mode - load immediately
         await loadCurrentUser();
         await loadTherapistData();
-        await checkNFSeStatus();
+        // await checkNFSeStatus();
         await loadSettingsFromDatabase();
       } else {
         // Production mode - wait for authentication
@@ -60,7 +60,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
           console.log("User already authenticated, loading data");
           await loadCurrentUser();
           await loadTherapistData();
-          await checkNFSeStatus();
+          // await checkNFSeStatus();
           await loadSettingsFromDatabase();
         } else {
           console.log("Waiting for authentication...");
@@ -98,7 +98,15 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
 
   const checkNFSeStatus = async () => {
     try {
-      const therapistId = therapist?.id?.toString() || "1";
+      if (!therapist?.id) {
+        console.error("Cannot check NFS-e status: therapist ID is missing");
+        setNfseConfigured(false);
+        return;
+      }
+
+      const therapistId = therapist.id.toString();
+      console.log("Checking NFS-e status for therapist ID:", therapistId);
+
       const response = await api.nfse.getCertificateStatus(therapistId);
       const isConfigured = !!(response?.hasValidCertificate &&
         response?.certificateInfo?.cnpj &&
@@ -111,6 +119,7 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
   };
 
   const loadTherapistData = async () => {
+    console.log("🔄 loadTherapistData called");
     try {
       console.log("Loading therapist data for:", therapistEmail);
       console.log("Google access token available:", !!localStorage.getItem('google_access_token'));

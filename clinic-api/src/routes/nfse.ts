@@ -208,11 +208,12 @@ router.post("/certificate", upload.single('certificate'), asyncHandler<Certifica
             // Create new record with only certificate fields
             await pool.query(
                 `INSERT INTO therapist_nfse_config 
-                 (therapist_id, certificate_file_path, certificate_password_encrypted, 
-                  certificate_expires_at, certificate_status, certificate_info)
-                 VALUES ($1, $2, $3, $4, $5, $6)`,
+                (therapist_id, cnpj, certificate_file_path, certificate_password_encrypted, 
+                certificate_expires_at, certificate_status, certificate_info)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)`,
                 [
                     parseInt(therapistId),
+                    certificateInfo.cnpj || '',
                     filePath,
                     JSON.stringify(encryptedPassword),
                     certificateInfo.notAfter,

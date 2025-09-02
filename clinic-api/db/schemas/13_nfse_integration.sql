@@ -42,6 +42,22 @@ CREATE TABLE therapist_nfse_config (
     provider_company_token_encrypted TEXT, -- Company's production token (cached)
     provider_sandbox_token_encrypted TEXT, -- Company's sandbox token (cached)
     
+    -- Certificate storage
+    certificate_file_path VARCHAR(255), -- Path to encrypted certificate file
+    certificate_password_encrypted TEXT, -- Encrypted certificate password
+    certificate_expires_at TIMESTAMP WITH TIME ZONE, -- Certificate expiration
+    certificate_status VARCHAR(20) DEFAULT 'pending', -- pending, active, expired
+    certificate_info JSONB, -- Certificate details (CN, issuer, etc)
+    
+    -- Company information
+    company_name VARCHAR(255), -- Company legal name
+    company_cnpj VARCHAR(14), -- Can be different from certificate CNPJ
+    company_municipal_registration VARCHAR(50),
+    company_state_registration VARCHAR(50),
+    company_email VARCHAR(255),
+    company_phone VARCHAR(20),
+    company_address JSONB, -- Full address as JSON
+    
     -- Invoice preferences
     default_service_code VARCHAR(20) DEFAULT '07498', -- SP psychology code
     default_item_lista_servico VARCHAR(10) DEFAULT '1401', -- ABRASF code
