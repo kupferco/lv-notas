@@ -11,11 +11,18 @@ export class WhatsAppService {
         // If it starts with 0, remove it
         let formattedPhone = cleanPhone.startsWith('0') ? cleanPhone.substring(1) : cleanPhone;
 
-        // If it doesn't start with 55 (Brazil country code), add it
-        if (!formattedPhone.startsWith('55') && false) {
-            formattedPhone = '55' + formattedPhone;
+        // If it already has country code (55), use as is
+        if (formattedPhone.startsWith('55')) {
+            return formattedPhone;
         }
 
+        // If it starts with area code (like 11), add country code
+        // Brazilian mobile numbers are typically 11 digits (2 area + 9 number)
+        if (formattedPhone.length === 11 || formattedPhone.length === 10) {
+            return '55' + formattedPhone;
+        }
+
+        // For any other format, return as is (might be international)
         return formattedPhone;
     }
 
