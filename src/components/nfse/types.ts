@@ -2,7 +2,7 @@
 
 export interface CertificateStatus {
   hasValidCertificate: boolean;
-  status: 'not_uploaded' | 'active' | 'expired' | 'invalid';
+  status: 'not_uploaded' | 'uploaded' | 'expired' | 'invalid';
   expiresAt?: string;
   expiresIn30Days?: boolean;
   validationStatus?: 'idle' | 'validating' | 'validated' | 'error';
@@ -21,8 +21,9 @@ export interface NFSeSettings {
   serviceCode: string;
   taxRate: number;
   defaultServiceDescription: string;
-  issWithholding: boolean;
+  // issWithholding: boolean;
   additionalInfo?: string;
+  isConfigured?: boolean;
 }
 
 export interface NFSeSettingsResponse {

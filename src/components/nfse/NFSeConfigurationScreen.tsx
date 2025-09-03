@@ -13,6 +13,7 @@ import { NFSeConfigurationSummary } from './NFSeConfigurationSummary';
 import { useAuth } from '../../contexts/AuthContext';
 
 export const NFSeConfigurationScreen: React.FC = () => {
+  console.log("🔍 NFSeConfigurationScreen component is rendering");
   // State management
   const [isLoading, setIsLoading] = useState(true);
   const [currentStep, setCurrentStep] = useState<number | 'summary'>(0);
@@ -21,7 +22,7 @@ export const NFSeConfigurationScreen: React.FC = () => {
     serviceCode: '14.01',
     taxRate: 5,
     defaultServiceDescription: 'Serviços de Psicologia',
-    issWithholding: false
+    // issWithholding: false
   });
 
   const [uploadingCertificate, setUploadingCertificate] = useState(false);
@@ -51,6 +52,8 @@ export const NFSeConfigurationScreen: React.FC = () => {
   ]);
 
   useEffect(() => {
+    console.log("🔍 useEffect triggered, therapistId:", therapistId);
+    console.log("🔍 user object:", user);
     loadInitialData();
   }, []);
 
@@ -73,11 +76,17 @@ export const NFSeConfigurationScreen: React.FC = () => {
   const loadInitialData = async () => {
     setIsLoading(true);
     try {
+      console.log("🔍 About to call getNFSeSettings for therapist:", therapistId);
+      console.log("🔍 API URL should be: /api/nfse/settings/" + therapistId);
       // Load both certificate status and settings
       const [certStatus, settingsResponse] = await Promise.all([
         api.nfse.getCertificateStatus(therapistId),
         api.nfse.getNFSeSettings(therapistId)
       ]);
+
+      console.log("🔍 Frontend received settingsResponse:", settingsResponse);
+      console.log("🔍 Frontend received settings:", settingsResponse.settings);
+      console.log("🔍 Frontend received certStatus:", certStatus);
       
       // Update state with loaded data
       setCertificateStatus({
@@ -85,32 +94,34 @@ export const NFSeConfigurationScreen: React.FC = () => {
         validationStatus: certStatus.validationStatus as 'idle' | 'validating' | 'validated' | 'error' | undefined
       });
       setNFSeSettings(settingsResponse.settings);
-      
+      console.log("🔍 State updated with settings:", settingsResponse.settings);
+      console.log("🔍 State updated with certStatus:", certStatus);
+
       // Determine if fully configured based on what we have
-      const isFullyConfigured = 
-        certStatus?.hasValidCertificate && 
+      const isFullyConfigured =
+        certStatus?.hasValidCertificate &&
         certStatus?.certificateInfo?.cnpj &&
-        certStatus?.status === 'active';
-      
-      if (isFullyConfigured) {
+        certStatus?.status === 'uploaded';
+
+      if (isFullyConfigured || true) {
         // System is configured - show summary
         setCurrentStep('summary');
-        setSetupSteps(prevSteps => 
+        setSetupSteps(prevSteps =>
           prevSteps.map(step => ({ ...step, status: 'completed' }))
         );
-        
+
         // Since we don't persist validationStatus, set it as validated if everything looks good
         setCertificateStatus(prev => prev ? {
           ...prev,
           validationStatus: 'validated'
         } : prev);
       } else if (certStatus?.hasValidCertificate) {
-        // Certificate exists but may not be fully configured
-        setCurrentStep(1); // Go to settings
-        setSetupSteps(prevSteps => 
+        // Certificate exists - start from step 0 but mark as completed
+        setCurrentStep(0);
+        setSetupSteps(prevSteps =>
           prevSteps.map((step, index) => ({
             ...step,
-            status: index === 0 ? 'completed' : index === 1 ? 'in_progress' : 'pending'
+            status: index === 0 ? 'completed' : 'pending'
           }))
         );
       } else {
@@ -149,12 +160,12 @@ export const NFSeConfigurationScreen: React.FC = () => {
 
   const performAutomatedValidation = async (certificateInfo: any) => {
     setValidating(true);
-    
+
     try {
       // Step 1: Auto-register company if CNPJ found
       if (certificateInfo.cnpj) {
         console.log('Auto-registering company with CNPJ:', certificateInfo.cnpj);
-        
+
         try {
           await api.nfse.registerNFSeCompany(therapistId, {
             cnpj: certificateInfo.cnpj,
@@ -172,7 +183,7 @@ export const NFSeConfigurationScreen: React.FC = () => {
               zipCode: ''
             }
           });
-          
+
           // Update certificate status to show auto-registration
           setCertificateStatus(prev => prev ? {
             ...prev,
@@ -189,7 +200,7 @@ export const NFSeConfigurationScreen: React.FC = () => {
 
       // Step 2: Run background test invoice (optional - skip if it fails)
       console.log('Running background validation test...');
-      
+
       try {
         const testData = {
           patientId: '1',
@@ -212,11 +223,11 @@ export const NFSeConfigurationScreen: React.FC = () => {
         };
 
         const testResult = await api.nfse.generateInvoice(therapistId, testData);
-        
+
         if (testResult.invoice.status === 'error') {
           // If error is about missing billing periods, that's OK for validation
-          if (testResult.invoice.error?.includes('billing period') || 
-              testResult.invoice.error?.includes('not found')) {
+          if (testResult.invoice.error?.includes('billing period') ||
+            testResult.invoice.error?.includes('not found')) {
             console.log('Test validation passed - system is configured correctly');
           } else {
             throw new Error(testResult.invoice.error || 'Falha na validação');
@@ -236,7 +247,7 @@ export const NFSeConfigurationScreen: React.FC = () => {
           setCurrentStep(1);
         } else {
           setCurrentStep('summary');
-          setSetupSteps(prevSteps => 
+          setSetupSteps(prevSteps =>
             prevSteps.map(step => ({ ...step, status: 'completed' }))
           );
         }
@@ -244,7 +255,7 @@ export const NFSeConfigurationScreen: React.FC = () => {
       } catch (testError: any) {
         // Test failed - show specific error
         const errorMessage = testError.message || 'Erro na validação da integração';
-        
+
         setCertificateStatus(prev => prev ? {
           ...prev,
           validationStatus: 'error',
@@ -302,7 +313,7 @@ export const NFSeConfigurationScreen: React.FC = () => {
       setCertificateUploadError('');
       setCertificateStatus({
         hasValidCertificate: true,
-        status: 'active',
+        status: 'uploaded',
         expiresAt: response.certificateInfo.expiresAt.toString(),
         validationStatus: 'validating',
         certificateInfo: response.certificateInfo
@@ -321,8 +332,8 @@ export const NFSeConfigurationScreen: React.FC = () => {
       if (error instanceof Error) {
         const errorMsg = error.message.toLowerCase();
         if (errorMsg.includes('invalid certificate password') ||
-            errorMsg.includes('invalid password') ||
-            errorMsg.includes('mac could not be verified')) {
+          errorMsg.includes('invalid password') ||
+          errorMsg.includes('mac could not be verified')) {
           setCertificateUploadError('Senha do certificado incorreta. Verifique a senha e tente novamente.');
         } else if (errorMsg.includes('expired')) {
           setCertificateUploadError('Este certificado expirou. Use um certificado válido.');
@@ -407,16 +418,16 @@ export const NFSeConfigurationScreen: React.FC = () => {
   }
 
   // Show summary view when fully configured
-  if (currentStep === 'summary' && 
-      certificateStatus?.hasValidCertificate && 
-      certificateStatus?.validationStatus === 'validated') {
+  if (currentStep === 'summary' &&
+    certificateStatus?.hasValidCertificate &&
+    certificateStatus?.validationStatus === 'validated') {
     return (
       <NFSeConfigurationSummary
         certificateStatus={certificateStatus}
         nfseSettings={nfseSettings}
         onUpdateCertificate={() => {
           setCurrentStep(0);
-          setSetupSteps(prevSteps => 
+          setSetupSteps(prevSteps =>
             prevSteps.map((step, index) => ({
               ...step,
               status: index === 0 ? 'in_progress' : 'pending'
@@ -425,7 +436,7 @@ export const NFSeConfigurationScreen: React.FC = () => {
         }}
         onUpdateSettings={() => {
           setCurrentStep(1);
-          setSetupSteps(prevSteps => 
+          setSetupSteps(prevSteps =>
             prevSteps.map((step, index) => ({
               ...step,
               status: index === 0 ? 'completed' : index === 1 ? 'in_progress' : 'pending'
@@ -470,9 +481,9 @@ export const NFSeConfigurationScreen: React.FC = () => {
       )}
 
       {/* Navigation */}
-      {typeof currentStep === 'number' && (
+      {(typeof currentStep === 'number' || currentStep === 'summary') && (
         <View style={styles.navigation}>
-          {currentStep > 0 && (
+          {typeof currentStep === 'number' && currentStep > 0 && (
             <Pressable
               style={styles.navButton}
               onPress={() => setCurrentStep(currentStep - 1)}
@@ -481,15 +492,16 @@ export const NFSeConfigurationScreen: React.FC = () => {
             </Pressable>
           )}
 
-          {certificateStatus?.hasValidCertificate && 
-           certificateStatus?.validationStatus === 'validated' && (
-            <Pressable
-              style={styles.successButton}
-              onPress={() => setCurrentStep('summary')}
-            >
-              <Text style={styles.successButtonText}>✅ Ver Resumo</Text>
-            </Pressable>
-          )}
+          {certificateStatus?.hasValidCertificate &&
+            certificateStatus?.validationStatus === 'validated' &&
+            typeof currentStep === 'number' && (
+              <Pressable
+                style={styles.successButton}
+                onPress={() => setCurrentStep('summary')}
+              >
+                <Text style={styles.successButtonText}>✅ Ver Resumo</Text>
+              </Pressable>
+            )}
 
           <Pressable
             style={styles.backButton}

@@ -3,6 +3,7 @@
 import {
     NFSeProvider,
     CompanyRegistration,
+    CompanyData,
     InvoiceRequest,
     InvoiceResult,
     InvoiceStatus,
@@ -72,74 +73,149 @@ export interface FocusNFeInvoiceData {
 
 export class FocusNFeProvider implements NFSeProvider {
     private config: FocusNFeConfig;
-    private baseUrl: string;
+    private companyBaseUrl: string; // Always production for company operations
+    private invoiceBaseUrl: string; // Sandbox or production for invoice operations
+    private masterToken: string;
 
-    constructor(config: FocusNFeConfig) {
-        this.config = config;
-        this.baseUrl = config.sandbox
-            ? 'https://homologacao.focusnfe.com.br'
-            : 'https://api.focusnfe.com.br';
-    }
+    constructor(config?: Partial<FocusNFeConfig>) {
+        // Get environment configuration
+        const isSandbox = process.env.FOCUS_NFE_SANDBOX === 'true';
+        
+        this.masterToken = process.env.FOCUS_NFE_MASTER_TOKEN || '';
+        
+        // Company operations always use production URL (no empresas endpoint in homologação)
+        this.companyBaseUrl = process.env.FOCUS_NFE_API_URL_PROD || 'https://api.focusnfe.com.br';
+        
+        // Invoice operations use sandbox or production based on environment
+        this.invoiceBaseUrl = isSandbox 
+            ? (process.env.FOCUS_NFE_API_URL_HOMOLOGACAO || 'https://homologacao.focusnfe.com.br')
+            : (process.env.FOCUS_NFE_API_URL_PROD || 'https://api.focusnfe.com.br');
 
-    // Add this to your FocusNFeProvider class
-    private async mockCompanyRegistration(data: CompanyRegistration): Promise<string> {
-        console.log('🔵 MOCK MODE: Simulating Focus NFe company registration');
-
-        // Simulate network delay
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Mock response based on Focus NFe documentation structure
-        const mockResponse = {
-            id: `mock_${data.cnpj}`,
-            cnpj: data.cnpj,
-            nome: data.companyName,
-            nome_fantasia: data.tradeName,
-            inscricao_municipal: data.municipalRegistration,
-            codigo_municipio: data.address.cityCode || '3550308',
-            email: data.email,
-            telefone: data.phone,
-            created_at: new Date().toISOString(),
-            status: 'active'
+        this.config = {
+            apiKey: this.masterToken,
+            apiUrl: this.invoiceBaseUrl, // For backward compatibility
+            sandbox: isSandbox,
+            ...config
         };
 
-        console.log('🔵 MOCK: Company registered:', mockResponse);
-        return mockResponse.id;
+        if (!this.masterToken) {
+            throw new Error('Focus NFe master token not configured. Please set FOCUS_NFE_MASTER_TOKEN environment variable.');
+        }
+
+        console.log(`Focus NFe Provider initialized:`);
+        console.log(`- Mode: ${isSandbox ? 'SANDBOX' : 'PRODUCTION'}`);
+        console.log(`- Company URL (always prod): ${this.companyBaseUrl}`);
+        console.log(`- Invoice URL: ${this.invoiceBaseUrl}`);
+        console.log(`- Token: ${this.masterToken ? 'Present' : 'Missing'}`);
     }
 
-    async registerCompany(data: CompanyRegistration): Promise<string> {
+    /**
+     * Get company data from Focus NFe (single source of truth)
+     */
+    async getCompanyData(cnpj: string): Promise<CompanyData> {
         try {
-            console.log('Registering company with Focus NFe API:', data.cnpj);
+            const cleanCnpj = cnpj.replace(/\D/g, '');
+            console.log(`Fetching company data from Focus NFe for CNPJ: ${cleanCnpj}`);
 
-            // Use mock in development/sandbox
-            if (this.config.sandbox || process.env.USE_MOCK_FOCUS_NFE === 'true') {
-                return await this.mockCompanyRegistration(data);
-            }
+            const response = await this.makeCompanyRequest(
+                'GET', 
+                `/v2/empresas?cnpj=${cleanCnpj}`
+            );
 
-            const companyData = {
-                cnpj: data.cnpj.replace(/\D/g, ''), // Remove formatting
-                nome: data.companyName,
-                nome_fantasia: data.tradeName,
-                inscricao_municipal: data.municipalRegistration,
-                codigo_municipio: data.address.cityCode || '3550308',
-                email: data.email,
-                telefone: data.phone
+            // console.log(88, response)
+            // Transform Focus NFe response to our interface
+            return {
+                cnpj: cleanCnpj,
+                companyName: response[0].nome || response.razao_social,
+                tradeName: response[0].nome_fantasia,
+                email: response[0].email,
+                phone: response[0].telefone,
+                municipalRegistration: response[0].inscricao_municipal,
+                stateRegistration: response[0].inscricao_estadual,
+                expiresAt: response[0].certificado_valido_ate,
+                address: {
+                    street: response[0].logradouro || '',
+                    number: response[0].numero || 'S/N',
+                    complement: response[0].complemento || '',
+                    neighborhood: response[0].bairro || '',
+                    city: response[0].municipio || response[0].endereco?.cidade || 'São Paulo',
+                    state: response[0].uf || response[0].endereco?.uf || 'SP',
+                    zipCode: response[0].cep || response[0].endereco?.cep || '00000-000',
+                    cityCode: response[0].codigo_municipio || '3550308'
+                },
+                tokens: {
+                    production: response[0].token_producao,
+                    sandbox: response[0].token_homologacao
+                }
             };
-
-            await this.makeRequest('POST', '/v2/empresas', companyData);
-
-            console.log('Company registered successfully:', data.cnpj);
-            return data.cnpj;
         } catch (error) {
-            // Company might already exist, which is OK
-            if (error instanceof Error && error.message.includes('já cadastrada')) {
-                console.log('Company already registered, continuing...');
-                return data.cnpj;
+            console.error(`Failed to get company data for ${cnpj}:`, error);
+            throw new Error(`Could not retrieve company data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Get company token dynamically from Focus NFe (uses getCompanyData internally)
+     */
+    private async getCompanyToken(cnpj: string): Promise<string> {
+        try {
+            const companyData = await this.getCompanyData(cnpj);
+            const token = this.config.sandbox ? companyData.tokens?.sandbox : companyData.tokens?.production;
+            
+            if (!token) {
+                throw new Error('Company token not found. Company may not be registered or certificates not uploaded.');
             }
+
+            console.log(`Company token retrieved for ${cnpj}`);
+            return token;
+        } catch (error) {
+            console.error(`Failed to get company token for ${cnpj}:`, error);
             throw error;
         }
     }
 
-    // In focus-nfe-provider.ts
+    async registerCompany(data: CompanyRegistration, certificateData?: { buffer: Buffer, password: string }): Promise<string> {
+        console.log('Registering/updating company with Focus NFe (production URL):', data.cnpj);
+
+        const companyData: any = {
+            nome: data.companyName,
+            nome_fantasia: data.tradeName,
+            cnpj: data.cnpj.replace(/\D/g, ''), // Remove formatting
+            inscricao_municipal: data.municipalRegistration,
+            regime_tributario: data.taxRegime ? parseInt(data.taxRegime) : 1, // Default to Simples Nacional
+            email: data.email,
+            telefone: data.phone,
+            logradouro: data.address.street,
+            numero: data.address.number,
+            complemento: data.address.complement,
+            bairro: data.address.neighborhood,
+            municipio: data.address.city,
+            uf: data.address.state,
+            cep: data.address.zipCode.replace(/\D/g, ''),
+            codigo_municipio: data.address.cityCode || '3550308',
+            habilita_nfse: true
+        };
+
+        // Include certificate if provided
+        if (certificateData) {
+            companyData.arquivo_certificado_base64 = certificateData.buffer.toString('base64');
+            companyData.senha_certificado = certificateData.password;
+            console.log('Including certificate in company registration/update');
+        }
+
+        // Add dry_run parameter only for sandbox mode
+        let endpoint = '/v2/empresas';
+        if (this.config.sandbox) {
+            endpoint += '?dry_run=1';
+            console.log('Using dry_run=1 for sandbox company registration');
+        }
+
+        const response = await this.makeCompanyRequest('POST', endpoint, companyData);
+
+        console.log('Company registered/updated successfully:', data.cnpj);
+        return data.cnpj;
+    }
+
     async uploadCompanyCertificate(cnpj: string, certificateData: { buffer: Buffer, password: string }): Promise<boolean> {
         try {
             const FormData = (await import('form-data')).default;
@@ -150,11 +226,17 @@ export class FocusNFeProvider implements NFSeProvider {
             formData.append('senha', certificateData.password);
 
             const cleanCnpj = cnpj.replace(/\D/g, '');
-            const url = `${this.baseUrl}/v2/empresas/${cleanCnpj}/certificado`;
+            
+            // Certificate upload always uses production URL (same as company registration)
+            let url = `${this.companyBaseUrl}/v2/empresas/${cleanCnpj}/certificado`;
+            if (this.config.sandbox) {
+                url += '?dry_run=1';
+                console.log('Using dry_run=1 for sandbox certificate upload');
+            }
 
             const response = await axios.post(url, formData, {
                 headers: {
-                    'Authorization': `Basic ${Buffer.from(this.config.apiKey + ':').toString('base64')}`,
+                    'Authorization': `Basic ${Buffer.from(this.masterToken + ':').toString('base64')}`,
                     ...formData.getHeaders()
                 }
             });
@@ -167,71 +249,22 @@ export class FocusNFeProvider implements NFSeProvider {
         }
     }
 
-    private async makeRequestWithCertificate(
-        method: string,
-        endpoint: string,
-        data: any,
-        certificateData: { buffer: Buffer, password: string }
-    ): Promise<any> {
-        const url = `${this.baseUrl}${endpoint}`;
-
-        try {
-            const formData = new FormData();
-
-            formData.append('dados', JSON.stringify(data));
-            formData.append('certificado', certificateData.buffer, 'certificate.p12');
-            formData.append('senha_certificado', certificateData.password);
-
-            const response = await axios.post(url, formData, {
-                headers: {
-                    'Authorization': `Basic ${Buffer.from(this.config.apiKey + ':').toString('base64')}`,
-                    ...formData.getHeaders()
-                },
-                maxBodyLength: Infinity,
-                maxContentLength: Infinity,
-                validateStatus: () => true // Don't throw on 4xx/5xx
-            });
-
-            console.log(`Focus NFe Response (${response.status}):`, response.data);
-            console.log('Response headers:', response.headers);
-
-            if (response.status >= 400) {
-                const errorMessage = response.data?.mensagem ||
-                    response.data?.codigo ||
-                    response.data?.message ||
-                    `HTTP ${response.status}: ${JSON.stringify(response.data)}`;
-                throw new Error(errorMessage);
-            }
-
-            return response.data;
-        } catch (error) {
-            if (axios.isAxiosError(error) && !error.response) {
-                throw new Error(`Network error: ${error.message}`);
-            }
-            throw error;
-        }
-    }
-
     async generateInvoice(
-        companyId: string,
+        companyId: string, // This will be the CNPJ
         data: InvoiceRequest,
+        certificateData?: { buffer: Buffer, password: string } // Not needed anymore
     ): Promise<InvoiceResult> {
         try {
             console.log('Generating invoice with Focus NFe');
+            console.log('Company CNPJ:', companyId);
             console.log('Invoice Request Data:', {
-                ...data,
+                customerName: data.customerName,
+                serviceValue: data.serviceValue,
+                serviceDescription: data.serviceDescription
             });
 
-            // Validate required fields
-            if (!data.providerCnpj) {
-                throw new Error('Provider CNPJ is required');
-            }
-            if (!data.customerName) {
-                throw new Error('Customer name is required');
-            }
-            if (!data.serviceDescription) {
-                throw new Error('Service description is required');
-            }
+            // Get company token dynamically
+            const companyToken = await this.getCompanyToken(companyId);
 
             // Generate unique reference ID for Focus NFe
             const reference = `lv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -248,9 +281,9 @@ export class FocusNFeProvider implements NFSeProvider {
             const focusInvoice: FocusNFeInvoiceData = {
                 data_emissao: toDate(data.sessionDate),
                 prestador: {
-                    cnpj: cleanDocument(data.providerCnpj) || '',
+                    cnpj: cleanDocument(data.providerCnpj) || cleanDocument(companyId) || '',
                     inscricao_municipal: data.providerMunicipalRegistration,
-                    codigo_municipio: data.providerCityCode || '3550308', // Default to São Paulo if not provided
+                    codigo_municipio: data.providerCityCode || '3550308', // Default to São Paulo
                 },
                 tomador: {
                     cpf: isCPF ? customerDoc : undefined,
@@ -263,31 +296,32 @@ export class FocusNFeProvider implements NFSeProvider {
                             numero: data.customerAddress.number || 'S/N',
                             complemento: data.customerAddress.complement,
                             bairro: data.customerAddress.neighborhood || 'Centro',
-                            codigo_municipio: data.customerAddress.cityCode || '3550308', // Default to São Paulo
+                            codigo_municipio: data.customerAddress.cityCode || '3550308',
                             uf: data.customerAddress.state || 'SP',
                             cep: cleanDocument(data.customerAddress.zipCode) || '00000000',
                         }
                         : undefined,
                 },
                 servico: {
-                    codigo_tributario_municipio: data.serviceCode || '14.01',
+                    codigo_tributario_municipio: data.serviceCode || '07498',
                     item_lista_servico: data.itemListaServico || '1401',
                     discriminacao: data.serviceDescription,
                     valor_servicos: Number(data.serviceValue) || 0,
-                    aliquota: Number(data.taxRate) || 5,
+                    aliquota: Number(data.taxRate) || 2,
                     iss_retido: !!data.taxWithheld,
                 },
             };
 
             console.log('Focus NFe Request Payload:', JSON.stringify(focusInvoice, null, 2));
 
-            let response: any;
+            // Build URL - no dry_run for invoice operations (they use proper environment URLs)
+            let endpoint = `/v2/nfse?ref=${encodeURIComponent(reference)}`;
 
-
-            console.log('Sending request WITHOUT certificate (JSON only)');
-            response = await this.makeRequest(
+            // Send request using company token to appropriate environment URL
+            const response = await this.makeInvoiceRequest(
                 'POST',
-                `/v2/nfse?ref=${encodeURIComponent(reference)}`,
+                endpoint,
+                companyToken,
                 focusInvoice
             );
 
@@ -305,7 +339,6 @@ export class FocusNFeProvider implements NFSeProvider {
         } catch (error) {
             console.error('Error generating invoice with Focus NFe:', error);
 
-            // Return error result instead of throwing
             return {
                 invoiceId: '',
                 status: 'error',
@@ -316,7 +349,12 @@ export class FocusNFeProvider implements NFSeProvider {
 
     async getInvoiceStatus(companyId: string, invoiceId: string): Promise<InvoiceStatus> {
         try {
-            const response = await this.makeRequest('GET', `/v2/nfse/${encodeURIComponent(invoiceId)}`);
+            const companyToken = await this.getCompanyToken(companyId);
+            const response = await this.makeInvoiceRequest(
+                'GET',
+                `/v2/nfse/${encodeURIComponent(invoiceId)}`,
+                companyToken
+            );
 
             return {
                 invoiceId: invoiceId,
@@ -373,9 +411,15 @@ export class FocusNFeProvider implements NFSeProvider {
 
     async cancelInvoice(companyId: string, invoiceId: string, reason: string): Promise<boolean> {
         try {
-            const response = await this.makeRequest(
+            const companyToken = await this.getCompanyToken(companyId);
+            
+            // Use appropriate environment URL for cancellation
+            let endpoint = `/v2/nfse/${encodeURIComponent(invoiceId)}`;
+            
+            const response = await this.makeInvoiceRequest(
                 'DELETE',
-                `/v2/nfse/${encodeURIComponent(invoiceId)}`,
+                endpoint,
+                companyToken,
                 { justificativa: reason }
             );
 
@@ -386,19 +430,53 @@ export class FocusNFeProvider implements NFSeProvider {
         }
     }
 
-    private async makeRequest(method: string, endpoint: string, data?: any): Promise<any> {
-        const url = `${this.baseUrl}${endpoint}`;
+    async testConnection(): Promise<boolean> {
+        try {
+            await this.makeCompanyRequest('GET', '/v2/nfe/ping-test-123');
+            return true;
+        } catch (error) {
+            // 404 with "nota não encontrada" means API is working correctly
+            if (error instanceof Error && error.message.includes('Nota fiscal não encontrada')) {
+                console.log('Focus NFe API working correctly (test invoice not found as expected)');
+                return true;
+            }
+
+            console.log('Focus NFe connection failed:', error);
+            return false;
+        }
+    }
+
+    async getServiceCodes(cityCode?: string): Promise<Array<{ code: string, description: string }>> {
+        try {
+            console.log('Focus NFe: Using default service codes for therapy');
+
+            return [
+                { code: '07498', description: 'Serviços de Psicologia e Psicanálise' },
+                { code: '14.13', description: 'Terapias de Qualquer Espécie Destinadas ao Tratamento Físico, Mental e Espiritual' },
+                { code: '14.14', description: 'Serviços de Psicoterapia Individual, Familiar ou em Grupo' },
+                { code: '17.05', description: 'Orientação e Acompanhamento Psicológico' }
+            ];
+        } catch (error) {
+            console.warn('Failed to fetch service codes, using defaults:', error);
+            return [
+                { code: '07498', description: 'Serviços de Psicologia e Psicanálise' }
+            ];
+        }
+    }
+
+    /**
+     * Make request using master token for company operations (always production URL)
+     */
+    private async makeCompanyRequest(method: string, endpoint: string, data?: any): Promise<any> {
+        const url = `${this.companyBaseUrl}${endpoint}`;
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
-            'Authorization': `Basic ${Buffer.from(this.config.apiKey + ':').toString('base64')}`,
+            'Authorization': `Basic ${Buffer.from(this.masterToken + ':').toString('base64')}`,
             'User-Agent': 'LV-Notas/1.0'
         };
 
-        console.log(`Making ${method} request to: ${url}`);
-        if (data) {
-            console.log('Request data:', JSON.stringify(data, null, 2));
-        }
-
+        console.log(`Making ${method} company request to: ${url}`);
+        
         try {
             const response = await fetch(url, {
                 method,
@@ -407,9 +485,56 @@ export class FocusNFeProvider implements NFSeProvider {
             });
 
             const responseText = await response.text();
-
-            // Try to parse as JSON
             let responseData: any;
+            
+            try {
+                responseData = JSON.parse(responseText);
+            } catch {
+                responseData = { message: responseText };
+            }
+
+            if (!response.ok) {
+                const errorMessage = responseData.erros?.[0]?.mensagem ||
+                    responseData.erro?.mensagem ||
+                    responseData.mensagem ||
+                    responseData.message ||
+                    `HTTP ${response.status}: ${response.statusText}`;
+
+                throw new Error(errorMessage);
+            }
+
+            return responseData;
+        } catch (error) {
+            if (error instanceof TypeError && error.message.includes('fetch')) {
+                throw new Error('Network error: Unable to connect to Focus NFe API');
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Make request using company token for invoice operations (sandbox or production URL)
+     */
+    private async makeInvoiceRequest(method: string, endpoint: string, companyToken: string, data?: any): Promise<any> {
+        const url = `${this.invoiceBaseUrl}${endpoint}`;
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'Authorization': `Basic ${Buffer.from(companyToken + ':').toString('base64')}`,
+            'User-Agent': 'LV-Notas/1.0'
+        };
+
+        console.log(`Making ${method} invoice request to: ${url}`);
+        
+        try {
+            const response = await fetch(url, {
+                method,
+                headers,
+                body: data ? JSON.stringify(data) : undefined
+            });
+
+            const responseText = await response.text();
+            let responseData: any;
+            
             try {
                 responseData = JSON.parse(responseText);
             } catch {
@@ -452,39 +577,5 @@ export class FocusNFeProvider implements NFSeProvider {
         };
 
         return statusMap[focusStatus?.toLowerCase()] || 'pending';
-    }
-
-    async testConnection(): Promise<boolean> {
-        try {
-            await this.makeRequest('GET', '/v2/nfe/ping-test-123');
-            return true;
-        } catch (error) {
-            // 404 with "nota não encontrada" means API is working correctly
-            if (error instanceof Error && error.message.includes('Nota fiscal não encontrada')) {
-                console.log('✅ Focus NFe API working correctly (test invoice not found as expected)');
-                return true;
-            }
-
-            console.log('❌ Focus NFe connection failed:', error);
-            return false;
-        }
-    }
-
-    async getServiceCodes(cityCode?: string): Promise<Array<{ code: string, description: string }>> {
-        try {
-            console.log('Focus NFe: Using default service codes for therapy');
-
-            return [
-                { code: '14.01', description: 'Serviços de Psicologia e Psicanálise' },
-                { code: '14.13', description: 'Terapias de Qualquer Espécie Destinadas ao Tratamento Físico, Mental e Espiritual' },
-                { code: '14.14', description: 'Serviços de Psicoterapia Individual, Familiar ou em Grupo' },
-                { code: '17.05', description: 'Orientação e Acompanhamento Psicológico' }
-            ];
-        } catch (error) {
-            console.warn('Failed to fetch service codes, using defaults:', error);
-            return [
-                { code: '14.01', description: 'Serviços de Psicologia e Psicanálise' }
-            ];
-        }
     }
 }

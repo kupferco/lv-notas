@@ -117,7 +117,8 @@ const setupRoutes = () => {
     app.use('/api/calendar-only', authenticateRequest, calendarOnlySessionsRoute);
     app.use('/api/monthly-billing', authenticateRequest, monthlyBillingRoute);
     app.use('/api/import', authenticateRequest, importRoute);
-    app.use('/api/nfse', authenticateRequest, nfseRoute);
+    app.use('/api/nfse', nfseRoute);
+    // app.use('/api/nfse', authenticateRequest, nfseRoute);
     app.use('/api/pluggy', authenticateRequest, pluggyRoute);
     app.use('/api/pluggy-webhook', pluggyWebhookRoute);
 

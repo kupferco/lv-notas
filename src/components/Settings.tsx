@@ -108,9 +108,11 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
       console.log("Checking NFS-e status for therapist ID:", therapistId);
 
       const response = await api.nfse.getCertificateStatus(therapistId);
+
+      console.log(55555, response)
       const isConfigured = !!(response?.hasValidCertificate &&
         response?.certificateInfo?.cnpj &&
-        response?.status === 'active');
+        response?.status === 'uploaded');
       setNfseConfigured(isConfigured);
     } catch (error) {
       console.error("Error checking NFS-e status:", error);
@@ -681,25 +683,6 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
             🧾 Configurar NFS-e
           </Text>
         </Pressable>
-
-        {/* Development/Testing Button - Remove in production */}
-        {isDevelopment && (
-          <>
-            <Pressable
-              style={[styles.secondaryButton, { marginTop: 10, borderColor: '#ff9800' }]}
-              onPress={() => {
-                window.location.href = '/nfse-test';
-              }}
-            >
-              <Text style={[styles.secondaryButtonText, { color: '#ff9800' }]}>
-                🔧 Tela de Testes NFS-e
-              </Text>
-            </Pressable>
-            <Text style={[styles.helpText, { color: '#ff9800', fontSize: 11 }]}>
-              Apenas em desenvolvimento - Para testes da integração
-            </Text>
-          </>
-        )}
       </View>
 
       {/* NEW: Current Settings Summary */}

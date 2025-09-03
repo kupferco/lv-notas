@@ -1,11 +1,12 @@
 // src/services/api/nfse-service.ts - NFS-e API Service
 
 import { baseApiService } from './base-service';
+import { NFSeSettings } from '../../components/nfse/types'
 
 // Type definitions for NFS-e API
 export interface CertificateStatus {
   hasValidCertificate: boolean;
-  status: 'not_uploaded' | 'active' | 'expired' | 'invalid';
+  status: 'not_uploaded' | 'uploaded' | 'expired' | 'invalid';
   expiresAt?: string;
   expiresIn30Days?: boolean;
   certificateInfo?: {
@@ -16,14 +17,14 @@ export interface CertificateStatus {
   validationStatus?: string;
 }
 
-export interface NFSeSettings {
-  serviceCode: string;
-  taxRate: number;
-  defaultServiceDescription: string;
-  issWithholding: boolean;
-  additionalInfo?: string;
-  isConfigured?: boolean;
-}
+// export interface NFSeSettings {
+//   serviceCode: string;
+//   taxRate: number;
+//   defaultServiceDescription: string;
+//   issWithholding: boolean;
+//   additionalInfo?: string;
+//   isConfigured?: boolean;
+// }
 
 export interface CompanyData {
   cnpj: string;
@@ -358,7 +359,7 @@ async generateNFSeInvoice(therapistId: number, patientId: number, year: number, 
     }
 
     try {
-      console.log("📞 getNFSeSettings API call for therapist:", therapistId);
+      console.log("999, 📞 getNFSeSettings API call for therapist:", therapistId);
       return await makeApiCall<{ settings: NFSeSettings }>(`/api/nfse/settings/${therapistId}`);
     } catch (error) {
       // Return default settings if not found
@@ -369,7 +370,7 @@ async generateNFSeInvoice(therapistId: number, patientId: number, year: number, 
             serviceCode: '14.01',
             taxRate: 5,
             defaultServiceDescription: 'Serviços de Psicologia',
-            issWithholding: false,
+            // issWithholding: false,
             // isConfigured: true
           }
         };

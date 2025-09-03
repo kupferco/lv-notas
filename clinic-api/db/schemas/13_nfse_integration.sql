@@ -1,5 +1,5 @@
--- clinic-api/db/schemas/13_nfse_integration.sql
--- Complete NFS-e integration schema with frontend support
+-- clinic-api/db/schemas/13_nfse_integration_simplified.sql
+-- Simplified NFS-e integration - Focus NFe as single source of truth for company data
 
 -- =============================================================================
 -- CLEANUP
@@ -15,50 +15,35 @@ DROP FUNCTION IF EXISTS retry_failed_invoice CASCADE;
 DROP VIEW IF EXISTS v_billing_period_invoices CASCADE;
 
 -- =============================================================================
--- CORE TABLES
+-- CORE TABLES - SIMPLIFIED ARCHITECTURE
 -- =============================================================================
 
--- Provider configuration (Focus NFE master settings)
+-- Provider configuration (Focus NFE master settings only)
 CREATE TABLE provider_configuration (
   id SERIAL PRIMARY KEY,
   provider_name VARCHAR(50) NOT NULL DEFAULT 'focus_nfe',
   master_token_encrypted TEXT, -- Your master API token
-  sandbox_mode BOOLEAN DEFAULT false,
+  sandbox_mode BOOLEAN DEFAULT true, -- Default to safe sandbox mode
   webhook_url TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Minimal therapist NFS-e configuration
+-- PRINCIPLE: Only store what we can't get from Focus NFe
 CREATE TABLE therapist_nfse_config (
     id SERIAL PRIMARY KEY,
     therapist_id INTEGER NOT NULL REFERENCES therapists(id) ON DELETE CASCADE,
     
-    -- Core identification (provider handles everything else via CNPJ)
-    cnpj VARCHAR(14) NOT NULL, -- Unformatted: 00000000000000
+    -- ONLY identifier needed - Focus NFe stores everything else via CNPJ
+    company_cnpj VARCHAR(14) NOT NULL, -- Unformatted: 00000000000000
+    focus_nfe_company_id VARCHAR(100),
     
-    -- Provider-specific data (tokens from Focus NFE)
-    provider_company_id VARCHAR(100), -- Focus NFE empresa ID
-    provider_company_token_encrypted TEXT, -- Company's production token (cached)
-    provider_sandbox_token_encrypted TEXT, -- Company's sandbox token (cached)
+    -- Certificate status tracking (certificates stored in Focus NFe)
+    certificate_uploaded BOOLEAN DEFAULT false,
+    certificate_uploaded_at TIMESTAMP WITH TIME ZONE,
     
-    -- Certificate storage
-    certificate_file_path VARCHAR(255), -- Path to encrypted certificate file
-    certificate_password_encrypted TEXT, -- Encrypted certificate password
-    certificate_expires_at TIMESTAMP WITH TIME ZONE, -- Certificate expiration
-    certificate_status VARCHAR(20) DEFAULT 'pending', -- pending, active, expired
-    certificate_info JSONB, -- Certificate details (CN, issuer, etc)
-    
-    -- Company information
-    company_name VARCHAR(255), -- Company legal name
-    company_cnpj VARCHAR(14), -- Can be different from certificate CNPJ
-    company_municipal_registration VARCHAR(50),
-    company_state_registration VARCHAR(50),
-    company_email VARCHAR(255),
-    company_phone VARCHAR(20),
-    company_address JSONB, -- Full address as JSON
-    
-    -- Invoice preferences
+    -- Invoice preferences (local business logic only)
     default_service_code VARCHAR(20) DEFAULT '07498', -- SP psychology code
     default_item_lista_servico VARCHAR(10) DEFAULT '1401', -- ABRASF code
     default_tax_rate DECIMAL(5,2) DEFAULT 2.0, -- ISS rate for health services
@@ -67,7 +52,7 @@ CREATE TABLE therapist_nfse_config (
     -- Invoice counter for our reference system
     next_invoice_ref INTEGER DEFAULT 1, -- For generating LV-1, LV-2, etc.
     
-    -- Feature preferences
+    -- Feature preferences (local UI behavior)
     send_email_to_patient BOOLEAN DEFAULT true,
     include_session_details BOOLEAN DEFAULT true, -- Add dates in description
     
@@ -77,54 +62,54 @@ CREATE TABLE therapist_nfse_config (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     
     UNIQUE(therapist_id),
-    UNIQUE(cnpj)
+    UNIQUE(company_cnpj)
 );
 
--- NFS-e invoice records
+-- NFS-e invoice records (our audit trail)
 CREATE TABLE nfse_invoices (
     id SERIAL PRIMARY KEY,
     therapist_id INTEGER NOT NULL REFERENCES therapists(id) ON DELETE CASCADE,
     patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
     
-    -- Our reference system
-    internal_ref VARCHAR(50) NOT NULL, -- Format: LV-1, LV-2, etc.
+    -- Our reference system for tracking and retrieval
+    internal_ref VARCHAR(50) NOT NULL UNIQUE, -- Format: LV-1, LV-2, etc.
     ref_number INTEGER NOT NULL, -- The numeric part for ordering
     
     -- Link to billing period
     billing_period_id INTEGER REFERENCES monthly_billing_periods(id) ON DELETE SET NULL,
     
-    -- Invoice data sent
+    -- Invoice data we sent to provider
     invoice_date DATE NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
     service_description TEXT NOT NULL,
     session_count INTEGER DEFAULT 1,
     
-    -- Patient data snapshot
+    -- Patient data snapshot (for historical record)
     patient_name VARCHAR(255) NOT NULL,
     patient_document VARCHAR(14) NOT NULL, -- CPF or CNPJ
     patient_document_type VARCHAR(4) NOT NULL, -- 'cpf' or 'cnpj'
     patient_email VARCHAR(255),
     
-    -- Provider response data
-    provider_status VARCHAR(50), -- autorizado, processando, erro, etc.
-    provider_reference VARCHAR(100), -- The ref we sent to provider
-    provider_invoice_id VARCHAR(100), -- Provider's ID
+    -- Provider integration data
+    provider_reference VARCHAR(100) NOT NULL, -- The ref we sent (same as internal_ref)
+    provider_invoice_id VARCHAR(100), -- Provider's internal ID
+    provider_status VARCHAR(50), -- Raw status from provider
     
     -- Municipal data (from provider response)
     invoice_number VARCHAR(50), -- Official invoice number for display
     municipal_number VARCHAR(50), -- Official municipal number
     verification_code VARCHAR(50), -- Municipal verification code
-    issue_date DATE, -- Date invoice was issued (for display)
+    issue_date DATE, -- Date invoice was actually issued
     
-    -- URLs from provider
+    -- URLs from provider (dynamic - may expire)
     pdf_url TEXT,
     xml_url TEXT,
     municipal_url TEXT, -- URL to verify on municipality website
     
-    -- Status tracking
+    -- Status tracking (our normalized status)
     status VARCHAR(20) DEFAULT 'pending', -- pending, processing, issued, cancelled, error
     error_message TEXT,
-    cancellation_reason TEXT, -- Reason for cancellation (shown in UI)
+    cancellation_reason TEXT,
     retry_count INTEGER DEFAULT 0,
     
     -- Timestamps
@@ -134,36 +119,31 @@ CREATE TABLE nfse_invoices (
     cancelled_at TIMESTAMP WITH TIME ZONE,
     email_sent_at TIMESTAMP WITH TIME ZONE,
     
-    -- Provider raw response for debugging
+    -- Provider raw response (for debugging and future data extraction)
     provider_response JSONB DEFAULT '{}'
 );
 
 -- =============================================================================
--- INDEXES
+-- INDEXES - OPTIMIZED FOR COMMON QUERIES
 -- =============================================================================
 
-CREATE INDEX idx_therapist_nfse_config_cnpj ON therapist_nfse_config(cnpj);
-CREATE INDEX idx_therapist_nfse_config_active ON therapist_nfse_config(is_active);
+-- Therapist config lookups
+CREATE INDEX idx_therapist_nfse_config_cnpj ON therapist_nfse_config(company_cnpj);
+CREATE INDEX idx_therapist_nfse_config_therapist ON therapist_nfse_config(therapist_id);
+CREATE INDEX idx_therapist_nfse_config_active ON therapist_nfse_config(therapist_id, is_active);
 
-CREATE INDEX idx_nfse_invoices_therapist ON nfse_invoices(therapist_id);
-CREATE INDEX idx_nfse_invoices_patient ON nfse_invoices(patient_id);
+-- Invoice lookups (most common queries)
+CREATE INDEX idx_nfse_invoices_therapist_status ON nfse_invoices(therapist_id, status);
 CREATE INDEX idx_nfse_invoices_billing_period ON nfse_invoices(billing_period_id);
 CREATE INDEX idx_nfse_invoices_ref ON nfse_invoices(internal_ref);
-CREATE INDEX idx_nfse_invoices_ref_number ON nfse_invoices(ref_number);
-CREATE INDEX idx_nfse_invoices_status ON nfse_invoices(status);
-CREATE INDEX idx_nfse_invoices_date ON nfse_invoices(invoice_date);
 CREATE INDEX idx_nfse_invoices_provider_ref ON nfse_invoices(provider_reference);
-
--- Composite indexes
-CREATE INDEX idx_nfse_invoices_therapist_status ON nfse_invoices(therapist_id, status);
-CREATE INDEX idx_nfse_invoices_therapist_ref ON nfse_invoices(therapist_id, ref_number);
-CREATE INDEX idx_nfse_invoices_billing_period_lookup ON nfse_invoices(billing_period_id, status);
+CREATE INDEX idx_nfse_invoices_date ON nfse_invoices(invoice_date DESC);
 
 -- =============================================================================
--- VIEWS
+-- VIEWS - SIMPLIFIED FOR FRONTEND
 -- =============================================================================
 
--- View for frontend to easily get invoice status with patient info
+-- Single view for all billing period invoice queries
 CREATE OR REPLACE VIEW v_billing_period_invoices AS
 SELECT 
   bp.id AS billing_period_id,
@@ -172,12 +152,16 @@ SELECT
   bp.billing_year,
   bp.billing_month,
   bp.status AS billing_status,
-  bp.total_amount,
+  bp.total_amount AS billing_amount,
+  
+  -- Invoice info (null if no invoice exists)
   ni.id AS invoice_id,
+  ni.internal_ref,
   ni.status AS invoice_status,
   ni.invoice_number,
   ni.municipal_number,
   ni.issue_date,
+  ni.amount AS invoice_amount,
   ni.error_message,
   ni.cancellation_reason,
   ni.pdf_url,
@@ -187,63 +171,45 @@ SELECT
   ni.cancelled_at AS invoice_cancelled_at
 FROM monthly_billing_periods bp
 LEFT JOIN nfse_invoices ni ON ni.billing_period_id = bp.id
+  AND ni.status != 'superseded' -- Exclude old retry attempts
 WHERE bp.status = 'paid'; -- Only show for paid billing periods
 
 -- =============================================================================
--- FUNCTIONS
+-- FUNCTIONS - FOCUSED ON CORE OPERATIONS
 -- =============================================================================
 
--- Function to get next invoice reference for a therapist
--- Supports both simple (LV-1) and company-prefixed (LV-149459-1) formats
-CREATE OR REPLACE FUNCTION get_next_invoice_ref(
-    p_therapist_id INTEGER,
-    p_include_company_id BOOLEAN DEFAULT FALSE
-) 
+-- Generate next invoice reference (simple LV-X format)
+CREATE OR REPLACE FUNCTION get_next_invoice_ref(p_therapist_id INTEGER) 
 RETURNS TABLE(ref VARCHAR, ref_number INTEGER) AS $$
 DECLARE
     v_next_number INTEGER;
-    v_company_id VARCHAR(100);
     v_ref VARCHAR;
 BEGIN
-    -- Get and increment the counter atomically, optionally get company ID
-    IF p_include_company_id THEN
-        UPDATE therapist_nfse_config 
-        SET next_invoice_ref = next_invoice_ref + 1
-        WHERE therapist_id = p_therapist_id
-        RETURNING next_invoice_ref - 1, provider_company_id 
-        INTO v_next_number, v_company_id;
-        
-        -- Format with company ID if available
-        IF v_company_id IS NOT NULL THEN
-            v_ref := 'LV-' || v_company_id || '-' || v_next_number;
-        ELSE
-            v_ref := 'LV-' || v_next_number; -- Fallback to simple format
-        END IF;
-    ELSE
-        -- Simple format
-        UPDATE therapist_nfse_config 
-        SET next_invoice_ref = next_invoice_ref + 1
-        WHERE therapist_id = p_therapist_id
-        RETURNING next_invoice_ref - 1 INTO v_next_number;
-        
-        v_ref := 'LV-' || v_next_number;
-    END IF;
+    -- Atomic increment and return
+    UPDATE therapist_nfse_config 
+    SET next_invoice_ref = next_invoice_ref + 1
+    WHERE therapist_id = p_therapist_id
+    RETURNING next_invoice_ref - 1 INTO v_next_number;
     
     IF v_next_number IS NULL THEN
         RAISE EXCEPTION 'Therapist % not configured for NFS-e', p_therapist_id;
     END IF;
     
+    v_ref := 'LV-' || v_next_number;
+    
     RETURN QUERY SELECT v_ref, v_next_number;
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to get invoice status for frontend
+-- Get latest invoice for billing period (most common frontend query)
 CREATE OR REPLACE FUNCTION get_invoice_status_for_billing_period(p_billing_period_id INTEGER)
 RETURNS TABLE (
-  id INTEGER,
-  invoice_status VARCHAR,
+  invoice_id INTEGER,
+  internal_ref VARCHAR,
+  status VARCHAR,
   invoice_number VARCHAR,
   issue_date DATE,
+  amount DECIMAL,
   error_message TEXT,
   cancellation_reason TEXT,
   pdf_url TEXT,
@@ -254,9 +220,11 @@ BEGIN
   RETURN QUERY
   SELECT 
     ni.id,
-    ni.status AS invoice_status,
+    ni.internal_ref,
+    ni.status,
     ni.invoice_number,
     ni.issue_date,
+    ni.amount,
     ni.error_message,
     ni.cancellation_reason,
     ni.pdf_url,
@@ -264,12 +232,13 @@ BEGIN
     ni.municipal_number
   FROM nfse_invoices ni
   WHERE ni.billing_period_id = p_billing_period_id
+    AND ni.status != 'superseded'
   ORDER BY ni.created_at DESC
-  LIMIT 1; -- Get most recent invoice for this billing period
+  LIMIT 1;
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to cancel invoice (matches frontend's cancelInvoice call)
+-- Cancel invoice with reason tracking
 CREATE OR REPLACE FUNCTION cancel_nfse_invoice(
   p_invoice_id INTEGER,
   p_reason TEXT DEFAULT 'Cancelamento solicitado pelo usuário'
@@ -278,16 +247,20 @@ RETURNS BOOLEAN AS $$
 DECLARE
   v_current_status VARCHAR;
 BEGIN
-  -- Get current status
+  -- Check if cancellation is allowed
   SELECT status INTO v_current_status
   FROM nfse_invoices
   WHERE id = p_invoice_id;
   
-  IF v_current_status != 'issued' THEN
+  IF v_current_status IS NULL THEN
+    RAISE EXCEPTION 'Invoice % not found', p_invoice_id;
+  END IF;
+  
+  IF v_current_status NOT IN ('issued', 'processing') THEN
     RAISE EXCEPTION 'Invoice cannot be cancelled - current status: %', v_current_status;
   END IF;
   
-  -- Update invoice status
+  -- Update to cancelled status
   UPDATE nfse_invoices
   SET 
     status = 'cancelled',
@@ -296,75 +269,76 @@ BEGIN
     updated_at = CURRENT_TIMESTAMP
   WHERE id = p_invoice_id;
   
-  RETURN true;
+  RETURN FOUND;
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to retry failed invoice generation
+-- Retry failed invoice (mark old as superseded, create new with fresh reference)
 CREATE OR REPLACE FUNCTION retry_failed_invoice(p_billing_period_id INTEGER)
 RETURNS INTEGER AS $$
 DECLARE
   v_new_ref VARCHAR;
   v_new_ref_number INTEGER;
   v_therapist_id INTEGER;
-  v_patient_id INTEGER;
-  v_invoice_id INTEGER;
+  v_old_invoice RECORD;
+  v_new_invoice_id INTEGER;
 BEGIN
-  -- Get billing period info
-  SELECT therapist_id, patient_id 
-  INTO v_therapist_id, v_patient_id
-  FROM monthly_billing_periods
-  WHERE id = p_billing_period_id;
-  
-  -- Get new reference number
-  SELECT ref, ref_number INTO v_new_ref, v_new_ref_number
-  FROM get_next_invoice_ref(v_therapist_id);
-  
-  -- Create new invoice record with pending status
-  INSERT INTO nfse_invoices (
-    therapist_id,
-    patient_id,
-    billing_period_id,
-    internal_ref,
-    ref_number,
-    invoice_date,
-    amount,
-    service_description,
-    patient_name,
-    patient_document,
-    patient_document_type,
-    status,
-    retry_count
-  )
-  SELECT 
-    therapist_id,
-    patient_id,
-    billing_period_id,
-    v_new_ref,
-    v_new_ref_number,
-    CURRENT_DATE,
-    amount,
-    service_description,
-    patient_name,
-    patient_document,
-    patient_document_type,
-    'pending',
-    retry_count + 1
+  -- Get the failed invoice data
+  SELECT * INTO v_old_invoice
   FROM nfse_invoices
   WHERE billing_period_id = p_billing_period_id
     AND status = 'error'
   ORDER BY created_at DESC
-  LIMIT 1
-  RETURNING id INTO v_invoice_id;
+  LIMIT 1;
   
-  RETURN v_invoice_id;
+  IF v_old_invoice IS NULL THEN
+    RAISE EXCEPTION 'No failed invoice found for billing period %', p_billing_period_id;
+  END IF;
+  
+  -- Mark old invoice as superseded
+  UPDATE nfse_invoices 
+  SET status = 'superseded', updated_at = CURRENT_TIMESTAMP
+  WHERE id = v_old_invoice.id;
+  
+  -- Get new reference number
+  SELECT ref, ref_number INTO v_new_ref, v_new_ref_number
+  FROM get_next_invoice_ref(v_old_invoice.therapist_id);
+  
+  -- Create new invoice record
+  INSERT INTO nfse_invoices (
+    therapist_id, patient_id, billing_period_id,
+    internal_ref, ref_number, provider_reference,
+    invoice_date, amount, service_description, session_count,
+    patient_name, patient_document, patient_document_type, patient_email,
+    status, retry_count
+  ) VALUES (
+    v_old_invoice.therapist_id, v_old_invoice.patient_id, v_old_invoice.billing_period_id,
+    v_new_ref, v_new_ref_number, v_new_ref, -- provider_reference = internal_ref
+    CURRENT_DATE, v_old_invoice.amount, v_old_invoice.service_description, v_old_invoice.session_count,
+    v_old_invoice.patient_name, v_old_invoice.patient_document, 
+    v_old_invoice.patient_document_type, v_old_invoice.patient_email,
+    'pending', v_old_invoice.retry_count + 1
+  )
+  RETURNING id INTO v_new_invoice_id;
+  
+  RETURN v_new_invoice_id;
 END;
 $$ LANGUAGE plpgsql;
 
 -- =============================================================================
--- TRIGGERS
+-- TRIGGERS - MINIMAL SET
 -- =============================================================================
 
+-- Create update trigger function if it doesn't exist
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Apply triggers
 CREATE TRIGGER update_therapist_nfse_config_updated_at 
     BEFORE UPDATE ON therapist_nfse_config 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -378,69 +352,64 @@ CREATE TRIGGER update_provider_configuration_updated_at
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =============================================================================
--- COMMENTS
+-- SEED DATA - BASIC CONFIGURATION
 -- =============================================================================
 
-COMMENT ON TABLE provider_configuration IS 'Provider API configuration (Focus NFE master settings)';
-COMMENT ON TABLE therapist_nfse_config IS 'Minimal NFS-e configuration - provider handles company data';
-COMMENT ON TABLE nfse_invoices IS 'Invoice records with provider integration';
-COMMENT ON VIEW v_billing_period_invoices IS 'Simplified view for frontend invoice queries';
-
-COMMENT ON COLUMN therapist_nfse_config.cnpj IS 'CNPJ is the only identifier needed - provider stores everything else';
-COMMENT ON COLUMN therapist_nfse_config.next_invoice_ref IS 'Counter for generating LV-1, LV-2, etc. references';
-COMMENT ON COLUMN therapist_nfse_config.provider_company_token_encrypted IS 'Cached company token from Focus NFE (optional optimization)';
-
-COMMENT ON COLUMN nfse_invoices.internal_ref IS 'Our reference format: LV-1, LV-2, etc. for tracking';
-COMMENT ON COLUMN nfse_invoices.ref_number IS 'Numeric part of reference for ordering and incrementing';
-COMMENT ON COLUMN nfse_invoices.provider_reference IS 'The reference we send to the provider (same as internal_ref)';
-COMMENT ON COLUMN nfse_invoices.provider_response IS 'Complete provider API response for debugging';
-COMMENT ON COLUMN nfse_invoices.patient_document IS 'CPF (11 digits) or CNPJ (14 digits) without formatting';
-COMMENT ON COLUMN nfse_invoices.session_count IS 'Number of sessions included (for period invoices)';
-COMMENT ON COLUMN nfse_invoices.invoice_number IS 'Municipal invoice number displayed in UI';
-COMMENT ON COLUMN nfse_invoices.issue_date IS 'Date invoice was issued (for display)';
-COMMENT ON COLUMN nfse_invoices.cancellation_reason IS 'Reason for cancellation (shown in UI)';
-
-COMMENT ON FUNCTION get_invoice_status_for_billing_period IS 'Used by frontend to check invoice status';
-COMMENT ON FUNCTION cancel_nfse_invoice IS 'Cancels an issued invoice with reason';
-COMMENT ON FUNCTION retry_failed_invoice IS 'Creates new invoice attempt after error';
+-- Insert default provider configuration
+INSERT INTO provider_configuration (provider_name, sandbox_mode) 
+VALUES ('focus_nfe', true)
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
--- SUCCESS MESSAGE
+-- DOCUMENTATION
+-- =============================================================================
+
+COMMENT ON TABLE provider_configuration IS 'Focus NFe master API configuration';
+COMMENT ON TABLE therapist_nfse_config IS 'Minimal local config - Focus NFe stores company data via CNPJ';
+COMMENT ON TABLE nfse_invoices IS 'Invoice audit trail with Focus NFe integration';
+
+COMMENT ON COLUMN therapist_nfse_config.company_cnpj IS 'CNPJ identifier - all company data fetched dynamically from Focus NFe';
+COMMENT ON COLUMN therapist_nfse_config.next_invoice_ref IS 'Counter for LV-1, LV-2, etc. references';
+COMMENT ON COLUMN nfse_invoices.internal_ref IS 'Our tracking reference (LV-X) - also sent as provider_reference';
+COMMENT ON COLUMN nfse_invoices.provider_response IS 'Full Focus NFe response for debugging';
+
+-- =============================================================================
+-- ARCHITECTURE NOTES
 -- =============================================================================
 
 DO $$ BEGIN
     RAISE NOTICE '';
-    RAISE NOTICE '========================================';
-    RAISE NOTICE 'NFS-e Integration Schema Installed';
-    RAISE NOTICE '========================================';
+    RAISE NOTICE '=========================================================';
+    RAISE NOTICE 'NFS-e Integration Schema - Simplified Architecture';
+    RAISE NOTICE '=========================================================';
     RAISE NOTICE '';
-    RAISE NOTICE 'Core Features:';
-    RAISE NOTICE '  ✓ Provider-agnostic design';
-    RAISE NOTICE '  ✓ Minimal CNPJ-based configuration';
-    RAISE NOTICE '  ✓ LV-X reference numbering system';
-    RAISE NOTICE '  ✓ Full invoice lifecycle tracking';
+    RAISE NOTICE 'PRINCIPLE: Focus NFe is single source of truth for:';
+    RAISE NOTICE '  • Company data (name, address, municipal registration)';
+    RAISE NOTICE '  • Digital certificates';
+    RAISE NOTICE '  • Company tokens';
     RAISE NOTICE '';
-    RAISE NOTICE 'Frontend Support:';
-    RAISE NOTICE '  ✓ Invoice status queries by billing period';
-    RAISE NOTICE '  ✓ Cancel invoice with reason tracking';
-    RAISE NOTICE '  ✓ Retry failed invoices';
-    RAISE NOTICE '  ✓ Display fields (invoice number, issue date)';
+    RAISE NOTICE 'WE ONLY STORE LOCALLY:';
+    RAISE NOTICE '  • CNPJ (identifier for Focus NFe lookups)';
+    RAISE NOTICE '  • Invoice preferences (service codes, tax rates)';
+    RAISE NOTICE '  • Invoice counter (LV-1, LV-2, LV-3...)';
+    RAISE NOTICE '  • Invoice audit trail';
     RAISE NOTICE '';
-    RAISE NOTICE 'Tables Created:';
-    RAISE NOTICE '  • provider_configuration';
-    RAISE NOTICE '  • therapist_nfse_config';
-    RAISE NOTICE '  • nfse_invoices';
+    RAISE NOTICE 'BENEFITS:';
+    RAISE NOTICE '  ✓ No data sync conflicts';
+    RAISE NOTICE '  ✓ Always current company data';
+    RAISE NOTICE '  ✓ Simplified updates';
+    RAISE NOTICE '  ✓ Single source of truth';
     RAISE NOTICE '';
-    RAISE NOTICE 'Helper Functions:';
-    RAISE NOTICE '  • get_next_invoice_ref()';
-    RAISE NOTICE '  • get_invoice_status_for_billing_period()';
-    RAISE NOTICE '  • cancel_nfse_invoice()';
-    RAISE NOTICE '  • retry_failed_invoice()';
+    RAISE NOTICE 'TABLES CREATED:';
+    RAISE NOTICE '  • provider_configuration (Focus NFe settings)';
+    RAISE NOTICE '  • therapist_nfse_config (CNPJ + preferences only)';
+    RAISE NOTICE '  • nfse_invoices (audit trail)';
     RAISE NOTICE '';
-    RAISE NOTICE 'Next Steps:';
-    RAISE NOTICE '  1. Insert provider configuration with master token';
-    RAISE NOTICE '  2. Add therapist CNPJ to therapist_nfse_config';
-    RAISE NOTICE '  3. Implement backend API endpoints';
+    RAISE NOTICE 'KEY FUNCTIONS:';
+    RAISE NOTICE '  • get_next_invoice_ref() - Generate LV-X references';
+    RAISE NOTICE '  • get_invoice_status_for_billing_period() - Frontend queries';
+    RAISE NOTICE '  • cancel_nfse_invoice() - Cancel with reason tracking';
+    RAISE NOTICE '  • retry_failed_invoice() - Retry with new reference';
     RAISE NOTICE '';
-    RAISE NOTICE '========================================';
+    RAISE NOTICE '=========================================================';
 END $$;
