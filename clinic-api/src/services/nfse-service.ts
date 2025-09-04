@@ -60,6 +60,9 @@ export interface CompanyData {
     production?: string;
     sandbox?: string;
   };
+  proximo_numero_nfse_producao?: string;
+  proximo_numero_nfse_homologacao?: string;
+
 }
 
 export interface InvoiceRequest {
@@ -443,8 +446,18 @@ export class NFSeService {
       }
     }
 
-    // FIXED: Get next invoice reference from database
-    const { ref: internalRef, refNumber } = await this.getNextInvoiceRef(therapistId);
+    // FIXED: Get next invoice reference from Focus NFE
+    const isProduction = process.env.FOCUS_NFE_SANDBOX !== 'true';
+    // const { ref: internalRef, refNumber } = await this.getNextInvoiceRef(therapistId);
+    // const companyData = await this.getCompanyData(therapistId);
+
+    const nextRps = isProduction
+      ? companyData.proximo_numero_nfse_producao
+      : companyData.proximo_numero_nfse_homologacao;
+
+    const internalRef = `LV-${companyData.cnpj}-${nextRps}`;
+    const refNumber = nextRps;
+
     console.log(`Generated invoice reference: ${internalRef} (number: ${refNumber})`);
 
     // Build service description

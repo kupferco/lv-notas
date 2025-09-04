@@ -149,7 +149,10 @@ export class FocusNFeProvider implements NFSeProvider {
                 tokens: {
                     production: response[0].token_producao,
                     sandbox: response[0].token_homologacao
-                }
+                },
+                proximo_numero_nfse_producao: response[0].proximo_numero_nfse_producao,
+                proximo_numero_nfse_homologacao: response[0].proximo_numero_nfse_homologacao
+
             };
         } catch (error) {
             console.error(`Failed to get company data for ${cnpj}:`, error);
