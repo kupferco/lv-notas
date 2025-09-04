@@ -322,7 +322,7 @@ router.get("/company/:therapistId", asyncHandler(async (req, res) => {
 
 // 4. Generate invoice (simplified)
 router.post("/invoice/generate", asyncHandler(async (req, res) => {
-    const { therapistId, patientId, year, month, sessionIds, customerData, testMode } = req.body;
+    const { therapistId, patientId, year, month, sessionIds, testMode } = req.body;
 
     console.log("=== INVOICE GENERATION ===");
     console.log("Request body:", JSON.stringify(req.body, null, 2));
@@ -347,7 +347,7 @@ router.post("/invoice/generate", asyncHandler(async (req, res) => {
                 amount: 100.00,
                 taxAmount: 2.00,
                 issueDate: new Date().toISOString(),
-                customerName: customerData?.name || 'TESTE DE VALIDAÇÃO',
+                customerName: 'TESTE DE VALIDAÇÃO',
                 serviceDescription: 'Teste de validação do sistema - SEM VALOR FISCAL',
                 pdfUrl: null,
                 xmlUrl: null,
@@ -419,7 +419,6 @@ router.post("/invoice/generate", asyncHandler(async (req, res) => {
             parseInt(year),
             parseInt(month),
             sessionIds,
-            customerData
         );
 
         return res.json({

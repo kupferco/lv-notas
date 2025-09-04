@@ -255,7 +255,6 @@ export class FocusNFeProvider implements NFSeProvider {
     async generateInvoice(
         companyId: string, // This will be the CNPJ
         data: InvoiceRequest,
-        certificateData?: { buffer: Buffer, password: string }, // Not needed anymore
         customReference?: string
     ): Promise<InvoiceResult> {
         try {
@@ -327,14 +326,14 @@ export class FocusNFeProvider implements NFSeProvider {
             // Build URL - no dry_run for invoice operations (they use proper environment URLs)
             let endpoint = `/v2/nfse?ref=${encodeURIComponent(reference)}`;
 
-            console.log('=== FOCUS NFE INVOICE REQUEST DEBUG ===');
-            console.log('Environment:', process.env.NODE_ENV);
-            console.log('Sandbox mode:', this.config.sandbox);
-            console.log('Invoice URL:', this.invoiceBaseUrl);
-            console.log('Company token:', companyToken ? 'Present' : 'Missing');
-            console.log('Reference:', reference);
-            console.log('Focus NFe Request Payload:', JSON.stringify(focusInvoice, null, 2));
-            console.log('=== END DEBUG ===');
+            // console.log('=== FOCUS NFE INVOICE REQUEST DEBUG ===');
+            // console.log('Environment:', process.env.NODE_ENV);
+            // console.log('Sandbox mode:', this.config.sandbox);
+            // console.log('Invoice URL:', this.invoiceBaseUrl);
+            // console.log('Company token:', companyToken ? 'Present' : 'Missing');
+            // console.log('Reference:', reference);
+            // console.log('Focus NFe Request Payload:', JSON.stringify(focusInvoice, null, 2));
+            // console.log('=== END DEBUG ===');
 
             // SPOOF RESPONSE (JUST FOR CHECKING PAYLOAD)
             // return {

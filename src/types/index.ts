@@ -1,20 +1,31 @@
 // src/types/index.ts
 
 export interface Patient {
-  id: string;
-  name: string;
-  email: string;
-  telefone: string;
-  cpf: string;
-  endereco?: string;
-  dataNascimento?: string;
-  genero?: string;
-  contatoEmergencia?: string;
-  telefoneEmergencia?: string;
+  id?: string; // Optional for create operations
+  name?: string; // For display (maps from 'nome')
+  nome?: string; // For API requests
+  email?: string;
+  telefone?: string;
+  cpf?: string;
+  therapistEmail?: string; // For create operations
   sessionPrice?: number;
   therapyStartDate?: string;
   lvNotasBillingStartDate?: string;
   observacoes?: string;
+  
+  // Address fields
+  enderecoRua?: string;
+  enderecoNumero?: string;
+  enderecoBairro?: string;
+  enderecoCodigoMunicipio?: string;
+  enderecoUf?: string;
+  enderecoCep?: string;
+  
+  // Personal information fields
+  dataNascimento?: string;
+  genero?: string;
+  contatoEmergenciaNome?: string;
+  contatoEmergenciaTelefone?: string;
 }
 
 export interface Session {

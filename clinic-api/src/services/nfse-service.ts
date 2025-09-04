@@ -7,7 +7,7 @@ import { SessionSnapshot } from './monthly-billing.js';
 // Keep existing interfaces but simplify implementation
 export interface NFSeProvider {
   registerCompany(companyData: CompanyRegistration, certificateData?: { buffer: Buffer, password: string }): Promise<string>;
-  generateInvoice(companyId: string, data: InvoiceRequest, certificateData?: { buffer: Buffer, password: string }, customReference?: string): Promise<InvoiceResult>;
+  generateInvoice(companyId: string, data: InvoiceRequest, customReference?: string): Promise<InvoiceResult>;
   getInvoiceStatus(companyId: string, invoiceId: string): Promise<InvoiceStatus>;
   getCompanyData(cnpj: string): Promise<CompanyData>;
   validateCertificate(certificate: Buffer, password: string): Promise<CertificateValidation>;
@@ -382,11 +382,7 @@ export class NFSeService {
     patientId: number,
     year: number,
     month: number,
-    sessionIds?: number[],
-    customerData?: {
-      document?: string;
-      address?: any;
-    }
+    sessionIds?: number[]
   ): Promise<InvoiceResult> {
     const config = await this.getTherapistConfig(therapistId);
     if (!config) {
@@ -400,13 +396,25 @@ export class NFSeService {
     // Get fresh company data from Focus NFe
     const companyData = await this.getCompanyData(therapistId);
 
-    // Get billing period data
+    // Get billing period data with complete patient information including address
     const billingResult = await pool.query(
       `SELECT 
             bp.*,
             p.nome as patient_name,
             p.email as patient_email,
-            p.cpf as patient_cpf
+            p.cpf as patient_cpf,
+            -- Address fields
+            p.endereco_rua,
+            p.endereco_numero,
+            p.endereco_bairro,
+            p.endereco_codigo_municipio,
+            p.endereco_uf,
+            p.endereco_cep,
+            -- Personal info fields (in case needed for customer data)
+            p.data_nascimento,
+            p.genero,
+            p.contato_emergencia_nome,
+            p.contato_emergencia_telefone
         FROM monthly_billing_periods bp
         JOIN patients p ON bp.patient_id = p.id
         WHERE bp.therapist_id = $1 
@@ -440,7 +448,17 @@ export class NFSeService {
     console.log(`Generated invoice reference: ${internalRef} (number: ${refNumber})`);
 
     // Build service description
-    const serviceDescription = this.buildSessionsDescription(sessionSnapshots, totalAmount);
+    const serviceDescription = this.buildSessionsDescription(sessionSnapshots, totalAmount, config);
+
+    // Build customer address object from patient data (use empty strings as fallbacks)
+    const customerAddress = {
+      street: billingPeriod.endereco_rua || '',
+      number: billingPeriod.endereco_numero || '',
+      neighborhood: billingPeriod.endereco_bairro || '',
+      cityCode: billingPeriod.endereco_codigo_municipio || '',
+      state: billingPeriod.endereco_uf || '',
+      zipCode: billingPeriod.endereco_cep || ''
+    };
 
     // Build invoice data using fresh company data
     const invoiceData: InvoiceRequest = {
@@ -450,8 +468,8 @@ export class NFSeService {
 
       customerName: billingPeriod.patient_name,
       customerEmail: billingPeriod.patient_email,
-      customerDocument: customerData?.document || billingPeriod.patient_cpf,
-      customerAddress: customerData?.address,
+      customerDocument: billingPeriod.patient_cpf,
+      customerAddress: customerAddress,
 
       // FIXED: Use municipal service code (not ABRASF)
       serviceCode: config.service_code || '05118',  // Municipal code for São Paulo psychology
@@ -463,26 +481,27 @@ export class NFSeService {
       sessionDate: new Date()
     };
 
-    console.log(invoiceData)
-    console.log(customerData)
+    console.log('Invoice Data:', invoiceData);
+    console.log('Customer Address:', customerAddress);
 
-    return {
-      invoiceId: 'asdsa',
-      invoiceNumber: '213',
-      status: 'pending',
-      pdfUrl: 'asdsad',
-      xmlUrl: 'asdsad',
-      verificationCode: 'sadas',
-      accessKey: 'sadas',
-      issueDate: new Date(),
-      error: 'sadas',
-      databaseId: 44
-    };
+    // (THIS COMMENTED METHOD BELOW STOPS THE INVOICE GENERATION – used for checking the payload wihtout creating anything)
+    // return {
+    //   invoiceId: 'asdsa',
+    //   invoiceNumber: '213',
+    //   status: 'pending',
+    //   pdfUrl: 'asdsad',
+    //   xmlUrl: 'asdsad',
+    //   verificationCode: 'sadas',
+    //   accessKey: 'sadas',
+    //   issueDate: new Date(),
+    //   error: 'sadas',
+    //   databaseId: 44
+    // };
 
     console.log(`Generating invoice ${internalRef} - Therapist: ${therapistId}, Patient: ${patientId}, Period: ${month}/${year}`);
 
     // FIXED: Pass the internal reference to the provider
-    const result = await this.provider.generateInvoice(companyData.cnpj, invoiceData, undefined, internalRef);
+    const result = await this.provider.generateInvoice(companyData.cnpj, invoiceData, internalRef);
 
     // Store invoice record in our database for audit trail
     if (result.status !== 'error' || true) {
@@ -503,8 +522,8 @@ export class NFSeService {
           therapistId, patientId, internalRef, refNumber, internalRef,
           billingPeriod.id, new Date(), totalAmount / 100, serviceDescription, sessionSnapshots.length,
           billingPeriod.patient_name,
-          customerData?.document || billingPeriod.patient_cpf,
-          (customerData?.document || billingPeriod.patient_cpf)?.length === 11 ? 'cpf' : 'cnpj',
+          billingPeriod.patient_cpf,
+          billingPeriod.patient_cpf?.length === 11 ? 'cpf' : 'cnpj',
           billingPeriod.patient_email,
           result.status, result.invoiceId, result.invoiceNumber, result.status,
           result.pdfUrl, result.xmlUrl,
@@ -526,7 +545,11 @@ export class NFSeService {
   /**
    * Build service description listing all session dates
    */
-  private buildSessionsDescription(sessionSnapshots: SessionSnapshot[], totalAmountCents: number): string {
+  private buildSessionsDescription(
+    sessionSnapshots: SessionSnapshot[],
+    totalAmountCents: number,
+    therapistConfig: any
+  ): string {
     const formatDate = (dateStr: string) => {
       const date = new Date(dateStr);
       return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -550,6 +573,12 @@ export class NFSeService {
     }
 
     description += `Valor total: ${formatCurrency(totalAmountCents)}`;
+
+    // Append custom service description from therapist settings
+    if (therapistConfig.service_description && therapistConfig.service_description.trim()) {
+      description += `\n\n${therapistConfig.service_description.trim()}`;
+    }
+
     return description;
   }
 
