@@ -1,13 +1,7 @@
 // src/services/whatsapp.ts
-
 import { PatientPaymentSummary, WhatsAppMessageData } from '../types/payments';
+import { BillingSummary } from '../types/calendar-only';
 import { messageTemplates, generateWhatsAppMessage } from '../config/paymentsMode';
-
-// export interface WhatsAppMessageData {
-//     phone: string;
-//     message: string;
-//     whatsappUrl: string;
-// }
 
 export class WhatsAppService {
     private formatPhoneNumber(phone: string): string {
@@ -17,11 +11,18 @@ export class WhatsAppService {
         // If it starts with 0, remove it
         let formattedPhone = cleanPhone.startsWith('0') ? cleanPhone.substring(1) : cleanPhone;
 
-        // If it doesn't start with 55 (Brazil country code), add it
-        if (!formattedPhone.startsWith('55') && false) {
-            formattedPhone = '55' + formattedPhone;
+        // If it already has country code (55), use as is
+        if (formattedPhone.startsWith('55')) {
+            return formattedPhone;
         }
 
+        // If it starts with area code (like 11), add country code
+        // Brazilian mobile numbers are typically 11 digits (2 area + 9 number)
+        if (formattedPhone.length === 11 || formattedPhone.length === 10) {
+            return '55' + formattedPhone;
+        }
+
+        // For any other format, return as is (might be international)
         return formattedPhone;
     }
 
@@ -37,48 +38,115 @@ export class WhatsAppService {
         });
     }
 
-    public generatePaymentRequestMessage(patient: PatientPaymentSummary): string {
-        const totalAmount = this.formatCurrency(patient.total_amount);
-        const pendingAmount = this.formatCurrency(patient.pending_amount);
-        const lastSessionDate = this.formatDate(patient.last_session_date);
+    public generatePaymentRequestMessage(patient: PatientPaymentSummary | BillingSummary): string {
+        // Handle both PatientPaymentSummary and BillingSummary types
+        let patientName: string;
+        let totalSessions: number;
+        let totalAmount: number;
+        let sessionDates: string[] = [];
+
+        if ('patient_name' in patient) {
+            // PatientPaymentSummary type
+            patientName = patient.patient_name;
+            totalSessions = patient.total_sessions;
+            totalAmount = patient.total_amount;
+            // Use session_dates if available
+            sessionDates = patient.session_dates || [];
+        } else {
+            // BillingSummary type
+            patientName = patient.patientName;
+            totalSessions = patient.sessionCount;
+            totalAmount = patient.totalAmount / 100; // Convert from cents to reais
+            // Extract dates from sessionSnapshots
+            if (patient.sessionSnapshots) {
+                sessionDates = patient.sessionSnapshots.map(snapshot => {
+                    const date = new Date(snapshot.date);
+                    return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+                });
+            }
+        }
+
+        // Format the session dates list
+        const sessionDatesList = sessionDates.map(date => `• ${date}`).join('\n');
+
+        // Get month name in Portuguese
+        const lastSessionDate = sessionDates.length > 0 ? sessionDates[sessionDates.length - 1] : '';
+        const [day, month] = lastSessionDate.split('/');
+        const monthNames = [
+            'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+            'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
+        ];
+        const mes = month ? monthNames[parseInt(month) - 1] : '';
+
+        // Format total amount
+        const totalAmountFormatted = this.formatCurrency(totalAmount);
 
         return generateWhatsAppMessage(messageTemplates.paymentRequest, {
-            patientName: patient.patient_name,
-            lastSessionDate,
-            totalSessions: patient.total_sessions,
-            totalAmount,
-            pendingAmount
+            patientName: patientName,
+            mes: mes,
+            totalSessions: totalSessions,
+            sessionDatesList: sessionDatesList,
+            totalAmount: totalAmountFormatted
         });
     }
 
-    public generatePaymentReminderMessage(patient: PatientPaymentSummary): string {
-        const pendingAmount = this.formatCurrency(patient.pending_amount);
-        const lastSessionDate = this.formatDate(patient.last_session_date);
+    public generatePaymentReminderMessage(patient: PatientPaymentSummary | BillingSummary): string {
+        let patientName: string;
+        let pendingAmount: number;
+        let lastSessionDate: string;
+
+        if ('patient_name' in patient) {
+            // PatientPaymentSummary type
+            patientName = patient.patient_name;
+            pendingAmount = patient.pending_amount;
+            lastSessionDate = patient.last_session_date;
+        } else {
+            // BillingSummary type
+            patientName = patient.patientName;
+            pendingAmount = patient.totalAmount / 100;
+            // Get the last session date from sessionSnapshots
+            lastSessionDate = patient.sessionSnapshots && patient.sessionSnapshots.length > 0
+                ? patient.sessionSnapshots[patient.sessionSnapshots.length - 1].date
+                : new Date().toISOString();
+        }
+
+        const pendingAmountFormatted = this.formatCurrency(pendingAmount);
+        const lastSessionDateFormatted = this.formatDate(lastSessionDate);
 
         return generateWhatsAppMessage(messageTemplates.paymentReminder, {
-            patientName: patient.patient_name,
-            lastSessionDate,
-            pendingAmount
+            patientName: patientName,
+            lastSessionDate: lastSessionDateFormatted,
+            pendingAmount: pendingAmountFormatted
         });
     }
 
-    public createWhatsAppLink(patient: PatientPaymentSummary, messageType: 'invoice' | 'reminder'): WhatsAppMessageData {
-        // Get patient phone - use your phone for testing, but fallback to patient phone in production
+    public createWhatsAppLink(patient: PatientPaymentSummary | BillingSummary, messageType: 'invoice' | 'reminder'): WhatsAppMessageData {
+        // Get patient phone - handle both types
+        let patientPhone: string | undefined;
+
+        if ('telefone' in patient) {
+            patientPhone = patient.telefone;
+        } else if ('patient_name' in patient) {
+            // For PatientPaymentSummary, we might need to fetch phone separately
+            // or it should be included in the type
+            patientPhone = (patient as any).telefone;
+        }
+
         const testPhone = '+447866750132';
-        const patientPhone = patient.telefone || testPhone;
+        const phoneToUse = patientPhone || testPhone;
 
-        const formattedPhone = this.formatPhoneNumber(patientPhone);
+        const formattedPhone = this.formatPhoneNumber(phoneToUse);
 
-        const message = messageType === 'invoice'
-            ? this.generatePaymentRequestMessage(patient)
-            : this.generatePaymentReminderMessage(patient);
+        const message = this.generatePaymentRequestMessage(patient)
+        // const message = messageType === 'invoice'
+        //     ? this.generatePaymentRequestMessage(patient)
+        //     : this.generatePaymentReminderMessage(patient);
 
         // Encode message for URL
         const encodedMessage = encodeURIComponent(message);
 
         // Create WhatsApp URL
-        const whatsappUrl = `https://wa.me/${testPhone}?text=${encodedMessage}`;
-        // const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
+        const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
 
         return {
             phone: formattedPhone,
@@ -86,24 +154,25 @@ export class WhatsAppService {
             whatsappUrl: whatsappUrl,
         };
     }
+
     public openWhatsAppLink(whatsappData: WhatsAppMessageData): void {
         // Open WhatsApp link in new tab/window
         window.open(whatsappData.whatsappUrl, '_blank');
     }
 
     // Convenience methods for direct use
-    public sendPaymentRequest(patient: PatientPaymentSummary): void {
+    public sendPaymentRequest(patient: PatientPaymentSummary | BillingSummary): void {
         const whatsappData = this.createWhatsAppLink(patient, 'invoice');
         this.openWhatsAppLink(whatsappData);
     }
 
-    public sendPaymentReminder(patient: PatientPaymentSummary): void {
+    public sendPaymentReminder(patient: PatientPaymentSummary | BillingSummary): void {
         const whatsappData = this.createWhatsAppLink(patient, 'reminder');
         this.openWhatsAppLink(whatsappData);
     }
 
     // Method to show preview before sending (for user confirmation)
-    public previewMessage(patient: PatientPaymentSummary, messageType: 'invoice' | 'reminder'): WhatsAppMessageData {
+    public previewMessage(patient: PatientPaymentSummary | BillingSummary, messageType: 'invoice' | 'reminder'): WhatsAppMessageData {
         return this.createWhatsAppLink(patient, messageType);
     }
 }

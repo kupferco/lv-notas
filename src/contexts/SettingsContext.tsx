@@ -104,7 +104,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
 
       console.log('📤 Settings to save:', settingsToSave);
 
-      const response = await apiService.updateTherapistSettings(therapistEmail, settingsToSave);
+      const response = await apiService.saveTherapistSettings(therapistEmail, settingsToSave);
       console.log('✅ Settings saved successfully:', response);
 
     } catch (error: any) {

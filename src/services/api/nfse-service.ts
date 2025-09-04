@@ -1,26 +1,30 @@
 // src/services/api/nfse-service.ts - NFS-e API Service
 
 import { baseApiService } from './base-service';
+import { NFSeSettings } from '../../components/nfse/types'
 
 // Type definitions for NFS-e API
 export interface CertificateStatus {
   hasValidCertificate: boolean;
-  status: 'not_uploaded' | 'active' | 'expired' | 'invalid';
+  status: 'not_uploaded' | 'uploaded' | 'expired' | 'invalid';
   expiresAt?: string;
   expiresIn30Days?: boolean;
   certificateInfo?: {
     commonName: string;
     issuer: string;
+    cnpj: string;
   };
+  validationStatus?: string;
 }
 
-export interface NFSeSettings {
-  serviceCode: string;
-  taxRate: number;
-  defaultServiceDescription: string;
-  issWithholding: boolean;
-  additionalInfo?: string;
-}
+// export interface NFSeSettings {
+//   serviceCode: string;
+//   taxRate: number;
+//   serviceDescription: string;
+//   issWithholding: boolean;
+//   additionalInfo?: string;
+//   isConfigured?: boolean;
+// }
 
 export interface CompanyData {
   cnpj: string;
@@ -42,11 +46,11 @@ export interface CompanyData {
   };
 }
 
-export interface TestInvoiceData {
-  sessionId: string;
+export interface InvoiceData {
+  patientId: string;
+  year: number;
+  month: number;
   customerData?: {
-    name?: string;
-    email?: string;
     document?: string;
     address?: {
       street: string;
@@ -56,12 +60,8 @@ export interface TestInvoiceData {
       city: string;
       state: string;
       zipCode: string;
+      cityCode?: string;
     };
-  };
-  serviceData?: {
-    description?: string;
-    value?: number;
-    serviceCode?: string;
   };
 }
 
@@ -105,6 +105,17 @@ export interface Invoice {
   patientName: string;
 }
 
+interface BillingPeriodInfo {
+  billing_period_id: number;
+  patient_id: number;
+  year: number;
+  month: number;
+  session_count: number;
+  total_amount: number;
+  patient_name: string;
+  patient_document?: string;
+}
+
 const { makeApiCall, canMakeAuthenticatedCall, handleApiError } = baseApiService;
 
 export const nfseService = {
@@ -112,7 +123,7 @@ export const nfseService = {
   // CERTIFICATE MANAGEMENT
   // ==========================================
 
-  async uploadCertificate(therapistId: string, certificateFile: any, password: string): Promise<void> {
+  async uploadCertificate(therapistId: string, certificateFile: any, password: string): Promise<any> {  // Change return type
     if (!canMakeAuthenticatedCall()) {
       throw new Error("Authentication required for certificate operations");
     }
@@ -153,7 +164,10 @@ export const nfseService = {
         throw new Error(error.error || "Failed to upload certificate");
       }
 
+      const data = await response.json();  // ADD THIS
       console.log("✅ Certificate uploaded successfully");
+      return data;  // ADD THIS
+
     } catch (error) {
       return handleApiError(error as Error, 'uploadCertificate');
     }
@@ -197,36 +211,94 @@ export const nfseService = {
   // INVOICE GENERATION
   // ==========================================
 
-  async generateTestInvoice(therapistId: string, invoiceData: TestInvoiceData): Promise<{ invoice: InvoiceResult }> {
+  // Add these methods to your nfse-service.ts file in the INVOICE MANAGEMENT section
+
+  async getInvoiceForBillingPeriod(billingPeriodId: number): Promise<any> {
     if (!canMakeAuthenticatedCall()) {
-      throw new Error("Authentication required for invoice generation");
+      throw new Error("Authentication required for invoice operations");
     }
 
     try {
-      console.log("📞 generateTestInvoice API call for therapist:", therapistId);
-      return await makeApiCall<{ invoice: InvoiceResult }>(`/api/nfse/invoice/test`, {
-        method: "POST",
-        body: JSON.stringify({ therapistId, ...invoiceData }),
-      });
+      console.log("📞 getInvoiceForBillingPeriod API call for billing period:", billingPeriodId);
+      const response = await makeApiCall<any>(`/api/nfse/billing-period/${billingPeriodId}/invoice`);
+      return response.invoice;
     } catch (error) {
-      return handleApiError(error as Error, 'generateTestInvoice');
+      return handleApiError(error as Error, 'getInvoiceForBillingPeriod');
     }
   },
 
-  async generateProductionInvoice(therapistId: string, invoiceData: TestInvoiceData): Promise<{ invoice: InvoiceResult; invoiceRecord: any }> {
+  async getInvoiceStatusFromDatabase(invoiceId: number): Promise<any> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for invoice operations");
+    }
+
+    try {
+      console.log("📞 getInvoiceStatusFromDatabase API call for invoice:", invoiceId);
+      return await makeApiCall<any>(`/api/nfse/invoice/${invoiceId}/status`);
+    } catch (error) {
+      return handleApiError(error as Error, 'getInvoiceStatusFromDatabase');
+    }
+  },
+
+  async cancelInvoice(invoiceId: string, reason?: string): Promise<any> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for invoice operations");
+    }
+
+    try {
+      console.log("📞 cancelInvoice API call for invoice:", invoiceId);
+      return await makeApiCall(`/api/nfse/invoice/${invoiceId}/cancel`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason || 'Cancelamento solicitado pelo usuário' }),
+      });
+    } catch (error) {
+      return handleApiError(error as Error, 'cancelInvoice');
+    }
+  },
+
+  async generateNFSeInvoice(therapistId: number, patientId: number, year: number, month: number, customerData?: any): Promise<any> {
     if (!canMakeAuthenticatedCall()) {
       throw new Error("Authentication required for invoice generation");
     }
 
     try {
-      console.log("📞 generateProductionInvoice API call for therapist:", therapistId);
+      console.log("📞 generateNFSeInvoice API call", { therapistId, patientId, year, month });
+      const response = await makeApiCall<any>(`/api/nfse/invoice/generate`, {
+        method: "POST",
+        body: JSON.stringify({
+          therapistId,
+          patientId,
+          year,
+          month,
+          customerData,
+          testMode: false
+        }),
+      });
+      console.log("✅ NFS-e invoice generated successfully", response);
+      return response;
+    } catch (error) {
+      return handleApiError(error as Error, 'generateNFSeInvoice');
+    }
+  },
+
+  async generateInvoice(therapistId: string, invoiceData: InvoiceData): Promise<{ invoice: InvoiceResult; invoiceRecord: any }> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for invoice generation");
+    }
+
+    try {
+      console.log("📞 generateInvoice API call for therapist:", therapistId);
       return await makeApiCall<{ invoice: InvoiceResult; invoiceRecord: any }>(`/api/nfse/invoice/generate`, {
         method: "POST",
         body: JSON.stringify({ therapistId, ...invoiceData }),
       });
     } catch (error) {
-      return handleApiError(error as Error, 'generateProductionInvoice');
+      return handleApiError(error as Error, 'generateInvoice');
     }
+  },
+
+  async getFirstAvailableBillingPeriod(therapistId: string): Promise<BillingPeriodInfo> {
+    return await makeApiCall<BillingPeriodInfo>(`/api/nfse/billing/first-available/${therapistId}`);
   },
 
   // ==========================================
@@ -284,11 +356,11 @@ export const nfseService = {
 
     try {
       console.log("📞 updateNFSeSettings API call for therapist:", therapistId);
-      await makeApiCall(`/api/nfse/settings`, {
+      const result = await makeApiCall(`/api/nfse/settings`, {
         method: "PUT",
         body: JSON.stringify({ therapistId, settings }),
       });
-      console.log("✅ NFS-e settings updated successfully");
+      console.log("✅ NFS-e settings updated successfully", result);
     } catch (error) {
       return handleApiError(error as Error, 'updateNFSeSettings');
     }
@@ -303,18 +375,8 @@ export const nfseService = {
       console.log("📞 getNFSeSettings API call for therapist:", therapistId);
       return await makeApiCall<{ settings: NFSeSettings }>(`/api/nfse/settings/${therapistId}`);
     } catch (error) {
-      // Return default settings if not found
-      if (error instanceof Error && error.message.includes('404')) {
-        console.log("📭 NFS-e settings not found, returning defaults");
-        return {
-          settings: {
-            serviceCode: '14.01',
-            taxRate: 5,
-            defaultServiceDescription: 'Serviços de Psicologia',
-            issWithholding: false
-          }
-        };
-      }
+      // Let the error bubble up instead of hiding it with defaults
+      console.error("❌ getNFSeSettings failed:", error);
       return handleApiError(error as Error, 'getNFSeSettings');
     }
   },
@@ -346,13 +408,8 @@ export const nfseService = {
       console.log("📞 getServiceCodes API call");
       return await makeApiCall<{ serviceCodes: ServiceCode[] }>(`/api/nfse/service-codes?${queryParams}`);
     } catch (error) {
-      console.warn("⚠️ Failed to get service codes, returning defaults:", error);
-      return {
-        serviceCodes: [
-          { code: '14.01', description: 'Serviços de Psicologia e Psicanálise' },
-          { code: '14.13', description: 'Terapias de Qualquer Espécie Destinadas ao Tratamento Físico, Mental e Espiritual' }
-        ]
-      };
+      console.error("❌ getServiceCodes failed:", error);
+      return handleApiError(error as Error, 'getServiceCodes');
     }
   },
 

@@ -31,10 +31,10 @@ const asyncHandler = (
 };
 
 // ============================================================================
-// EXISTING ENDPOINTS
+// EXISTING ENDPOINTS (ENHANCED WITH ALL NEW FIELDS)
 // ============================================================================
 
-// GET /api/patients?therapistEmail=email - Filter patients by therapist (ENHANCED with CPF)
+// GET /api/patients?therapistEmail=email - Filter patients by therapist (ENHANCED with all fields)
 router.get("/", asyncHandler(async (req, res) => {
   const { therapistEmail } = req.query;
 
@@ -42,7 +42,7 @@ router.get("/", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "therapistEmail parameter is required" });
   }
 
-  // Include all patient fields with proper camelCase aliases including CPF
+  // Include ALL patient fields including new address and personal info fields
   const result = await pool.query(
     `SELECT 
      p.id, 
@@ -53,7 +53,19 @@ router.get("/", asyncHandler(async (req, res) => {
      CAST(p.preco AS INTEGER) as "sessionPrice",
      p.therapy_start_date as "therapyStartDate",
      p.lv_notas_billing_start_date as "lvNotasBillingStartDate",
-     p.notes as observacoes
+     p.notes as observacoes,
+     -- Address fields
+     p.endereco_rua as "enderecoRua",
+     p.endereco_numero as "enderecoNumero", 
+     p.endereco_bairro as "enderecoBairro",
+     p.endereco_codigo_municipio as "enderecoCodigoMunicipio",
+     p.endereco_uf as "enderecoUf",
+     p.endereco_cep as "enderecoCep",
+     -- Personal info fields
+     p.data_nascimento as "dataNascimento",
+     p.genero,
+     p.contato_emergencia_nome as "contatoEmergenciaNome",
+     p.contato_emergencia_telefone as "contatoEmergenciaTelefone"
    FROM patients p 
    INNER JOIN therapists t ON p.therapist_id = t.id 
    WHERE t.email = $1 
@@ -64,23 +76,30 @@ router.get("/", asyncHandler(async (req, res) => {
   return res.json(result.rows);
 }));
 
-// POST /api/patients - Create new patient (ENHANCED with CPF support)
+// POST /api/patients - Create new patient (ENHANCED with all new fields)
 router.post("/", asyncHandler(async (req, res) => {
   const {
     nome,
     email,
     telefone,
-    cpf, // New CPF field
+    cpf,
     therapistEmail,
     sessionPrice,
     therapyStartDate,
     lvNotasBillingStartDate,
     observacoes,
-    endereco,
+    // Address fields
+    enderecoRua,
+    enderecoNumero,
+    enderecoBairro,
+    enderecoCodigoMunicipio,
+    enderecoUf,
+    enderecoCep,
+    // Personal info fields
     dataNascimento,
     genero,
-    contatoEmergencia,
-    telefoneEmergencia
+    contatoEmergenciaNome,
+    contatoEmergenciaTelefone
   } = req.body;
 
   console.log("=== CREATE PATIENT REQUEST ===");
@@ -116,6 +135,17 @@ router.post("/", asyncHandler(async (req, res) => {
       return res.status(400).json({
         error: "CPF inválido - não pode ter todos os dígitos iguais",
         receivedCpf: cpf
+      });
+    }
+  }
+
+  // CEP validation if provided
+  if (enderecoCep && enderecoCep.trim()) {
+    const cleanCep = enderecoCep.replace(/\D/g, '');
+    if (cleanCep.length !== 8) {
+      return res.status(400).json({
+        error: "CEP deve ter 8 dígitos",
+        receivedCep: enderecoCep
       });
     }
   }
@@ -189,17 +219,45 @@ router.post("/", asyncHandler(async (req, res) => {
       return `${cleanCpf.slice(0, 3)}.${cleanCpf.slice(3, 6)}.${cleanCpf.slice(6, 9)}-${cleanCpf.slice(9, 11)}`;
     }
 
-    // Create the patient with ALL fields including CPF and dates
+    // Format CEP for storage (XXXXX-XXX)
+    function formatCepForStorage(cepInput: string): string | null {
+      if (!cepInput || !cepInput.trim()) return null;
+
+      const cleanCep = cepInput.replace(/\D/g, '');
+      if (cleanCep.length !== 8) return null;
+
+      return `${cleanCep.slice(0, 5)}-${cleanCep.slice(5, 8)}`;
+    }
+
+    // Format phone for storage (only digits)
+    function formatPhoneForStorage(phoneInput: string): string | null {
+      if (!phoneInput || !phoneInput.trim()) return null;
+      return phoneInput.replace(/\D/g, '');
+    }
+
+    // Create the patient with ALL fields
     console.log("Creating patient with data:", {
       nome,
       email: email || null,
-      telefone: telefone || null,
+      telefone: formatPhoneForStorage(telefone),
       cpf: formatCpfForStorage(cpf),
       therapistId,
       sessionPrice: sessionPrice || null,
       therapyStartDate: formatDateForDB(therapyStartDate),
       lvNotasBillingStartDate: formatDateForDB(lvNotasBillingStartDate),
-      observacoes: observacoes || null
+      observacoes: observacoes || null,
+      // Address
+      enderecoRua: enderecoRua?.trim() || null,
+      enderecoNumero: enderecoNumero?.trim() || null,
+      enderecoBairro: enderecoBairro?.trim() || null,
+      enderecoCodigoMunicipio: enderecoCodigoMunicipio?.trim() || '3550308', // São Paulo default
+      enderecoUf: enderecoUf?.trim() || 'SP', // São Paulo default
+      enderecoCep: formatCepForStorage(enderecoCep),
+      // Personal info
+      dataNascimento: formatDateForDB(dataNascimento),
+      genero: genero?.trim() || null,
+      contatoEmergenciaNome: contatoEmergenciaNome?.trim() || null,
+      contatoEmergenciaTelefone: formatPhoneForStorage(contatoEmergenciaTelefone)
     });
 
     const result = await pool.query(
@@ -212,8 +270,18 @@ router.post("/", asyncHandler(async (req, res) => {
         preco,
         therapy_start_date,
         lv_notas_billing_start_date,
-        notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
+        notes,
+        endereco_rua,
+        endereco_numero,
+        endereco_bairro,
+        endereco_codigo_municipio,
+        endereco_uf,
+        endereco_cep,
+        data_nascimento,
+        genero,
+        contato_emergencia_nome,
+        contato_emergencia_telefone
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) 
       RETURNING 
         id, 
         nome as name, 
@@ -223,17 +291,37 @@ router.post("/", asyncHandler(async (req, res) => {
         CAST(preco AS INTEGER) as "sessionPrice",
         therapy_start_date as "therapyStartDate",
         lv_notas_billing_start_date as "lvNotasBillingStartDate",
-        notes as observacoes`,
+        notes as observacoes,
+        endereco_rua as "enderecoRua",
+        endereco_numero as "enderecoNumero", 
+        endereco_bairro as "enderecoBairro",
+        endereco_codigo_municipio as "enderecoCodigoMunicipio",
+        endereco_uf as "enderecoUf",
+        endereco_cep as "enderecoCep",
+        data_nascimento as "dataNascimento",
+        genero,
+        contato_emergencia_nome as "contatoEmergenciaNome",
+        contato_emergencia_telefone as "contatoEmergenciaTelefone"`,
       [
         nome,
         email || null,
-        telefone || null,
+        formatPhoneForStorage(telefone),
         formatCpfForStorage(cpf),
         therapistId,
         sessionPrice || null,
         formatDateForDB(therapyStartDate),
         formatDateForDB(lvNotasBillingStartDate),
-        observacoes || null
+        observacoes || null,
+        enderecoRua?.trim() || null,
+        enderecoNumero?.trim() || null,
+        enderecoBairro?.trim() || null,
+        enderecoCodigoMunicipio?.trim() || '3550308',
+        enderecoUf?.trim() || 'SP',
+        formatCepForStorage(enderecoCep),
+        formatDateForDB(dataNascimento),
+        genero?.trim() || null,
+        contatoEmergenciaNome?.trim() || null,
+        formatPhoneForStorage(contatoEmergenciaTelefone)
       ]
     );
 
@@ -250,18 +338,30 @@ router.post("/", asyncHandler(async (req, res) => {
   }
 }));
 
-// PUT /api/patients/:id - Update patient (ENHANCED with CPF support)
+// PUT /api/patients/:id - Update patient (ENHANCED with all new fields)
 router.put("/:id", asyncHandler(async (req, res) => {
   const { id } = req.params;
   const {
     nome,
     email,
     telefone,
-    cpf, // New CPF field
+    cpf,
     sessionPrice,
     therapyStartDate,
     lvNotasBillingStartDate,
-    observacoes
+    observacoes,
+    // Address fields
+    enderecoRua,
+    enderecoNumero,
+    enderecoBairro,
+    enderecoCodigoMunicipio,
+    enderecoUf,
+    enderecoCep,
+    // Personal info fields
+    dataNascimento,
+    genero,
+    contatoEmergenciaNome,
+    contatoEmergenciaTelefone
   } = req.body;
 
   console.log('UPDATE PATIENT DEBUG:');
@@ -293,8 +393,19 @@ router.put("/:id", asyncHandler(async (req, res) => {
     }
   }
 
+  // CEP validation if provided
+  if (enderecoCep && enderecoCep.trim()) {
+    const cleanCep = enderecoCep.replace(/\D/g, '');
+    if (cleanCep.length !== 8) {
+      return res.status(400).json({
+        error: "CEP deve ter 8 dígitos",
+        receivedCep: enderecoCep
+      });
+    }
+  }
+
   try {
-    // Format CPF for storage (XXX.XXX.XXX-XX)
+    // Format functions (same as in POST)
     function formatCpfForStorage(cpfInput: string | undefined): string | null {
       if (!cpfInput || !cpfInput.trim()) return null;
 
@@ -303,6 +414,34 @@ router.put("/:id", asyncHandler(async (req, res) => {
 
       return `${cleanCpf.slice(0, 3)}.${cleanCpf.slice(3, 6)}.${cleanCpf.slice(6, 9)}-${cleanCpf.slice(9, 11)}`;
     }
+
+    function formatCepForStorage(cepInput: string | undefined): string | null {
+      if (!cepInput || !cepInput.trim()) return null;
+
+      const cleanCep = cepInput.replace(/\D/g, '');
+      if (cleanCep.length !== 8) return null;
+
+      return `${cleanCep.slice(0, 5)}-${cleanCep.slice(5, 8)}`;
+    }
+
+    function formatPhoneForStorage(phoneInput: string | undefined): string | null {
+      if (!phoneInput || !phoneInput.trim()) return null;
+      return phoneInput.replace(/\D/g, '');
+    }
+
+    const formatDateForDB = (dateString: string | undefined | null): string | null => {
+      if (!dateString) return null;
+      try {
+        // If it's already in YYYY-MM-DD format, return as is
+        if (dateString.includes('-')) return dateString;
+        // Convert from DD/MM/YYYY to YYYY-MM-DD
+        const [day, month, year] = dateString.split('/');
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      } catch (error: any) {
+        console.error('Error formatting date for DB:', dateString, error);
+        return null;
+      }
+    };
 
     // Check for duplicate CPF if provided (excluding current patient)
     if (cpf && cpf.trim()) {
@@ -331,8 +470,18 @@ router.put("/:id", asyncHandler(async (req, res) => {
          preco = $5,
          therapy_start_date = $6,
          lv_notas_billing_start_date = $7,
-         notes = $8
-       WHERE id = $9 
+         notes = $8,
+         endereco_rua = $9,
+         endereco_numero = $10,
+         endereco_bairro = $11,
+         endereco_codigo_municipio = $12,
+         endereco_uf = $13,
+         endereco_cep = $14,
+         data_nascimento = $15,
+         genero = $16,
+         contato_emergencia_nome = $17,
+         contato_emergencia_telefone = $18
+       WHERE id = $19 
        RETURNING 
          id, 
          nome as name, 
@@ -342,16 +491,36 @@ router.put("/:id", asyncHandler(async (req, res) => {
          CAST(preco AS INTEGER) as sessionPrice,
          therapy_start_date as therapyStartDate,
          lv_notas_billing_start_date as lvNotasBillingStartDate,
-         notes as observacoes`,
+         notes as observacoes,
+         endereco_rua as "enderecoRua",
+         endereco_numero as "enderecoNumero", 
+         endereco_bairro as "enderecoBairro",
+         endereco_codigo_municipio as "enderecoCodigoMunicipio",
+         endereco_uf as "enderecoUf",
+         endereco_cep as "enderecoCep",
+         data_nascimento as "dataNascimento",
+         genero,
+         contato_emergencia_nome as "contatoEmergenciaNome",
+         contato_emergencia_telefone as "contatoEmergenciaTelefone"`,
       [
         nome,
         email || null,
-        telefone || null,
+        formatPhoneForStorage(telefone),
         formatCpfForStorage(cpf),
         sessionPrice || null,
-        therapyStartDate || null,
-        lvNotasBillingStartDate || null,
+        formatDateForDB(therapyStartDate),
+        formatDateForDB(lvNotasBillingStartDate),
         observacoes || null,
+        enderecoRua?.trim() || null,
+        enderecoNumero?.trim() || null,
+        enderecoBairro?.trim() || null,
+        enderecoCodigoMunicipio?.trim() || null,
+        enderecoUf?.trim() || null,
+        formatCepForStorage(enderecoCep),
+        formatDateForDB(dataNascimento),
+        genero?.trim() || null,
+        contatoEmergenciaNome?.trim() || null,
+        formatPhoneForStorage(contatoEmergenciaTelefone),
         id
       ]
     );
@@ -368,7 +537,7 @@ router.put("/:id", asyncHandler(async (req, res) => {
   }
 }));
 
-// DELETE /api/patients/:id - Delete patient
+// DELETE /api/patients/:id - Delete patient (unchanged)
 router.delete("/:id", asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -403,7 +572,7 @@ router.delete("/:id", asyncHandler(async (req, res) => {
 }));
 
 // ============================================================================
-// NEW ENHANCED ENDPOINTS (Dual Date System & Billing)
+// NEW ENHANCED ENDPOINTS (Dual Date System & Billing) - keeping existing ones
 // ============================================================================
 
 // GET /api/patients/full?therapistEmail=email - Get patients with complete dual date & billing info

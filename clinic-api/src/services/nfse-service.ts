@@ -1,19 +1,19 @@
 // clinic-api/src/services/nfse-service.ts
-// NFS-e service layer using Focus NFe
 
 import pool from '../config/database.js';
 import { FocusNFeProvider } from './providers/focus-nfe-provider.js';
-import { EncryptionService } from '../utils/encryption.js';
+import { SessionSnapshot } from './monthly-billing.js';
 
-// Types for NFS-e operations
+// Keep existing interfaces but simplify implementation
 export interface NFSeProvider {
-  registerCompany(companyData: CompanyRegistration): Promise<string>;
-  generateInvoice(companyId: string, data: InvoiceRequest): Promise<InvoiceResult>;
+  registerCompany(companyData: CompanyRegistration, certificateData?: { buffer: Buffer, password: string }): Promise<string>;
+  generateInvoice(companyId: string, data: InvoiceRequest, customReference?: string): Promise<InvoiceResult>;
   getInvoiceStatus(companyId: string, invoiceId: string): Promise<InvoiceStatus>;
+  getCompanyData(cnpj: string): Promise<CompanyData>;
   validateCertificate(certificate: Buffer, password: string): Promise<CertificateValidation>;
   cancelInvoice?(companyId: string, invoiceId: string, reason: string): Promise<boolean>;
   testConnection?(): Promise<boolean>;
-  getServiceCodes?(cityCode?: string): Promise<Array<{code: string, description: string}>>;
+  getServiceCodes?(cityCode?: string): Promise<Array<{ code: string, description: string }>>;
 }
 
 export interface CompanyRegistration {
@@ -33,12 +33,42 @@ export interface CompanyRegistration {
     city: string;
     state: string;
     zipCode: string;
+    cityCode?: string;
   };
+}
+
+export interface CompanyData {
+  cnpj: string;
+  companyName: string;
+  tradeName?: string;
+  email: string;
+  phone?: string;
+  municipalRegistration?: string;
+  stateRegistration?: string;
+  expiresAt: string;
+  address: {
+    street: string;
+    number: string;
+    complement?: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    zipCode: string;
+    cityCode?: string;
+  };
+  tokens?: {
+    production?: string;
+    sandbox?: string;
+  };
+  proximo_numero_nfse_producao?: string;
+  proximo_numero_nfse_homologacao?: string;
+
 }
 
 export interface InvoiceRequest {
   providerCnpj: string;
   providerMunicipalRegistration?: string;
+  providerCityCode?: string;
   customerName: string;
   customerEmail?: string;
   customerDocument?: string;
@@ -47,11 +77,13 @@ export interface InvoiceRequest {
     number: string;
     complement?: string;
     neighborhood: string;
-    city: string;
+    city?: string;
     state: string;
     zipCode: string;
+    cityCode?: string;
   };
   serviceCode: string;
+  abrasfServiceCode?: string;
   serviceDescription: string;
   serviceValue: number;
   taxRate?: number;
@@ -88,8 +120,14 @@ export interface CertificateValidation {
   issuer?: string;
   subject?: string;
   error?: string;
+  cnpj?: string;
+  companyName?: string;
 }
 
+/**
+ * Simplified NFS-e Service
+ * PRINCIPLE: Focus NFe stores company data, we only store CNPJ + preferences
+ */
 export class NFSeService {
   private provider: NFSeProvider;
 
@@ -98,195 +136,419 @@ export class NFSeService {
   }
 
   private initializeProvider(): NFSeProvider {
-    // Initialize Focus NFe provider
     const focusNFeConfig = {
-      apiKey: process.env.FOCUS_NFE_API_KEY || '',
-      apiUrl: process.env.FOCUS_NFE_API_URL || 'https://api.focusnfe.com.br',
+      apiKey: process.env.FOCUS_NFE_MASTER_TOKEN || '',
+      apiUrl: process.env.FOCUS_NFE_SANDBOX === 'true'
+        ? process.env.FOCUS_NFE_API_URL_HOMOLOGACAO || ''
+        : process.env.FOCUS_NFE_API_URL_PROD || '',
       sandbox: process.env.FOCUS_NFE_SANDBOX === 'true'
     };
 
     if (!focusNFeConfig.apiKey) {
-      throw new Error('Focus NFe API key not configured. Please set FOCUS_NFE_API_KEY environment variable.');
+      throw new Error('Focus NFe master token not configured. Please set FOCUS_NFE_MASTER_TOKEN environment variable.');
     }
 
     const provider = new FocusNFeProvider(focusNFeConfig);
-    console.log('✅ Focus NFe provider initialized');
-    console.log(`🔧 Mode: ${focusNFeConfig.sandbox ? 'SANDBOX' : 'PRODUCTION'}`);
-    
+    console.log('Focus NFe provider initialized');
+    console.log(`Mode: ${focusNFeConfig.sandbox ? 'SANDBOX' : 'PRODUCTION'}`);
+
     return provider;
   }
 
   /**
-   * Get therapist's NFS-e configuration
+   * Get therapist's minimal NFS-e configuration (CNPJ + preferences only)
    */
   async getTherapistConfig(therapistId: number): Promise<any> {
     const result = await pool.query(
-      'SELECT * FROM therapist_nfse_config WHERE therapist_id = $1',
+      'SELECT * FROM therapist_nfse_config WHERE therapist_id = $1 AND is_active = true',
       [therapistId]
     );
-    
-    if (result.rows.length === 0) {
-      return null;
-    }
 
-    const config = result.rows[0];
-    
-    // Decrypt sensitive data for use
-    if (config.certificate_password_encrypted) {
-      try {
-        const encryptedData = JSON.parse(config.certificate_password_encrypted);
-        config.certificate_password = EncryptionService.decryptPassword(
-          encryptedData.encryptedData,
-          encryptedData.iv,
-          encryptedData.salt,
-          process.env.CERTIFICATE_ENCRYPTION_KEY || 'default-development-key-change-in-production'
-        );
-      } catch (error) {
-        console.error('Error decrypting certificate password:', error);
-      }
-    }
-
-    return config;
+    return result.rows[0] || null;
   }
 
   /**
-   * Create or update therapist's NFS-e configuration
+   * Create or update therapist's NFS-e configuration (minimal data only)
    */
   async updateTherapistConfig(therapistId: number, configData: {
-    nfse_provider?: string;
-    provider_company_id?: string;
-    company_cnpj?: string;
-    company_name?: string;
-    company_email?: string;
-    company_phone?: string;
-    company_municipal_registration?: string;
-    company_state_registration?: string;
-    company_address?: object;
-    default_service_code?: string;
-    default_tax_rate?: number;
-    default_service_description?: string;
-    auto_generate_invoices?: boolean;
+    company_cnpj: string;
+    focus_nfe_company_id?: string,
+    certificate_uploaded?: boolean;
+    service_code?: string;
+    tax_rate?: number;
+    service_description?: string;
     send_email_to_patient?: boolean;
+    include_session_details?: boolean;
   }): Promise<any> {
     const existing = await this.getTherapistConfig(therapistId);
-    
+
     if (existing) {
-      // Update existing configuration
+      // Update existing - only update provided fields
+      const updates: string[] = [];
+      const values: any[] = [therapistId];
+      let paramCount = 1;
+
+      if (configData.company_cnpj !== undefined) {
+        updates.push(`company_cnpj = $${++paramCount}`);
+        values.push(configData.company_cnpj);
+      }
+
+      if (configData.focus_nfe_company_id !== undefined) {
+        updates.push(`focus_nfe_company_id = $${++paramCount}`);
+        values.push(configData.focus_nfe_company_id);
+      }
+
+      if (configData.certificate_uploaded !== undefined) {
+        updates.push(`certificate_uploaded = $${++paramCount}`);
+        values.push(configData.certificate_uploaded);
+        if (configData.certificate_uploaded) {
+          updates.push(`certificate_uploaded_at = CURRENT_TIMESTAMP`);
+        }
+      }
+
+      if (configData.service_code !== undefined) {
+        updates.push(`service_code = $${++paramCount}`);
+        values.push(configData.service_code);
+      }
+
+      if (configData.tax_rate !== undefined) {
+        updates.push(`tax_rate = $${++paramCount}`);
+        values.push(configData.tax_rate);
+      }
+
+      if (configData.service_description !== undefined) {
+        updates.push(`service_description = $${++paramCount}`);
+        values.push(configData.service_description);
+      }
+
+      if (configData.send_email_to_patient !== undefined) {
+        updates.push(`send_email_to_patient = $${++paramCount}`);
+        values.push(configData.send_email_to_patient);
+      }
+
+      if (configData.include_session_details !== undefined) {
+        updates.push(`include_session_details = $${++paramCount}`);
+        values.push(configData.include_session_details);
+      }
+
+      updates.push('updated_at = CURRENT_TIMESTAMP');
+
       const result = await pool.query(`
         UPDATE therapist_nfse_config 
-        SET nfse_provider = $2, provider_company_id = $3, company_cnpj = $4,
-            company_name = $5, company_email = $6, company_phone = $7,
-            company_municipal_registration = $8, company_state_registration = $9,
-            company_address = $10, default_service_code = $11, default_tax_rate = $12,
-            default_service_description = $13, auto_generate_invoices = $14,
-            send_email_to_patient = $15, updated_at = CURRENT_TIMESTAMP
+        SET ${updates.join(', ')}
         WHERE therapist_id = $1 
         RETURNING *
-      `, [
-        therapistId, 
-        configData.nfse_provider || 'focus_nfe',
-        configData.provider_company_id || configData.company_cnpj,
-        configData.company_cnpj, configData.company_name, configData.company_email,
-        configData.company_phone, configData.company_municipal_registration,
-        configData.company_state_registration, JSON.stringify(configData.company_address || {}),
-        configData.default_service_code || '14.01', configData.default_tax_rate || 5.0,
-        configData.default_service_description || 'Serviços de psicoterapia',
-        configData.auto_generate_invoices !== undefined ? configData.auto_generate_invoices : false,
-        configData.send_email_to_patient !== undefined ? configData.send_email_to_patient : true
-      ]);
+      `, values);
+
       return result.rows[0];
     } else {
-      // Create new configuration
+      // Create new configuration with minimal required data
       const result = await pool.query(`
         INSERT INTO therapist_nfse_config (
-          therapist_id, nfse_provider, provider_company_id, company_cnpj,
-          company_name, company_email, company_phone, company_municipal_registration,
-          company_state_registration, company_address, default_service_code,
-          default_tax_rate, default_service_description, auto_generate_invoices,
-          send_email_to_patient
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+          therapist_id, company_cnpj, certificate_uploaded,
+          service_code, tax_rate, service_description,
+          send_email_to_patient, include_session_details
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
       `, [
-        therapistId, 
-        configData.nfse_provider || 'focus_nfe',
-        configData.provider_company_id || configData.company_cnpj,
-        configData.company_cnpj, configData.company_name, configData.company_email,
-        configData.company_phone, configData.company_municipal_registration,
-        configData.company_state_registration, JSON.stringify(configData.company_address || {}),
-        configData.default_service_code || '14.01', configData.default_tax_rate || 5.0,
-        configData.default_service_description || 'Serviços de psicoterapia',
-        configData.auto_generate_invoices !== undefined ? configData.auto_generate_invoices : false,
-        configData.send_email_to_patient !== undefined ? configData.send_email_to_patient : true
+        therapistId,
+        configData.company_cnpj,
+        configData.certificate_uploaded || false,
+        configData.service_code || '07498',
+        configData.tax_rate || 2.0,
+        configData.service_description || 'Sessão de psicoterapia',
+        configData.send_email_to_patient !== undefined ? configData.send_email_to_patient : true,
+        configData.include_session_details !== undefined ? configData.include_session_details : true
       ]);
+
       return result.rows[0];
     }
   }
 
   /**
-   * Register company with Focus NFe (automatic - uses CNPJ as ID)
+   * Update only therapist settings (not CNPJ - for settings endpoint)
+   * FIXED: Use correct column names from schema
    */
-  async registerCompany(therapistId: number, companyData: CompanyRegistration): Promise<string> {
+  async updateTherapistSettings(therapistId: number, settings: {
+    service_code?: string;
+    tax_rate?: number;
+    service_description?: string;
+    send_email_to_patient?: boolean;
+    include_session_details?: boolean;
+  }): Promise<any> {
+    const updates: string[] = [];
+    const values: any[] = [therapistId];
+    let paramCount = 1;
+
+    if (settings.service_code !== undefined) {
+      updates.push(`service_code = $${++paramCount}`);
+      values.push(settings.service_code);
+    }
+
+    if (settings.tax_rate !== undefined) {
+      updates.push(`tax_rate = $${++paramCount}`);
+      values.push(settings.tax_rate);
+    }
+
+    if (settings.service_description !== undefined) {
+      updates.push(`service_description = $${++paramCount}`);
+      values.push(settings.service_description);
+    }
+
+    if (settings.send_email_to_patient !== undefined) {
+      updates.push(`send_email_to_patient = $${++paramCount}`);
+      values.push(settings.send_email_to_patient);
+    }
+
+    if (settings.include_session_details !== undefined) {
+      updates.push(`include_session_details = $${++paramCount}`);
+      values.push(settings.include_session_details);
+    }
+
+    if (updates.length === 0) {
+      throw new Error('No settings provided to update');
+    }
+
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+
+    const result = await pool.query(`
+    UPDATE therapist_nfse_config 
+    SET ${updates.join(', ')}
+    WHERE therapist_id = $1 
+    RETURNING *
+  `, values);
+
+    if (result.rows.length === 0) {
+      throw new Error('Therapist not found or not configured for NFS-e');
+    }
+
+    return result.rows[0];
+  }
+
+  /**
+   * Register company with Focus NFe and store only CNPJ locally
+   */
+  async registerCompany(therapistId: number, companyData: CompanyRegistration, certificateData?: { buffer: Buffer, password: string }): Promise<string> {
     console.log(`Registering company with Focus NFe for therapist ${therapistId}`);
-    
-    const companyId = await this.provider.registerCompany(companyData);
-    
-    // Update therapist config with company ID
+
+    // Register with Focus NFe (they store all the company data)
+    const companyId = await this.provider.registerCompany(companyData, certificateData);
+
+    // Store only the CNPJ and certificate status locally
     await this.updateTherapistConfig(therapistId, {
-      provider_company_id: companyId,
       company_cnpj: companyData.cnpj,
-      company_name: companyData.companyName,
-      company_email: companyData.email,
-      company_phone: companyData.phone,
-      company_municipal_registration: companyData.municipalRegistration,
-      company_state_registration: companyData.stateRegistration,
-      company_address: companyData.address
+      focus_nfe_company_id: companyId,
+      certificate_uploaded: !!certificateData
     });
-    
+
+    console.log(`Company registered - CNPJ ${companyData.cnpj} stored locally for therapist ${therapistId}`);
     return companyId;
   }
 
   /**
-   * Generate NFS-e invoice
+   * Get fresh company data from Focus NFe (single source of truth)
    */
-  async generateInvoice(therapistId: number, invoiceData: InvoiceRequest): Promise<InvoiceResult> {
+  async getCompanyData(therapistId: number): Promise<CompanyData> {
+    const config = await this.getTherapistConfig(therapistId);
+    if (!config) {
+      throw new Error('Therapist NFS-e configuration not found.');
+    }
+
+    console.log(`Fetching fresh company data from Focus NFe for CNPJ: ${config.company_cnpj}`);
+    return await this.provider.getCompanyData(config.company_cnpj);
+  }
+
+  /**
+   * Generate next invoice reference
+   */
+  async getNextInvoiceRef(therapistId: number): Promise<{ ref: string, refNumber: number }> {
+    const result = await pool.query(
+      'SELECT ref, ref_number FROM get_next_invoice_ref($1)',
+      [therapistId]
+    );
+
+    if (result.rows.length === 0) {
+      throw new Error('Failed to generate invoice reference. Therapist may not be configured for NFS-e.');
+    }
+
+    return {
+      ref: result.rows[0].ref,
+      refNumber: result.rows[0].ref_number
+    };
+  }
+
+  /**
+   * Generate NFS-e invoice for sessions (simplified - no local certificates)
+   */
+  async generateInvoiceForSessions(
+    therapistId: number,
+    patientId: number,
+    year: number,
+    month: number,
+    sessionIds?: number[]
+  ): Promise<InvoiceResult> {
     const config = await this.getTherapistConfig(therapistId);
     if (!config) {
       throw new Error('Therapist NFS-e configuration not found. Please configure NFS-e settings first.');
     }
 
-    const companyId = config.provider_company_id || config.company_cnpj;
-    if (!companyId) {
-      throw new Error('Company not registered with Focus NFe. Please complete NFS-e setup first.');
+    if (!config.certificate_uploaded) {
+      throw new Error('Certificate not uploaded. Please upload certificate first.');
     }
 
-    console.log(`Generating invoice with Focus NFe for therapist ${therapistId}`);
-    
-    // Generate invoice with Focus NFe
-    const result = await this.provider.generateInvoice(companyId, invoiceData);
-    
-    // Store invoice in database if successful
-    if (result.status !== 'error') {
+    // Get fresh company data from Focus NFe
+    const companyData = await this.getCompanyData(therapistId);
+
+    // Get billing period data with complete patient information including address
+    const billingResult = await pool.query(
+      `SELECT 
+            bp.*,
+            p.nome as patient_name,
+            p.email as patient_email,
+            p.cpf as patient_cpf,
+            -- Address fields
+            p.endereco_rua,
+            p.endereco_numero,
+            p.endereco_bairro,
+            p.endereco_codigo_municipio,
+            p.endereco_uf,
+            p.endereco_cep,
+            -- Personal info fields (in case needed for customer data)
+            p.data_nascimento,
+            p.genero,
+            p.contato_emergencia_nome,
+            p.contato_emergencia_telefone
+        FROM monthly_billing_periods bp
+        JOIN patients p ON bp.patient_id = p.id
+        WHERE bp.therapist_id = $1 
+            AND bp.patient_id = $2 
+            AND bp.billing_year = $3 
+            AND bp.billing_month = $4
+            AND bp.status != 'void'`,
+      [therapistId, patientId, year, month]
+    );
+
+    if (billingResult.rows.length === 0) {
+      throw new Error(`No billing period found for patient ${patientId} in ${month}/${year}`);
+    }
+
+    const billingPeriod = billingResult.rows[0];
+    let sessionSnapshots = billingPeriod.session_snapshots || [];
+    let totalAmount = billingPeriod.total_amount;
+
+    // Filter sessions if specific IDs provided
+    if (sessionIds && sessionIds.length > 0) {
+      const originalCount = sessionSnapshots.length;
+      if (sessionIds.length < sessionSnapshots.length) {
+        sessionSnapshots = sessionSnapshots.slice(0, sessionIds.length);
+        const pricePerSession = totalAmount / originalCount;
+        totalAmount = pricePerSession * sessionSnapshots.length;
+      }
+    }
+
+    // FIXED: Get next invoice reference from Focus NFE
+    const isProduction = process.env.FOCUS_NFE_SANDBOX !== 'true';
+    // const { ref: internalRef, refNumber } = await this.getNextInvoiceRef(therapistId);
+    // const companyData = await this.getCompanyData(therapistId);
+
+    const nextRps = isProduction
+      ? companyData.proximo_numero_nfse_producao
+      : companyData.proximo_numero_nfse_homologacao;
+
+    const internalRef = `LV-${companyData.cnpj}-${nextRps}`;
+    const refNumber = nextRps;
+
+    console.log(`Generated invoice reference: ${internalRef} (number: ${refNumber})`);
+
+    // Build service description
+    const serviceDescription = this.buildSessionsDescription(sessionSnapshots, totalAmount, config);
+
+    // Build customer address object from patient data (use empty strings as fallbacks)
+    const customerAddress = {
+      street: billingPeriod.endereco_rua || '',
+      number: billingPeriod.endereco_numero || '',
+      neighborhood: billingPeriod.endereco_bairro || '',
+      cityCode: billingPeriod.endereco_codigo_municipio || '',
+      state: billingPeriod.endereco_uf || '',
+      zipCode: billingPeriod.endereco_cep || ''
+    };
+
+    // Build invoice data using fresh company data
+    const invoiceData: InvoiceRequest = {
+      providerCnpj: companyData.cnpj,
+      providerMunicipalRegistration: companyData.municipalRegistration,
+      providerCityCode: companyData.address?.cityCode || '3550308',
+
+      customerName: billingPeriod.patient_name,
+      customerEmail: billingPeriod.patient_email,
+      customerDocument: billingPeriod.patient_cpf,
+      customerAddress: customerAddress,
+
+      // FIXED: Use municipal service code (not ABRASF)
+      serviceCode: config.service_code || '05118',  // Municipal code for São Paulo psychology
+      abrasfServiceCode: config.abrasf_service_code || '416', // Keep ABRASF for compatibility 
+      serviceDescription,
+      serviceValue: totalAmount / 100, // Convert cents to reais
+      taxRate: config.tax_rate || 2.0,
+      taxWithheld: false,
+      sessionDate: new Date()
+    };
+
+    console.log('Invoice Data:', invoiceData);
+    console.log('Customer Address:', customerAddress);
+
+    // (THIS COMMENTED METHOD BELOW STOPS THE INVOICE GENERATION – used for checking the payload wihtout creating anything)
+    // return {
+    //   invoiceId: 'asdsa',
+    //   invoiceNumber: '213',
+    //   status: 'pending',
+    //   pdfUrl: 'asdsad',
+    //   xmlUrl: 'asdsad',
+    //   verificationCode: 'sadas',
+    //   accessKey: 'sadas',
+    //   issueDate: new Date(),
+    //   error: 'sadas',
+    //   databaseId: 44
+    // };
+
+    console.log(`Generating invoice ${internalRef} - Therapist: ${therapistId}, Patient: ${patientId}, Period: ${month}/${year}`);
+
+    // FIXED: Pass the internal reference to the provider
+    const result = await this.provider.generateInvoice(companyData.cnpj, invoiceData, internalRef);
+
+    // Store invoice record in our database for audit trail
+    if (result.status !== 'error' || true) {
       try {
+        const periodStart = new Date(year, month - 1, 1);
+        const periodEnd = new Date(year, month, 0);
+
         const dbResult = await pool.query(`
-          INSERT INTO nfse_invoices (
-            therapist_id, nfse_config_id, nfse_provider, provider_invoice_id,
-            invoice_number, invoice_amount, service_description, service_code,
-            tax_rate, recipient_name, recipient_email, invoice_status,
-            pdf_url, xml_url, provider_response, issued_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-          RETURNING id
-        `, [
-          therapistId, config.id, 'focus_nfe', result.invoiceId,
-          result.invoiceNumber, invoiceData.serviceValue, invoiceData.serviceDescription,
-          invoiceData.serviceCode, invoiceData.taxRate, invoiceData.customerName,
-          invoiceData.customerEmail, result.status, result.pdfUrl, result.xmlUrl,
+  INSERT INTO nfse_invoices (
+    therapist_id, patient_id, internal_ref, ref_number, provider_reference,
+    billing_period_id, invoice_date, amount, service_description, session_count,
+    patient_name, patient_document, patient_document_type, patient_email,
+    provider_status, provider_invoice_id, invoice_number, status,
+    pdf_url, xml_url, error_message, provider_response, issued_at
+  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+  RETURNING id
+`, [
+          therapistId, patientId, internalRef, refNumber, internalRef,
+          billingPeriod.id, new Date(), totalAmount / 100, serviceDescription, sessionSnapshots.length,
+          billingPeriod.patient_name,
+          billingPeriod.patient_cpf,
+          billingPeriod.patient_cpf?.length === 11 ? 'cpf' : 'cnpj',
+          billingPeriod.patient_email,
+          result.status, result.invoiceId, result.invoiceNumber, result.status,
+          result.pdfUrl, result.xmlUrl,
+          result.error,
           JSON.stringify(result), result.issueDate
         ]);
-        
+
         result.databaseId = dbResult.rows[0].id;
-        console.log(`✅ Invoice stored in database with ID: ${result.databaseId}`);
+
+        console.log(`Invoice ${internalRef} stored in database with ID: ${result.databaseId}, Status: ${result.status}`);
       } catch (error) {
-        console.error('❌ Error storing invoice in database:', error);
+        console.error('Error storing invoice in database:', error);
       }
     }
 
@@ -294,125 +556,147 @@ export class NFSeService {
   }
 
   /**
-   * Generate test invoice (sandbox mode)
+   * Build service description listing all session dates
    */
-  async generateTestInvoice(therapistId: number, invoiceData: InvoiceRequest): Promise<InvoiceResult> {
-    console.log(`🧪 Generating TEST invoice with Focus NFe for therapist ${therapistId}`);
-    return await this.generateInvoice(therapistId, invoiceData);
+  private buildSessionsDescription(
+    sessionSnapshots: SessionSnapshot[],
+    totalAmountCents: number,
+    therapistConfig: any
+  ): string {
+    const formatDate = (dateStr: string) => {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    };
+
+    const formatCurrency = (cents: number) => {
+      return `R$ ${(cents / 100).toFixed(2).replace('.', ',')}`;
+    };
+
+    let description = 'Serviços de psicoterapia realizados ';
+
+    if (sessionSnapshots.length === 1) {
+      description += `na seguinte data:\n`;
+      description += `- ${formatDate(sessionSnapshots[0].date)}\n`;
+    } else {
+      description += `nas seguintes datas:\n`;
+      sessionSnapshots.forEach(session => {
+        description += `- ${formatDate(session.date)}\n`;
+      });
+      description += `\nTotal de sessões: ${sessionSnapshots.length}\n`;
+    }
+
+    description += `Valor total: ${formatCurrency(totalAmountCents)}`;
+
+    // Append custom service description from therapist settings
+    if (therapistConfig.service_description && therapistConfig.service_description.trim()) {
+      description += `\n\n${therapistConfig.service_description.trim()}`;
+    }
+
+    return description;
   }
 
   /**
-   * Get invoice status from Focus NFe
+   * Get invoice status (fetch latest from Focus NFe and update our record)
    */
   async getInvoiceStatus(invoiceId: number, therapistId: number): Promise<InvoiceStatus> {
-    // Get invoice from database
     const invoice = await this.getInvoice(invoiceId, therapistId);
     const config = await this.getTherapistConfig(therapistId);
-    
+
     if (!config) {
       throw new Error('Therapist NFS-e configuration not found');
     }
 
-    console.log(`Getting invoice status from Focus NFe for invoice ${invoiceId}`);
+    console.log(`Getting fresh invoice status from Focus NFe for invoice ${invoiceId}`);
     const status = await this.provider.getInvoiceStatus(
-      config.provider_company_id || config.company_cnpj, 
-      invoice.provider_invoice_id
+      config.company_cnpj,
+      invoice.provider_reference
     );
-    
-    // Update database with latest status
-    if (status.status !== invoice.invoice_status) {
+
+    // Update our record with latest status if it changed
+    if (status.status !== invoice.status ||
+      status.pdfUrl !== invoice.pdf_url ||
+      status.xmlUrl !== invoice.xml_url) {
+
       await pool.query(`
         UPDATE nfse_invoices 
-        SET invoice_status = $1, pdf_url = $2, xml_url = $3, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $4
-      `, [status.status, status.pdfUrl || invoice.pdf_url, status.xmlUrl || invoice.xml_url, invoiceId]);
-      
-      console.log(`📋 Invoice ${invoiceId} status updated: ${invoice.invoice_status} → ${status.status}`);
+        SET status = $1, provider_status = $2, pdf_url = $3, xml_url = $4, 
+            invoice_number = $5, error_message = $6, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $7
+      `, [
+        status.status,
+        status.status,
+        status.pdfUrl || invoice.pdf_url,
+        status.xmlUrl || invoice.xml_url,
+        status.invoiceNumber || invoice.invoice_number,
+        status.error,
+        invoiceId
+      ]);
+
+      console.log(`Updated local invoice record ${invoiceId} with latest status: ${status.status}`);
     }
-    
+
     return status;
   }
 
-  /**
-   * Validate certificate with Focus NFe
-   */
   async validateCertificate(certificate: Buffer, password: string): Promise<CertificateValidation> {
-    console.log('🔍 Validating certificate with Focus NFe');
+    console.log('Validating certificate with Focus NFe');
     return await this.provider.validateCertificate(certificate, password);
   }
 
-  /**
-   * Test Focus NFe connection
-   */
   async testConnection(): Promise<boolean> {
     try {
-      console.log('🔗 Testing Focus NFe connection...');
+      console.log('Testing Focus NFe connection...');
       const result = this.provider.testConnection ? await this.provider.testConnection() : false;
-      console.log(`🔗 Focus NFe connection test: ${result ? '✅ SUCCESS' : '❌ FAILED'}`);
+      console.log(`Focus NFe connection test: ${result ? 'SUCCESS' : 'FAILED'}`);
       return result;
     } catch (error) {
-      console.error('❌ Focus NFe connection test failed:', error);
+      console.error('Focus NFe connection test failed:', error);
       return false;
     }
   }
 
-  /**
-   * Get available service codes from Focus NFe
-   */
-  async getServiceCodes(cityCode?: string): Promise<Array<{code: string, description: string}>> {
-    console.log('📋 Getting service codes from Focus NFe');
-    
+  async getServiceCodes(cityCode?: string): Promise<Array<{ code: string, description: string }>> {
     if (!this.provider.getServiceCodes) {
-      // Return default therapy service codes
       return [
-        { code: '14.01', description: 'Serviços de Psicologia e Psicanálise' },
-        { code: '14.13', description: 'Terapias de Qualquer Espécie Destinadas ao Tratamento Físico, Mental and Espiritual' }
+        { code: '07498', description: 'Serviços de Psicologia e Psicanálise' },
+        { code: '14.13', description: 'Terapias de Qualquer Espécie Destinadas ao Tratamento Físico, Mental e Espiritual' }
       ];
     }
 
     return await this.provider.getServiceCodes(cityCode);
   }
 
-  /**
-   * List therapist's invoices
-   */
   async getTherapistInvoices(
     therapistId: number,
     startDate?: Date,
     endDate?: Date,
     status?: string
   ): Promise<any[]> {
-    let query = 'SELECT * FROM nfse_invoices WHERE therapist_id = $1';
-    const params: any[] = [therapistId];
-    let paramCount = 1;
+    let query = 'SELECT * FROM nfse_invoices WHERE therapist_id = $1 AND status != $2';
+    const params: any[] = [therapistId, 'superseded'];
+    let paramCount = 2;
 
     if (startDate) {
-      paramCount++;
-      query += ` AND created_at >= $${paramCount}`;
+      query += ` AND created_at >= $${++paramCount}`;
       params.push(startDate);
     }
 
     if (endDate) {
-      paramCount++;
-      query += ` AND created_at <= $${paramCount}`;
+      query += ` AND created_at <= $${++paramCount}`;
       params.push(endDate);
     }
 
     if (status) {
-      paramCount++;
-      query += ` AND invoice_status = $${paramCount}`;
+      query += ` AND status = $${++paramCount}`;
       params.push(status);
     }
 
-    query += ' ORDER BY created_at DESC';
+    query += ' ORDER BY ref_number DESC';
 
     const result = await pool.query(query, params);
     return result.rows;
   }
 
-  /**
-   * Get invoice by ID
-   */
   async getInvoice(invoiceId: number, therapistId: number): Promise<any> {
     const result = await pool.query(
       'SELECT * FROM nfse_invoices WHERE id = $1 AND therapist_id = $2',
@@ -426,13 +710,10 @@ export class NFSeService {
     return result.rows[0];
   }
 
-  /**
-   * Cancel invoice with Focus NFe
-   */
   async cancelInvoice(invoiceId: number, therapistId: number, reason: string): Promise<boolean> {
     const invoice = await this.getInvoice(invoiceId, therapistId);
     const config = await this.getTherapistConfig(therapistId);
-    
+
     if (!config) {
       throw new Error('Therapist NFS-e configuration not found');
     }
@@ -441,35 +722,76 @@ export class NFSeService {
       throw new Error('Invoice cancellation not supported by Focus NFe');
     }
 
-    console.log(`🗑️ Canceling invoice ${invoiceId} with Focus NFe`);
+    console.log(`Canceling invoice ${invoiceId} with Focus NFe`);
     const success = await this.provider.cancelInvoice(
-      config.provider_company_id || config.company_cnpj, 
-      invoice.provider_invoice_id, 
+      config.company_cnpj,
+      invoice.provider_reference,
       reason
     );
 
     if (success) {
       await pool.query(`
         UPDATE nfse_invoices 
-        SET invoice_status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        SET status = 'cancelled', cancellation_reason = $2, cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
-      `, [invoiceId]);
-      
-      console.log(`✅ Invoice ${invoiceId} cancelled successfully`);
+      `, [invoiceId, reason]);
     }
 
     return success;
   }
 
-  /**
-   * Get provider information
-   */
-  getProviderInfo(): {name: string, displayName: string, configured: boolean} {
+  getProviderInfo(): { name: string, displayName: string, configured: boolean } {
     return {
       name: 'focus_nfe',
       displayName: 'Focus NFe',
-      configured: !!process.env.FOCUS_NFE_API_KEY
+      configured: !!process.env.FOCUS_NFE_MASTER_TOKEN
     };
+  }
+
+  /**
+   * Check pending invoices and update their status via polling
+   */
+  async checkPendingInvoices(): Promise<void> {
+    try {
+      console.log('Checking pending invoices...');
+
+      // Get processing invoices from the last 24 hours
+      const result = await pool.query(`
+      SELECT id, therapist_id, internal_ref FROM nfse_invoices 
+      WHERE status = 'processing' 
+      AND created_at > NOW() - INTERVAL '24 hours'
+    `);
+
+      console.log(`Found ${result.rows.length} processing invoices`);
+
+      for (const invoice of result.rows) {
+        try {
+          // Call the same endpoint webhooks will call
+          const response = await fetch('http://localhost:3000/api/nfse/invoice-status-update', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': process.env.SAFE_PROXY_KEY || ''
+            },
+            body: JSON.stringify({
+              invoiceId: invoice.id,
+              therapistId: invoice.therapist_id,
+              source: 'polling'
+            })
+          });
+
+          if (!response.ok) {
+            console.error(`Failed to update invoice ${invoice.internal_ref}: ${response.status}`);
+          } else {
+            console.log(`Updated invoice ${invoice.internal_ref} via polling`);
+          }
+        } catch (error) {
+          console.error(`Error updating invoice ${invoice.id}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking pending invoices:', error);
+    }
   }
 }
 

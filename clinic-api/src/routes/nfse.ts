@@ -5,7 +5,6 @@ import { ParamsDictionary } from "express-serve-static-core";
 import multer from "multer";
 import pool from "../config/database.js";
 import { NFSeService } from "../services/nfse-service.js";
-import { CertificateStorageService, EncryptionService } from "../utils/encryption.js";
 
 const router: Router = Router();
 
@@ -16,11 +15,10 @@ const upload = multer({
         fileSize: 5 * 1024 * 1024, // 5MB limit
     },
     fileFilter: (req, file, cb) => {
-        // Accept .p12, .pfx, and .pem files
         const allowedExtensions = ['.p12', '.pfx', '.pem'];
-        const fileExtension = file.originalname.toLowerCase().slice(-4);
+        const fileExtension = file.originalname.toLowerCase();
 
-        if (allowedExtensions.some(ext => file.originalname.toLowerCase().endsWith(ext))) {
+        if (allowedExtensions.some(ext => fileExtension.endsWith(ext))) {
             cb(null, true);
         } else {
             cb(new Error('Only .p12, .pfx, and .pem certificate files are allowed'));
@@ -31,7 +29,7 @@ const upload = multer({
 // Initialize NFS-e service
 const nfseService = new NFSeService();
 
-// Type definitions for request bodies
+// Type definitions
 interface CertificateUploadBody {
     password: string;
     therapistId: string;
@@ -39,6 +37,7 @@ interface CertificateUploadBody {
 
 interface CompanyRegistrationBody {
     therapistId: string;
+    password?: string;
     companyData: {
         cnpj: string;
         companyName: string;
@@ -60,40 +59,25 @@ interface CompanyRegistrationBody {
     };
 }
 
-interface InvoiceGenerationBody {
-    therapistId: string;
-    sessionId: string;
-    customerData?: {
-        name?: string;
-        email?: string;
-        document?: string;
-        address?: {
-            street: string;
-            number: string;
-            complement?: string;
-            neighborhood: string;
-            city: string;
-            state: string;
-            zipCode: string;
-        };
-    };
-    serviceData?: {
-        description?: string;
-        value?: number;
-        serviceCode?: string;
-    };
-}
-
 interface NFSeSettingsBody {
     therapistId: string;
     settings: {
         serviceCode: string;
         taxRate: number;
-        defaultServiceDescription: string;
-        issWithholding: boolean;
-        additionalInfo?: string;
+        serviceDescription: string;
+        sendEmailToPatient?: boolean;
+        includeSessionDetails?: boolean;
     };
 }
+
+// Helper functions
+const getTherapistConfig = async (therapistId: number) => {
+    const result = await pool.query(
+        `SELECT * FROM therapist_nfse_config WHERE therapist_id = $1 AND is_active = true`,
+        [therapistId]
+    );
+    return result.rows[0] || null;
+};
 
 // Type-safe handler wrapper
 const asyncHandler = <T = any>(
@@ -110,166 +94,195 @@ const asyncHandler = <T = any>(
         try {
             await handler(req, res);
         } catch (error) {
-            console.error('API Error:', error);
+            console.error('NFS-e API Error:', error);
             next(error);
         }
     };
 };
 
-// Helper function to get therapist NFS-e config
-const getTherapistConfig = async (therapistId: number) => {
-    const result = await pool.query(
-        `SELECT * FROM therapist_nfse_config WHERE therapist_id = $1`,
-        [therapistId]
-    );
-    return result.rows[0] || null;
+// Helper function to check if we're in test mode
+const isTestMode = async (): Promise<boolean> => {
+    try {
+        const result = await pool.query(
+            `SELECT sandbox_mode FROM provider_configuration WHERE provider_name = 'focus_nfe' LIMIT 1`
+        );
+        return result.rows[0]?.sandbox_mode === true;
+    } catch (error) {
+        console.warn('Could not determine test mode, defaulting to true:', error);
+        return true; // Default to safe test mode
+    }
 };
 
-// Helper function to create/update therapist config
-const upsertTherapistConfig = async (therapistId: number, updates: any) => {
-    const setClause = Object.keys(updates)
-        .map((key, index) => `${key} = $${index + 2}`)
-        .join(', ');
-
-    const values = [therapistId, ...Object.values(updates)];
-
-    return await pool.query(
-        `INSERT INTO therapist_nfse_config (therapist_id, ${Object.keys(updates).join(', ')})
-     VALUES ($1, ${Object.keys(updates).map((_, i) => `$${i + 2}`).join(', ')})
-     ON CONFLICT (therapist_id) 
-     DO UPDATE SET ${setClause}, updated_at = CURRENT_TIMESTAMP
-     RETURNING *`,
-        values
-    );
-};
-
-// 1. Upload and validate certificate
+// 1. Upload certificate and auto-register company (simplified)
 router.post("/certificate", upload.single('certificate'), asyncHandler<CertificateUploadBody>(async (req, res) => {
     const { password, therapistId } = req.body;
     const file = req.file;
 
-    if (!file) {
-        return res.status(400).json({ error: "Certificate file is required" });
-    }
-
-    if (!password || !therapistId) {
-        return res.status(400).json({ error: "Password and therapist ID are required" });
+    if (!file || !password || !therapistId) {
+        return res.status(400).json({ error: "Certificate file, password, and therapist ID are required" });
     }
 
     try {
-        // Store certificate securely
-        const {
-            filePath,
-            encryptedPassword,
-            certificateInfo
-        } = await CertificateStorageService.storeCertificate(
+        // Step 1: Extract certificate info and CNPJ
+        const { EncryptionService } = await import('../utils/encryption.js');
+        const certificateInfo = EncryptionService.validateCertificateFormat(file.buffer, password);
+
+        if (!certificateInfo.isValid) {
+            return res.status(400).json({
+                error: certificateInfo.error || "Invalid certificate file"
+            });
+        }
+
+        if (!certificateInfo.cnpj) {
+            return res.status(400).json({
+                error: "Could not extract CNPJ from certificate. Please ensure you're using a valid business certificate."
+            });
+        }
+
+        console.log('Certificate validated successfully. CNPJ:', certificateInfo.cnpj);
+
+        // Step 2: Fetch company data from ReceitaWS
+        const companyResponse = await fetch(`https://receitaws.com.br/v1/cnpj/${certificateInfo.cnpj}`);
+
+        if (!companyResponse.ok) {
+            return res.status(400).json({
+                error: "Could not retrieve company information. Please verify the CNPJ in your certificate."
+            });
+        }
+
+        const receitaData = await companyResponse.json();
+
+        if (receitaData.status === 'ERROR') {
+            return res.status(400).json({
+                error: `Company data error: ${receitaData.message || 'Invalid CNPJ'}`
+            });
+        }
+
+        console.log('Company data retrieved from ReceitaWS:', receitaData.nome);
+
+        // Helper function to clean phone number
+        const cleanPhone = (phoneStr: string): string => {
+            if (!phoneStr) return '';
+
+            // Extract first phone number and clean it
+            const firstPhone = phoneStr.split('/')[0].trim();
+            return firstPhone.replace(/[^\d]/g, ''); // Remove all non-digits
+        };
+
+        // Step 3: Build company registration data - CORRECTED
+        const companyRegistrationData = {
+            cnpj: certificateInfo.cnpj,
+            companyName: receitaData.nome || certificateInfo.companyName || 'Empresa',
+            tradeName: receitaData.fantasia || receitaData.nome,
+            email: receitaData.email || certificateInfo.email || 'contato@empresa.com.br',
+            phone: cleanPhone(receitaData.telefone),
+            municipalRegistration: '30254027',
+            stateRegistration: receitaData.situacao_especial || '',
+            taxRegime: receitaData.simples?.optante ? '1' : '3',
+            address: {
+                street: receitaData.logradouro || '',
+                number: receitaData.numero || 'S/N',
+                complement: receitaData.complemento || '',
+                neighborhood: receitaData.bairro || '',
+                city: receitaData.municipio || 'São Paulo',
+                state: receitaData.uf || 'SP',
+                zipCode: receitaData.cep?.replace(/\D/g, '') || '00000000',
+                cityCode: '3550308'
+            }
+        };
+
+        // Step 4: Register company with Focus NFe (they store all company data)
+        await nfseService.registerCompany(
             parseInt(therapistId),
-            file.buffer,
-            password
+            companyRegistrationData,
+            {
+                buffer: file.buffer,
+                password: password
+            }
         );
 
-        // Update or create therapist config
-        const existingConfig = await getTherapistConfig(parseInt(therapistId));
-
-        if (existingConfig) {
-            // Update existing record
-            await pool.query(
-                `UPDATE therapist_nfse_config 
-         SET certificate_file_path = $1,
-             certificate_password_encrypted = $2,
-             certificate_expires_at = $3,
-             certificate_status = $4,
-             certificate_info = $5,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE therapist_id = $6`,
-                [
-                    filePath,
-                    JSON.stringify(encryptedPassword),
-                    certificateInfo.notAfter,
-                    'active',
-                    JSON.stringify(certificateInfo),
-                    parseInt(therapistId)
-                ]
-            );
-        } else {
-            // Create new record with only certificate fields
-            await pool.query(
-                `INSERT INTO therapist_nfse_config 
-         (therapist_id, certificate_file_path, certificate_password_encrypted, 
-          certificate_expires_at, certificate_status, certificate_info)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-                [
-                    parseInt(therapistId),
-                    filePath,
-                    JSON.stringify(encryptedPassword),
-                    certificateInfo.notAfter,
-                    'active',
-                    JSON.stringify(certificateInfo)
-                ]
-            );
-        }
-
-        // Test certificate with provider
-        try {
-            const validation = await nfseService.validateCertificate(file.buffer, password);
-            if (!validation.isValid) {
-                throw new Error(validation.error || 'Certificate validation failed');
-            }
-        } catch (error) {
-            console.warn(`Provider certificate validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            // Don't fail the upload, but log the warning
-        }
+        console.log('Company and certificate registered successfully with Focus NFe');
 
         return res.json({
-            message: 'Certificate uploaded and validated successfully',
+            message: 'Certificate uploaded and company registered successfully',
             certificateInfo: {
+                cnpj: certificateInfo.cnpj,
+                companyName: companyRegistrationData.companyName,
                 commonName: certificateInfo.commonName,
                 issuer: certificateInfo.issuer,
                 expiresAt: certificateInfo.notAfter,
-                isValid: certificateInfo.isValid
+                isValid: certificateInfo.isValid,
+                uploaded: true,
+                uploadedAt: new Date().toISOString(),
+                autoRegistered: true
+            },
+            companyInfo: {
+                razaoSocial: receitaData.razao_social,
+                nomeFantasia: receitaData.nome_fantasia,
+                municipio: receitaData.municipio,
+                uf: receitaData.uf,
+                situacao: receitaData.situacao
             }
         });
+
     } catch (error) {
-        console.error('Certificate upload error:', error);
-        return res.status(400).json({
-            error: `Certificate upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-        });
+        console.error('Certificate upload and registration error:', error);
+
+        let errorMessage = 'Certificate upload failed';
+        if (error instanceof Error) {
+            if (error.message.includes('Invalid certificate password') ||
+                error.message.includes('MAC could not be verified')) {
+                errorMessage = 'Invalid certificate password. Please check your password and try again.';
+            } else if (error.message.includes('Network error')) {
+                errorMessage = 'Network error. Please check your internet connection and try again.';
+            } else {
+                errorMessage = `Certificate upload failed: ${error.message}`;
+            }
+        }
+
+        return res.status(400).json({ error: errorMessage });
     }
 }));
 
-// 2. Get certificate status
+// 2. Get certificate status (simplified)
 router.get("/certificate/status/:therapistId", asyncHandler(async (req, res) => {
     const { therapistId } = req.params;
 
     try {
         const config = await getTherapistConfig(parseInt(therapistId));
 
-        if (!config || !config.certificate_file_path) {
+        if (!config || !config.certificate_uploaded) {
             return res.json({
                 hasValidCertificate: false,
                 status: 'not_uploaded'
             });
         }
 
-        const certificateInfo = config.certificate_info ?
-            (typeof config.certificate_info === 'string' ?
-                JSON.parse(config.certificate_info) :
-                config.certificate_info) : {};
+        // Fetch fresh certificate and company details from Focus NFE
+        let certificateInfo = null;
+        try {
+            const companyData = await nfseService.getCompanyData(parseInt(therapistId));
 
-        const now = new Date();
-        const expiresAt = new Date(config.certificate_expires_at);
-        const isExpired = expiresAt < now;
-        const expiresIn30Days = (expiresAt.getTime() - now.getTime()) < (30 * 24 * 60 * 60 * 1000);
-
+            // The Focus NFE company data should include certificate details
+            certificateInfo = {
+                commonName: companyData.companyName || 'Empresa',
+                issuer: 'Focus NFE', // or extract from companyData if available
+                cnpj: companyData.cnpj,
+                companyName: companyData.companyName,
+                expiresAt: companyData.expiresAt,
+            };
+            //   console.log(55, companyData)
+            //   console.log(77, certificateInfo)
+        } catch (error) {
+            console.log('Could not fetch certificate details from Focus NFE:', error);
+        }
         return res.json({
-            hasValidCertificate: !isExpired,
-            status: isExpired ? 'expired' : config.certificate_status,
-            expiresAt: config.certificate_expires_at,
-            expiresIn30Days,
-            certificateInfo: {
-                commonName: certificateInfo.commonName,
-                issuer: certificateInfo.issuer
-            }
+            hasValidCertificate: config.certificate_uploaded,
+            status: 'uploaded',
+            expiresAt: certificateInfo?.expiresAt,
+            uploadedAt: config.certificate_uploaded_at,
+            certificateInfo,
+            validationStatus: certificateInfo ? 'validated' : 'error'
         });
     } catch (error) {
         console.error('Certificate status error:', error);
@@ -277,258 +290,180 @@ router.get("/certificate/status/:therapistId", asyncHandler(async (req, res) => 
     }
 }));
 
-// 3. Register company with NFS-e provider
-router.post("/company/register", asyncHandler<CompanyRegistrationBody>(async (req, res) => {
-    const { therapistId, companyData } = req.body;
-
-    if (!therapistId || !companyData) {
-        return res.status(400).json({ error: "Therapist ID and company data are required" });
-    }
+// 3. Get company data (fetched fresh from Focus NFe)
+router.get("/company/:therapistId", asyncHandler(async (req, res) => {
+    const { therapistId } = req.params;
 
     try {
         const config = await getTherapistConfig(parseInt(therapistId));
 
-        if (!config || !config.certificate_file_path) {
-            return res.status(400).json({ error: "Certificate must be uploaded first" });
+        if (!config) {
+            return res.status(404).json({ error: 'Therapist not configured for NFS-e' });
         }
 
-        // Register company with provider
-        const companyId = await nfseService.registerCompany(parseInt(therapistId), companyData);
-
-        // Update therapist config
-        await upsertTherapistConfig(parseInt(therapistId), {
-            provider_company_id: companyId,
-            company_registration_status: 'active',
-            company_data: JSON.stringify(companyData)
-        });
+        // Fetch fresh company data from Focus NFe
+        const companyData = await nfseService.getCompanyData(parseInt(therapistId));
 
         return res.json({
-            message: 'Company registered successfully',
-            companyId
+            companyData,
+            localConfig: {
+                cnpj: config.company_cnpj,
+                certificateUploaded: config.certificate_uploaded,
+                certificateUploadedAt: config.certificate_uploaded_at
+            }
         });
     } catch (error) {
-        console.error('Company registration error:', error);
+        console.error('Get company data error:', error);
         return res.status(400).json({
-            error: `Company registration failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+            error: `Failed to get company data: ${error instanceof Error ? error.message : 'Unknown error'}`
         });
     }
 }));
 
-// 4. Generate test invoice (sandbox)
-router.post("/invoice/test", asyncHandler<InvoiceGenerationBody>(async (req, res) => {
-    const { therapistId, sessionId, customerData, serviceData } = req.body;
+// 4. Generate invoice (simplified)
+router.post("/invoice/generate", asyncHandler(async (req, res) => {
+    const { therapistId, patientId, year, month, sessionIds, testMode } = req.body;
 
-    if (!therapistId || !sessionId) {
-        return res.status(400).json({ error: "Therapist ID and session ID are required" });
+    console.log("=== INVOICE GENERATION ===");
+    console.log("Request body:", JSON.stringify(req.body, null, 2));
+
+    if (testMode) {
+        try {
+            const config = await getTherapistConfig(parseInt(therapistId));
+
+            if (!config || !config.company_cnpj) {
+                return res.status(400).json({ error: "Company must be registered first" });
+            }
+
+            if (!config.certificate_uploaded) {
+                return res.status(400).json({ error: "Certificate must be uploaded first" });
+            }
+
+            // Create mock invoice data for validation
+            const mockInvoice = {
+                invoiceId: `test_${Date.now()}`,
+                status: 'success',
+                invoiceNumber: 'TEST-001',
+                amount: 100.00,
+                taxAmount: 2.00,
+                issueDate: new Date().toISOString(),
+                customerName: 'TESTE DE VALIDAÇÃO',
+                serviceDescription: 'Teste de validação do sistema - SEM VALOR FISCAL',
+                pdfUrl: null,
+                xmlUrl: null,
+                testMode: true,
+                message: 'Integração validada com sucesso'
+            };
+
+            return res.json({
+                message: 'Test validation successful - system configured correctly',
+                invoice: mockInvoice,
+                billingPeriod: {
+                    id: 'test',
+                    sessionCount: 0,
+                    totalAmount: 100.00
+                },
+                testMode: true
+            });
+        } catch (error) {
+            console.error('Test validation error:', error);
+            return res.status(400).json({
+                error: `Validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+            });
+        }
     }
 
-    try {
-        const config = await getTherapistConfig(parseInt(therapistId));
-
-        if (!config || !config.provider_company_id) {
-            return res.status(400).json({ error: "Company must be registered first" });
-        }
-
-        // Get session data
-        const sessionResult = await pool.query(
-            `SELECT s.*, p.nome as patient_name, p.email as patient_email, p.preco 
-       FROM sessions s
-       JOIN patients p ON s.patient_id = p.id
-       WHERE s.id = $1 AND s.therapist_id = $2`,
-            [sessionId, therapistId]
-        );
-
-        if (sessionResult.rows.length === 0) {
-            return res.status(404).json({ error: "Session not found" });
-        }
-
-        const session = sessionResult.rows[0];
-        const settings = config.nfse_settings ? JSON.parse(config.nfse_settings) : {};
-
-        // Prepare invoice data
-        const invoiceData = {
-            providerCnpj: JSON.parse(config.company_data).cnpj,
-            providerMunicipalRegistration: JSON.parse(config.company_data).municipalRegistration,
-            customerName: customerData?.name || session.patient_name,
-            customerEmail: customerData?.email || session.patient_email,
-            customerDocument: customerData?.document,
-            customerAddress: customerData?.address,
-            serviceCode: serviceData?.serviceCode || settings.serviceCode || '14.01',
-            serviceDescription: serviceData?.description || settings.defaultServiceDescription || 'Serviços de Psicologia',
-            serviceValue: serviceData?.value || session.preco || 100,
-            taxRate: settings.taxRate || 5,
-            taxWithheld: settings.issWithholding || false,
-            sessionDate: session.date
-        };
-
-        // Generate test invoice
-        const result = await nfseService.generateTestInvoice(
-            config.provider_company_id,
-            invoiceData
-        );
-
-        // Record test invoice
-        await pool.query(
-            `INSERT INTO nfse_invoices 
-       (therapist_id, session_id, provider_invoice_id, invoice_status, invoice_data, is_test)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-            [
-                therapistId,
-                sessionId,
-                result.invoiceId,
-                result.status,
-                JSON.stringify(result),
-                true
-            ]
-        );
-
-        return res.json({
-            message: 'Test invoice generated successfully',
-            invoice: result
-        });
-    } catch (error) {
-        console.error('Test invoice generation error:', error);
+    // Regular invoice generation
+    if (!therapistId || !patientId || !year || !month) {
         return res.status(400).json({
-            error: `Test invoice generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+            error: "Therapist ID, patient ID, year, and month are required"
         });
-    }
-}));
-
-// 5. Generate production invoice
-router.post("/invoice/generate", asyncHandler<InvoiceGenerationBody>(async (req, res) => {
-    const { therapistId, sessionId, customerData, serviceData } = req.body;
-
-    if (!therapistId || !sessionId) {
-        return res.status(400).json({ error: "Therapist ID and session ID are required" });
     }
 
     try {
-        // Check if invoice already exists for this session
+        const environmentTestMode = await isTestMode();
+
+        // Check if invoice already exists for this billing period
         const existingInvoice = await pool.query(
-            `SELECT * FROM nfse_invoices 
-       WHERE session_id = $1 AND therapist_id = $2 AND is_test = false`,
-            [sessionId, therapistId]
+            `SELECT * FROM v_billing_period_invoices
+             WHERE therapist_id = $1 
+               AND patient_id = $2 
+               AND billing_year = $3 
+               AND billing_month = $4
+               AND invoice_status IS NOT NULL
+               AND invoice_status NOT IN ('cancelled', 'error', 'superseded')`,
+            [therapistId, patientId, year, month]
         );
 
         if (existingInvoice.rows.length > 0) {
             return res.status(400).json({
-                error: "Invoice already exists for this session",
+                error: "Invoice already exists for this billing period",
                 existingInvoice: existingInvoice.rows[0]
             });
         }
 
         const config = await getTherapistConfig(parseInt(therapistId));
 
-        if (!config || !config.provider_company_id) {
+        if (!config || !config.company_cnpj) {
             return res.status(400).json({ error: "Company must be registered first" });
         }
 
-        // Get session data
-        const sessionResult = await pool.query(
-            `SELECT s.*, p.nome as patient_name, p.email as patient_email, p.preco 
-       FROM sessions s
-       JOIN patients p ON s.patient_id = p.id
-       WHERE s.id = $1 AND s.therapist_id = $2`,
-            [sessionId, therapistId]
-        );
-
-        if (sessionResult.rows.length === 0) {
-            return res.status(404).json({ error: "Session not found" });
+        if (!config.certificate_uploaded) {
+            return res.status(400).json({ error: "Certificate must be uploaded first" });
         }
 
-        const session = sessionResult.rows[0];
-        const settings = config.nfse_settings ? JSON.parse(config.nfse_settings) : {};
-
-        // Prepare invoice data
-        const invoiceData = {
-            providerCnpj: JSON.parse(config.company_data).cnpj,
-            providerMunicipalRegistration: JSON.parse(config.company_data).municipalRegistration,
-            customerName: customerData?.name || session.patient_name,
-            customerEmail: customerData?.email || session.patient_email,
-            customerDocument: customerData?.document,
-            customerAddress: customerData?.address,
-            serviceCode: serviceData?.serviceCode || settings.serviceCode || '14.01',
-            serviceDescription: serviceData?.description || settings.defaultServiceDescription || 'Serviços de Psicologia',
-            serviceValue: serviceData?.value || session.preco || 100,
-            taxRate: settings.taxRate || 5,
-            taxWithheld: settings.issWithholding || false,
-            sessionDate: session.date
-        };
-
-        // Generate production invoice
-        const result = await nfseService.generateInvoice(
-            config.provider_company_id,
-            invoiceData
-        );
-
-        // Record invoice in database
-        const invoiceRecord = await pool.query(
-            `INSERT INTO nfse_invoices 
-       (therapist_id, session_id, provider_invoice_id, invoice_number, invoice_amount, 
-        invoice_status, pdf_url, xml_url, invoice_data, is_test)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING *`,
-            [
-                therapistId,
-                sessionId,
-                result.invoiceId,
-                result.invoiceNumber,
-                invoiceData.serviceValue,
-                result.status,
-                result.pdfUrl,
-                result.xmlUrl,
-                JSON.stringify(result),
-                false
-            ]
+        // Generate invoice using the simplified service
+        const result = await nfseService.generateInvoiceForSessions(
+            parseInt(therapistId),
+            parseInt(patientId),
+            parseInt(year),
+            parseInt(month),
+            sessionIds,
         );
 
         return res.json({
-            message: 'Production invoice generated successfully',
+            message: `${environmentTestMode ? 'Test' : 'Production'} invoice generated successfully`,
             invoice: result,
-            invoiceRecord: invoiceRecord.rows[0]
+            testMode: environmentTestMode
         });
     } catch (error) {
-        console.error('Production invoice generation error:', error);
+        console.error('Invoice generation error:', error);
         return res.status(400).json({
             error: `Invoice generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
         });
     }
 }));
 
-// 6. Get therapist's invoices
+// 5. Get therapist's invoices (simplified)
 router.get("/invoices/:therapistId", asyncHandler(async (req, res) => {
     const { therapistId } = req.params;
-    const { limit = '50', offset = '0', status, isTest } = req.query;
+    const { limit = '50', offset = '0', status } = req.query;
 
     try {
         let query = `
-      SELECT i.*, s.date as session_date, p.nome as patient_name
-      FROM nfse_invoices i
-      JOIN sessions s ON i.session_id = s.id
-      JOIN patients p ON s.patient_id = p.id
-      WHERE i.therapist_id = $1
-    `;
+          SELECT ni.*, p.nome as patient_name
+          FROM nfse_invoices ni
+          JOIN patients p ON ni.patient_id = p.id
+          WHERE ni.therapist_id = $1 AND ni.status != 'superseded'
+        `;
 
         const queryParams = [therapistId];
         let paramCount = 1;
 
         if (status) {
-            query += ` AND i.invoice_status = $${++paramCount}`;
+            query += ` AND ni.status = $${++paramCount}`;
             queryParams.push(status as string);
         }
 
-        if (isTest !== undefined) {
-            query += ` AND i.is_test = $${++paramCount}`;
-            queryParams.push(isTest === 'true' ? 'true' : 'false');
-        }
-
-        query += ` ORDER BY i.created_at DESC LIMIT $${++paramCount} OFFSET $${++paramCount}`;
+        query += ` ORDER BY ni.ref_number DESC LIMIT $${++paramCount} OFFSET $${++paramCount}`;
         queryParams.push(limit as string, offset as string);
 
         const result = await pool.query(query, queryParams);
+        const testMode = await isTestMode();
 
         return res.json({
             invoices: result.rows,
+            testMode,
             pagination: {
                 limit: parseInt(limit as string),
                 offset: parseInt(offset as string),
@@ -541,16 +476,13 @@ router.get("/invoices/:therapistId", asyncHandler(async (req, res) => {
     }
 }));
 
-// 7. Get invoice status
+// 6. Get invoice status (uses fresh data from Focus NFe)
 router.get("/invoice/:invoiceId/status", asyncHandler(async (req, res) => {
     const { invoiceId } = req.params;
 
     try {
         const result = await pool.query(
-            `SELECT i.*, t.provider_company_id 
-       FROM nfse_invoices i
-       JOIN therapist_nfse_config t ON i.therapist_id = t.therapist_id
-       WHERE i.id = $1`,
+            `SELECT therapist_id FROM nfse_invoices WHERE id = $1`,
             [invoiceId]
         );
 
@@ -558,23 +490,13 @@ router.get("/invoice/:invoiceId/status", asyncHandler(async (req, res) => {
             return res.status(404).json({ error: "Invoice not found" });
         }
 
-        const invoice = result.rows[0];
+        const therapistId = result.rows[0].therapist_id;
 
-        // Get updated status from provider
+        // Get fresh status from Focus NFe
         const status = await nfseService.getInvoiceStatus(
-            invoice.provider_company_id,
-            invoice.provider_invoice_id
+            parseInt(invoiceId),
+            therapistId
         );
-
-        // Update database if status changed
-        if (status.status !== invoice.invoice_status) {
-            await pool.query(
-                `UPDATE nfse_invoices 
-         SET invoice_status = $1, pdf_url = $2, xml_url = $3, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $4`,
-                [status.status, status.pdfUrl, status.xmlUrl, invoiceId]
-            );
-        }
 
         return res.json(status);
     } catch (error) {
@@ -583,7 +505,7 @@ router.get("/invoice/:invoiceId/status", asyncHandler(async (req, res) => {
     }
 }));
 
-// 8. Update NFSe settings
+// 7. Update NFSe settings (simplified - only local preferences)
 router.put("/settings", asyncHandler<NFSeSettingsBody>(async (req, res) => {
     const { therapistId, settings } = req.body;
 
@@ -592,29 +514,13 @@ router.put("/settings", asyncHandler<NFSeSettingsBody>(async (req, res) => {
     }
 
     try {
-        // Check if config exists first
-        const existingConfig = await getTherapistConfig(parseInt(therapistId));
-
-        if (existingConfig) {
-            // Update existing record
-            await pool.query(
-                `UPDATE therapist_nfse_config 
-                 SET default_service_code = $1, 
-                     default_tax_rate = $2, 
-                     default_service_description = $3,
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE therapist_id = $4`,
-                [settings.serviceCode, settings.taxRate, settings.defaultServiceDescription, parseInt(therapistId)]
-            );
-        } else {
-            // Create new record with required fields
-            await pool.query(
-                `INSERT INTO therapist_nfse_config 
-                 (therapist_id, default_service_code, default_tax_rate, default_service_description, company_cnpj, company_name)
-                 VALUES ($1, $2, $3, $4, $5, $6)`,
-                [parseInt(therapistId), settings.serviceCode, settings.taxRate, settings.defaultServiceDescription, 'PENDING', 'PENDING']
-            );
-        }
+        await nfseService.updateTherapistSettings(parseInt(therapistId), {
+            service_code: settings.serviceCode,
+            tax_rate: settings.taxRate,
+            service_description: settings.serviceDescription,
+            send_email_to_patient: settings.sendEmailToPatient,
+            include_session_details: settings.includeSessionDetails
+        });
 
         return res.json({
             message: 'NFS-e settings updated successfully',
@@ -626,26 +532,35 @@ router.put("/settings", asyncHandler<NFSeSettingsBody>(async (req, res) => {
     }
 }));
 
-// 9. Get NFSe settings
+// 8. Get NFSe settings (fixed column names)
 router.get("/settings/:therapistId", asyncHandler(async (req, res) => {
     const { therapistId } = req.params;
 
+    console.log("📞 getNFSeSettings API call for therapist:", therapistId);
     try {
         const config = await getTherapistConfig(parseInt(therapistId));
+        console.log("Debug - config from database:", config);
 
-        // Map your existing database columns to the expected settings format
-        const settings = config ? {
-            serviceCode: config.default_service_code || '14.01',
-            taxRate: parseFloat(config.default_tax_rate) || 5,
-            defaultServiceDescription: config.default_service_description || 'Serviços de Psicologia',
-            issWithholding: false // Default since no column exists for this
-        } : {
-            serviceCode: '14.01',
-            taxRate: 5,
-            defaultServiceDescription: 'Serviços de Psicologia',
-            issWithholding: false
+        if (!config) {
+            return res.status(404).json({
+                error: 'NFS-e configuration not found for this therapist'
+            });
+        }
+
+        if (!config.service_code) {
+            return res.status(500).json({
+                error: 'Service code not configured - database integrity issue'
+            });
+        }
+
+        const settings = {
+            serviceCode: config.service_code,
+            taxRate: parseFloat(config.tax_rate),
+            serviceDescription: config.service_description,
+            sendEmailToPatient: config.send_email_to_patient !== false,
+            includeSessionDetails: config.include_session_details !== false
         };
-
+        console.log("Debug - settings being returned:", settings);
         return res.json({ settings });
     } catch (error) {
         console.error('Get settings error:', error);
@@ -653,15 +568,17 @@ router.get("/settings/:therapistId", asyncHandler(async (req, res) => {
     }
 }));
 
-// 10. Test provider connection
+// 9. Test connection (simplified)
 router.get("/test-connection", asyncHandler(async (req, res) => {
     try {
         const isConnected = await nfseService.testConnection();
+        const testMode = await isTestMode();
 
         return res.json({
             connected: isConnected,
-            provider: 'PlugNotas',
-            environment: process.env.PLUGNOTAS_SANDBOX === 'true' ? 'sandbox' : 'production'
+            currentProvider: 'focus_nfe',
+            testMode,
+            environment: testMode ? 'sandbox' : 'production'
         });
     } catch (error) {
         console.error('Test connection error:', error);
@@ -672,17 +589,171 @@ router.get("/test-connection", asyncHandler(async (req, res) => {
     }
 }));
 
-// 11. Get available service codes
+// 10. Get service codes (simplified)
 router.get("/service-codes", asyncHandler(async (req, res) => {
     const { cityCode } = req.query;
 
     try {
         const serviceCodes = await nfseService.getServiceCodes(cityCode as string);
-
         return res.json({ serviceCodes });
     } catch (error) {
         console.error('Get service codes error:', error);
         return res.status(500).json({ error: 'Failed to get service codes' });
+    }
+}));
+
+// 11. Cancel invoice (simplified)
+router.post("/invoice/:invoiceId/cancel", asyncHandler(async (req, res) => {
+    const { invoiceId } = req.params;
+    const { reason } = req.body;
+
+    try {
+        console.log('Cancelling invoice:', invoiceId);
+
+        // Query by internal_ref instead of id
+        const result = await pool.query(
+            `SELECT id, therapist_id FROM nfse_invoices WHERE internal_ref = $1`,
+            [invoiceId]  // invoiceId is now the reference like "LV-04479058000110-1"
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Invoice not found" });
+        }
+
+        const { id: numericInvoiceId, therapist_id: therapistId } = result.rows[0];
+        console.log('Found invoice ID:', numericInvoiceId, 'for therapist:', therapistId);
+
+        // Use the numeric ID for the service call
+        const success = await nfseService.cancelInvoice(
+            numericInvoiceId,  // Use the numeric database ID
+            therapistId,
+            reason || 'Cancelamento solicitado pelo usuário'
+        );
+
+        return res.json({
+            message: 'Invoice cancelled successfully',
+            success
+        });
+    } catch (error) {
+        console.error('Invoice cancellation error:', error);
+        return res.status(400).json({
+            error: `Invoice cancellation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        });
+    }
+}));
+
+// 12. Get invoice details for a billing period (simplified)
+router.get("/billing-period/:billingPeriodId/invoice", asyncHandler(async (req, res) => {
+    const { billingPeriodId } = req.params;
+
+    try {
+        console.log(`🔍 Getting invoice for billing period: ${billingPeriodId}`);
+
+        const result = await pool.query(
+            `SELECT * FROM get_invoice_status_for_billing_period($1)`,
+            [billingPeriodId]
+        );
+
+        const invoice = result.rows[0] || null;
+
+        console.log(`📄 Database query result for billing period ${billingPeriodId}:`, {
+            found: !!invoice,
+            id: invoice?.invoice_id,
+            status: invoice?.status,
+            error_message: invoice?.error_message,
+            internal_ref: invoice?.internal_ref
+        });
+
+        return res.json({
+            invoice
+        });
+    } catch (error) {
+        console.error('Get billing period invoice error:', error);
+        return res.status(500).json({ error: 'Failed to get invoice details' });
+    }
+}));
+
+// 13. Webhook endpoint
+router.post("/invoice-status-update", asyncHandler(async (req, res) => {
+    const { invoiceId, therapistId, source } = req.body;
+
+    try {
+        console.log(`=== DEBUG: Starting status update for invoice ${invoiceId} ===`);
+
+        // Get fresh status from Focus NFe
+        const updatedStatus = await nfseService.getInvoiceStatus(invoiceId, therapistId);
+
+        console.log('Focus NFe returned status:', JSON.stringify(updatedStatus, null, 2));
+        console.log('PDF URL from Focus:', updatedStatus.pdfUrl);
+        console.log('Status from Focus:', updatedStatus.status);
+
+        // Update database
+        const updateResult = await pool.query(`
+            UPDATE nfse_invoices 
+            SET status = $1, pdf_url = $2, xml_url = $3, invoice_number = $4, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $5
+            RETURNING id, status, pdf_url, xml_url, invoice_number
+        `, [
+            updatedStatus.status,
+            updatedStatus.pdfUrl,
+            updatedStatus.xmlUrl,
+            updatedStatus.invoiceNumber,
+            invoiceId
+        ]);
+
+        console.log('Database update result:', updateResult.rows[0]);
+        console.log(`=== DEBUG: Completed status update ===`);
+
+        return res.json({
+            success: true,
+            status: updatedStatus.status,
+            debug: {
+                focusResponse: updatedStatus,
+                dbUpdate: updateResult.rows[0]
+            }
+        });
+    } catch (error) {
+        console.error('Invoice status update error:', error);
+        return res.status(500).json({ error: 'Failed to update invoice status' });
+    }
+}));
+
+// 14. Get invoice status from database (for frontend polling)
+router.get("/invoice/:invoiceId/status", asyncHandler(async (req, res) => {
+    const { invoiceId } = req.params;
+
+    try {
+        const result = await pool.query(`
+      SELECT 
+        id, internal_ref, status, invoice_number, pdf_url, xml_url,
+        error_message, amount, created_at, updated_at, issued_at
+      FROM nfse_invoices 
+      WHERE id = $1
+    `, [invoiceId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Invoice not found' });
+        }
+
+        const invoice = result.rows[0];
+
+        return res.json({
+            invoiceId: invoice.id,
+            internalRef: invoice.internal_ref,
+            status: invoice.status,
+            invoiceNumber: invoice.invoice_number,
+            pdfUrl: invoice.pdf_url,
+            xmlUrl: invoice.xml_url,
+            errorMessage: invoice.error_message,
+            amount: invoice.amount,
+            createdAt: invoice.created_at,
+            updatedAt: invoice.updated_at,
+            issuedAt: invoice.issued_at
+        });
+
+    } catch (error) {
+        console.error('Get invoice status error:', error);
+        return res.status(500).json({ error: 'Failed to get invoice status' });
     }
 }));
 
@@ -707,5 +778,23 @@ const errorHandler = (error: Error, req: Request, res: Response, next: NextFunct
 };
 
 router.use(errorHandler);
+
+// Start invoice polling service (TODO: Remove when webhooks are implemented)
+let pollingInterval: NodeJS.Timeout | null = null;
+
+const startInvoicePolling = () => {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+    }
+
+    pollingInterval = setInterval(() => {
+        nfseService.checkPendingInvoices();
+    }, 10000);
+
+    console.log('Invoice polling started - checking every 10 seconds');
+};
+
+// Start polling when this module loads
+startInvoicePolling();
 
 export default router;

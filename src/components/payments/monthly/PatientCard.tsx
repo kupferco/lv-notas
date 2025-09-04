@@ -1,7 +1,7 @@
 // src/components/payments/monthly/PatientCard.tsx
 
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { BillingSummary } from '../../../types/calendar-only';
 import { CertificateStatus } from '../../../services/api/nfse-service';
 import { PaymentMatchInfo } from '../PaymentMatchInfo';
@@ -15,10 +15,14 @@ interface PatientCardProps {
   generatedInvoices: Set<number>;
   certificateStatus: CertificateStatus | null;
   generatingInvoices: Set<number>;
+  invoiceStatuses: Map<number, any>;
+  cancellingInvoices: Set<number>;
+  loadingInvoiceStatus: Set<number>;
   onProcessCharges: (patient: BillingSummary) => void;
   onPaymentButtonPress: (patient: BillingSummary) => void;
   onCancelBilling: (patient: BillingSummary) => void;
   onGenerateInvoice: (patient: BillingSummary) => void;
+  onCancelInvoice: (patient: BillingSummary) => void;
   onViewDetails: (billingPeriodId: number | undefined, patient?: BillingSummary) => void;
 }
 
@@ -29,10 +33,14 @@ export const PatientCard: React.FC<PatientCardProps> = ({
   generatedInvoices,
   certificateStatus,
   generatingInvoices,
+  invoiceStatuses,        // ADD THIS
+  cancellingInvoices,     // ADD THIS
+  loadingInvoiceStatus,   // ADD THIS
   onProcessCharges,
   onPaymentButtonPress,
   onCancelBilling,
   onGenerateInvoice,
+  onCancelInvoice,        // ADD THIS
   onViewDetails
 }) => {
   return (
@@ -44,14 +52,64 @@ export const PatientCard: React.FC<PatientCardProps> = ({
           <View style={[styles.statusBadge, { backgroundColor: getStatusColor(patient.status || 'can_process') }]}>
             <Text style={styles.statusText}>{getStatusText(patient.status || 'can_process')}</Text>
           </View>
-          {/* Invoice status indicator */}
-          {generatedInvoices.has(patient.patientId) && (
-            <View style={styles.invoiceIndicator}>
-              <Text style={styles.invoiceIndicatorText}>🧾</Text>
-            </View>
-          )}
+
+          {/* Invoice status indicator - ONLY for final states (success/error), not processing */}
+          {patient.billingPeriodId && invoiceStatuses.has(patient.billingPeriodId) && (() => {
+            const invoice = invoiceStatuses.get(patient.billingPeriodId!);
+            const status = invoice?.invoice_status;
+
+            // Only show indicator for final states, not processing
+            const shouldShowIndicator = status && ['issued', 'error', 'cancelled'].includes(status);
+
+            if (!shouldShowIndicator) return null;
+
+            return (
+              <Pressable
+                style={[
+                  styles.invoiceIndicator,
+                  getInvoiceIndicatorStyle(status)
+                ]}
+                onPress={() => {
+                  if (status === 'issued') {
+                    // If issued and has PDF, open it
+                    if (invoice?.pdf_url) {
+                      window.open(invoice.pdf_url, '_blank');
+                    } else {
+                      alert(
+                        `✅ NFS-e Emitida\n\nNota fiscal emitida com sucesso.\n\nReferência: ${invoice?.internal_ref || 'N/A'}\nNúmero: ${invoice?.invoice_number || 'Pendente'}\nData: ${invoice?.issue_date || 'N/A'}\n\nPDF será disponibilizado em breve.`
+                      );
+                    }
+                  } else if (status === 'error') {
+                    // Show error details
+                    const errorMsg = invoice?.error_message || 'Erro desconhecido ao gerar nota fiscal';
+                    alert(
+                      `❌ Erro na NFS-e\n\nReferência: ${invoice?.internal_ref || 'N/A'}\n\nDetalhes do erro:\n${errorMsg}\n\nClique em "Gerar NFS-e" para tentar novamente.`
+                    );
+                  } else if (status === 'cancelled') {
+                    // Show cancellation info
+                    alert(
+                      `⚪ NFS-e Cancelada\n\nReferência: ${invoice?.internal_ref || 'N/A'}\n\nMotivo: ${invoice?.cancellation_reason || 'Cancelamento solicitado'}\n\nClique em "Gerar Nova NFS-e" para emitir uma nova nota fiscal.`
+                    );
+                  }
+                }}
+              >
+                <Text style={styles.invoiceIndicatorText}>
+                  {getInvoiceIndicatorText(status)}
+                </Text>
+              </Pressable>
+            );
+          })()}
         </View>
       </View>
+
+      {/* DEBUG: Show invoice status */}
+      {patient.billingPeriodId && (
+        <Text style={{ fontSize: 10, color: '#666', marginVertical: 4 }}>
+          Debug: Billing Period ID: {patient.billingPeriodId} |
+          Has Invoice: {invoiceStatuses.has(patient.billingPeriodId) ? 'Yes' : 'No'} |
+          Invoice Status: {invoiceStatuses.get(patient.billingPeriodId)?.invoice_status || 'N/A'}
+        </Text>
+      )}
 
       {/* Patient Details */}
       <View style={styles.patientDetails}>
@@ -75,7 +133,7 @@ export const PatientCard: React.FC<PatientCardProps> = ({
         <PaymentMatchInfo match={paymentMatches.get(patient.patientId)} />
       )}
 
-      {/* Action Buttons */}
+      {/* Action Buttons - PASS ALL PROPS */}
       <PatientActionButtons
         patient={patient}
         processingPatientId={processingPatientId}
@@ -83,14 +141,45 @@ export const PatientCard: React.FC<PatientCardProps> = ({
         certificateStatus={certificateStatus}
         generatingInvoices={generatingInvoices}
         generatedInvoices={generatedInvoices}
+        invoiceStatuses={invoiceStatuses}           // PASS THIS
+        cancellingInvoices={cancellingInvoices}     // PASS THIS
+        loadingInvoiceStatus={loadingInvoiceStatus} // PASS THIS
         onProcessCharges={onProcessCharges}
         onPaymentButtonPress={onPaymentButtonPress}
         onCancelBilling={onCancelBilling}
         onGenerateInvoice={onGenerateInvoice}
+        onCancelInvoice={onCancelInvoice}           // PASS THIS
         onViewDetails={onViewDetails}
       />
     </View>
   );
+};
+
+// Helper functions for invoice indicator
+const getInvoiceIndicatorStyle = (status: string) => {
+  switch (status) {
+    case 'issued':
+      return { backgroundColor: '#d4edda', borderColor: '#28a745' };
+    case 'cancelled':
+      return { backgroundColor: '#f8d7da', borderColor: '#dc3545' };
+    case 'error':
+      return { backgroundColor: '#fff3cd', borderColor: '#ffc107' };
+    default:
+      return {};
+  }
+};
+
+const getInvoiceIndicatorText = (status: string) => {
+  switch (status) {
+    case 'issued':
+      return '📄 Ver PDF';
+    case 'cancelled':
+      return '⚪ Cancelada';
+    case 'error':
+      return '⚠️ Ver Erro';
+    default:
+      return 'NFS-e';
+  }
 };
 
 const styles = StyleSheet.create({
@@ -133,16 +222,17 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   invoiceIndicator: {
-    backgroundColor: '#e3f2fd',
-    borderColor: '#2196f3',
     borderWidth: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 8,
+    cursor: 'pointer',  // Shows it's clickable on web
   },
   invoiceIndicatorText: {
-    fontSize: 12,
-    color: '#1565c0',
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#212529',
+    // textDecorationLine: 'underline',  // Visual cue that it's clickable
   },
   patientDetails: {
     marginBottom: 12,

@@ -8,6 +8,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm; -- For similarity() function in fuzzy ma
 
 -- Drop existing tables if they exist (for clean reinstall)
 DROP TABLE IF EXISTS payment_matches CASCADE;
+DROP TABLE IF EXISTS matched_transactions CASCADE;
 DROP TABLE IF EXISTS bank_transactions CASCADE;
 DROP TABLE IF EXISTS processed_transactions CASCADE;
 DROP TABLE IF EXISTS bank_connections CASCADE;

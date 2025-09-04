@@ -12,7 +12,6 @@ import { PaymentSystemNavigator } from './payments/PaymentSystemNavigator';
 import { Settings } from './Settings';
 import { Dashboard } from './dashboard/Dashboard';
 import { AuthDebug } from './auth/AuthDebug';
-import { NFSeTestingSection } from './nfse/NFSeTestingSection';
 import { NFSeConfigurationScreen } from './nfse/NFSeConfigurationScreen';
 import { BankingTestingSection } from './banking/BankingTestingSection';
 import { BankingManagement } from './banking/BankingManagement';
@@ -91,8 +90,6 @@ export const Router: React.FC = () => {
         return <AuthDebug />;
       case '/nfse':
         return <NFSeConfigurationScreen />;
-      case '/nfse-test':
-        return <NFSeTestingSection />;
       case '/banking':
         return <BankingManagement />;
       case '/banking-test':

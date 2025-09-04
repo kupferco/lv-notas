@@ -12,23 +12,6 @@ interface PatientManagementProps {
 
 type FormMode = 'add' | 'edit' | null;
 
-interface PatientFormData {
-  nome: string;
-  email: string;
-  telefone: string;
-  cpf: string; // New CPF field
-  endereco: string;
-  dataNascimento: string;
-  genero: string;
-  contatoEmergencia: string;
-  telefoneEmergencia: string;
-  sessionPrice: number; // in cents, matching EventCardStack
-  sessionPriceDisplay: string;
-  therapyStartDate: string; // matching EventCardStack
-  lvNotasBillingStartDate: string; // matching EventCardStack
-  observacoes: string;
-}
-
 // Helper function to convert database date format (YYYY-MM-DD) to form format (DD/MM/YYYY)
 const formatDateForForm = (dateInput: string | Date | null | undefined): string => {
   if (!dateInput) return '';
@@ -96,22 +79,27 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
   const [isLoadingPatients, setIsLoadingPatients] = useState(true);
   const [formMode, setFormMode] = useState<FormMode>(null);
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
-  const [priceDisplayValue, setPriceDisplayValue] = useState('');
-  const [patientData, setPatientData] = useState<PatientFormData>({
+  const [patientData, setPatientData] = useState<Patient>({
     nome: '',
     email: '',
     telefone: '',
-    cpf: '', // New CPF field
-    endereco: '',
-    dataNascimento: '',
-    genero: '',
-    contatoEmergencia: '',
-    telefoneEmergencia: '',
-    sessionPrice: 0,
-    sessionPriceDisplay: '',
+    cpf: '',
+    sessionPrice: 30000, // R$ 300,00 in cents
     therapyStartDate: '',
     lvNotasBillingStartDate: '',
-    observacoes: ''
+    observacoes: '',
+    // Address fields
+    enderecoRua: '',
+    enderecoNumero: '',
+    enderecoBairro: '',
+    enderecoCodigoMunicipio: '3550308', // São Paulo default
+    enderecoUf: 'SP', // São Paulo default
+    enderecoCep: '',
+    // Personal info fields
+    dataNascimento: '',
+    genero: '',
+    contatoEmergenciaNome: '',
+    contatoEmergenciaTelefone: ''
   });
 
   // Load patients when component mounts and auth is ready
@@ -120,13 +108,6 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
       loadPatients();
     }
   }, [authLoading, isAuthenticated, hasValidTokens, therapistEmail]);
-
-  useEffect(() => {
-    if (patientData.sessionPrice > 0) {
-      const displayValue = (patientData.sessionPrice / 100).toFixed(2).replace('.', ',');
-      setPriceDisplayValue(displayValue);
-    }
-  }, [patientData.sessionPrice]);
 
   const loadPatients = async () => {
     setIsLoadingPatients(true);
@@ -143,6 +124,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     }
   };
 
+  // Formatting functions
   const formatCurrency = (value: string): string => {
     // Remove everything except digits and comma
     const cleaned = value.replace(/[^\d,]/g, '');
@@ -187,6 +169,16 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     return `${numbers.slice(0, 3)}.${numbers.slice(3, 6)}.${numbers.slice(6, 9)}-${numbers.slice(9, 11)}`;
   };
 
+  // CEP formatting function
+  const formatCep = (value: string): string => {
+    // Remove all non-numeric characters
+    const numbers = value.replace(/\D/g, '');
+
+    // Apply Brazilian CEP formatting: XXXXX-XXX
+    if (numbers.length <= 5) return numbers;
+    return `${numbers.slice(0, 5)}-${numbers.slice(5, 8)}`;
+  };
+
   // CPF validation function
   const validateCpf = (cpf: string): boolean => {
     if (!cpf) return true; // CPF is optional
@@ -219,6 +211,13 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     return true;
   };
 
+  // CEP validation function
+  const validateCep = (cep: string): boolean => {
+    if (!cep) return true; // CEP is optional
+    const cleanCep = cep.replace(/\D/g, '');
+    return cleanCep.length === 8;
+  };
+
   const formatDate = (value: string): string => {
     // Remove non-numeric characters
     const numbers = value.replace(/\D/g, '');
@@ -231,12 +230,18 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     return numbers.slice(0, 8).replace(/(\d{2})(\d{2})(\d{4})/, '$1/$2/$3');
   };
 
-  const handleFieldChange = (field: keyof PatientFormData, value: string | number) => {
-    if (field === 'telefone' || field === 'telefoneEmergencia') {
+  const handleFieldChange = (field: keyof Patient, value: string | number) => {
+    if (field === 'telefone' || field === 'contatoEmergenciaTelefone') {
       const formattedValue = formatPhone(value as string);
       setPatientData(prev => ({ ...prev, [field]: formattedValue }));
     } else if (field === 'cpf') {
       const formattedValue = formatCpf(value as string);
+      setPatientData(prev => ({ ...prev, [field]: formattedValue }));
+    } else if (field === 'enderecoCep') {
+      const formattedValue = formatCep(value as string);
+      setPatientData(prev => ({ ...prev, [field]: formattedValue }));
+    } else if (field === 'dataNascimento') {
+      const formattedValue = formatDate(value as string);
       setPatientData(prev => ({ ...prev, [field]: formattedValue }));
     } else if (field === 'sessionPrice') {
       // Handle sessionPrice as number in cents
@@ -247,7 +252,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
   };
 
   const handleSavePatient = async () => {
-    if (!patientData.nome.trim() || !patientData.email.trim()) {
+    if (!patientData.nome?.trim() || !patientData.email?.trim()) {
       alert('Nome e email são obrigatórios');
       return;
     }
@@ -259,40 +264,53 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     }
 
     // Validate CPF if provided
-    if (patientData.cpf.trim() && !validateCpf(patientData.cpf)) {
+    if (patientData.cpf?.trim() && !validateCpf(patientData.cpf)) {
       alert('CPF inválido. Verifique o número digitado.');
       return;
     }
 
+    // Validate CEP if provided
+    if (patientData.enderecoCep?.trim() && !validateCep(patientData.enderecoCep)) {
+      alert('CEP inválido. Deve ter 8 dígitos.');
+      return;
+    }
+
     // Validate session price
-    if (patientData.sessionPrice < 1000) { // R$ 10,00 minimum
+    if ((patientData.sessionPrice || 0) < 1000) { // R$ 10,00 minimum
       alert('Valor mínimo da sessão é R$ 10,00');
       return;
     }
 
     // Validate LV Notas billing start date
-    if (!patientData.lvNotasBillingStartDate.trim()) {
+    if (!patientData.lvNotasBillingStartDate?.trim()) {
       alert('Data de início da cobrança LV Notas é obrigatória');
       return;
     }
 
     setIsLoading(true);
     try {
-      const patientPayload = {
+      const patientPayload: Patient = {
         nome: patientData.nome.trim(),
         email: patientData.email.trim().toLowerCase(),
-        telefone: patientData.telefone.replace(/\D/g, ''), // Store only numbers
-        cpf: patientData.cpf.trim(), // Send formatted CPF
-        endereco: patientData.endereco.trim(),
-        dataNascimento: patientData.dataNascimento.trim(),
-        genero: patientData.genero.trim(),
-        contatoEmergencia: patientData.contatoEmergencia.trim(),
-        telefoneEmergencia: patientData.telefoneEmergencia.replace(/\D/g, ''),
-        sessionPrice: patientData.sessionPrice, // Already in cents
-        therapyStartDate: patientData.therapyStartDate.trim(),
-        lvNotasBillingStartDate: patientData.lvNotasBillingStartDate.trim(),
-        observacoes: patientData.observacoes.trim(),
-        therapistEmail
+        telefone: patientData.telefone?.replace(/\D/g, '') || '', // Store only numbers
+        cpf: patientData.cpf?.trim() || '', // Send formatted CPF
+        sessionPrice: patientData.sessionPrice || 30000, // Already in cents
+        therapyStartDate: patientData.therapyStartDate?.trim() || '',
+        lvNotasBillingStartDate: patientData.lvNotasBillingStartDate?.trim() || '',
+        observacoes: patientData.observacoes?.trim() || '',
+        therapistEmail,
+        // Address fields
+        enderecoRua: patientData.enderecoRua?.trim() || '',
+        enderecoNumero: patientData.enderecoNumero?.trim() || '',
+        enderecoBairro: patientData.enderecoBairro?.trim() || '',
+        enderecoCodigoMunicipio: patientData.enderecoCodigoMunicipio?.trim() || '3550308',
+        enderecoUf: patientData.enderecoUf?.trim() || 'SP',
+        enderecoCep: patientData.enderecoCep?.trim() || '',
+        // Personal info fields
+        dataNascimento: patientData.dataNascimento?.trim() || '',
+        genero: patientData.genero?.trim() || '',
+        contatoEmergenciaNome: patientData.contatoEmergenciaNome?.trim() || '',
+        contatoEmergenciaTelefone: patientData.contatoEmergenciaTelefone?.replace(/\D/g, '') || ''
       };
 
       if (formMode === 'add') {
@@ -300,18 +318,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
         await apiService.createPatient(patientPayload);
       } else if (formMode === 'edit' && editingPatientId) {
         console.log('Updating patient:', editingPatientId);
-        // For updates, only send the fields that the API expects
-        const updatePayload = {
-          nome: patientData.nome.trim(),
-          email: patientData.email.trim().toLowerCase(),
-          telefone: patientData.telefone.replace(/\D/g, ''),
-          cpf: patientData.cpf.trim(), // Include CPF in update
-          sessionPrice: patientData.sessionPrice,
-          therapyStartDate: formatDateForDB(patientData.therapyStartDate.trim()) || undefined,
-          lvNotasBillingStartDate: formatDateForDB(patientData.lvNotasBillingStartDate.trim()),
-          observacoes: patientData.observacoes.trim()
-        };
-        await apiService.updatePatient(editingPatientId, updatePayload);
+        await apiService.updatePatient(editingPatientId, patientPayload);
       }
 
       // Reload patients list
@@ -325,13 +332,15 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
       if (error.message && error.message.includes('404')) {
         errorMessage = 'Terapeuta não encontrado. Verifique se você está logado corretamente.';
       } else if (error.message && error.message.includes('400')) {
-        errorMessage = 'Dados inválidos. Verifique se nome e email foram preenchidos corretamente.';
+        errorMessage = 'Dados inválidos. Verifique se todos os campos obrigatórios foram preenchidos.';
       } else if (error.message && error.message.includes('email already exists')) {
         errorMessage = 'Este email já está cadastrado para outro paciente.';
       } else if (error.message && error.message.includes('CPF já cadastrado')) {
         errorMessage = 'Este CPF já está cadastrado para outro paciente.';
       } else if (error.message && error.message.includes('CPF inválido')) {
         errorMessage = 'CPF inválido. Verifique o número digitado.';
+      } else if (error.message && error.message.includes('CEP deve ter 8 dígitos')) {
+        errorMessage = 'CEP inválido. Deve ter 8 dígitos.';
       }
       alert(errorMessage);
     } finally {
@@ -341,26 +350,30 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
 
   const handleEditPatient = (patient: Patient) => {
     console.log('Editing patient:', patient);
-    // console.log('Patient therapy start date:', patient.therapyStartDate);
-    // console.log('Patient LV Notas billing start:', patient.lvNotasBillingStartDate);
 
     setFormMode('edit');
-    setEditingPatientId(patient.id);
+    setEditingPatientId(patient.id || null);
     setPatientData({
-      nome: patient.name || '',
+      nome: patient.name || patient.nome || '',
       email: patient.email || '',
       telefone: patient.telefone || '',
-      cpf: patient.cpf || '', // Load CPF data
-      endereco: patient.endereco || '',
-      dataNascimento: patient.dataNascimento || '',
-      genero: patient.genero || '',
-      contatoEmergencia: patient.contatoEmergencia || '',
-      telefoneEmergencia: patient.telefoneEmergencia || '',
+      cpf: patient.cpf || '',
       sessionPrice: patient.sessionPrice || 30000, // Default R$ 300,00
-      sessionPriceDisplay: patient.sessionPrice ? (patient.sessionPrice / 100).toFixed(2).replace('.', ',') : '300,00',
-      therapyStartDate: formatDateForForm(patient.therapyStartDate), // Convert YYYY-MM-DD to DD/MM/YYYY
-      lvNotasBillingStartDate: formatDateForForm(patient.lvNotasBillingStartDate), // Convert YYYY-MM-DD to DD/MM/YYYY
-      observacoes: patient.observacoes || ''
+      therapyStartDate: formatDateForForm(patient.therapyStartDate),
+      lvNotasBillingStartDate: formatDateForForm(patient.lvNotasBillingStartDate),
+      observacoes: patient.observacoes || '',
+      // Address fields
+      enderecoRua: patient.enderecoRua || '',
+      enderecoNumero: patient.enderecoNumero || '',
+      enderecoBairro: patient.enderecoBairro || '',
+      enderecoCodigoMunicipio: patient.enderecoCodigoMunicipio || '3550308',
+      enderecoUf: patient.enderecoUf || 'SP',
+      enderecoCep: patient.enderecoCep || '',
+      // Personal info fields
+      dataNascimento: formatDateForForm(patient.dataNascimento) || '',
+      genero: patient.genero || '',
+      contatoEmergenciaNome: patient.contatoEmergenciaNome || '',
+      contatoEmergenciaTelefone: patient.contatoEmergenciaTelefone || ''
     });
   };
 
@@ -395,17 +408,23 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
       nome: '',
       email: '',
       telefone: '',
-      cpf: '', // Reset CPF field
-      endereco: '',
-      dataNascimento: '',
-      genero: '',
-      contatoEmergencia: '',
-      telefoneEmergencia: '',
+      cpf: '',
       sessionPrice: 30000,
-      sessionPriceDisplay: '300,00',
       therapyStartDate: '',
       lvNotasBillingStartDate: '',
-      observacoes: ''
+      observacoes: '',
+      // Address fields
+      enderecoRua: '',
+      enderecoNumero: '',
+      enderecoBairro: '',
+      enderecoCodigoMunicipio: '3550308',
+      enderecoUf: 'SP',
+      enderecoCep: '',
+      // Personal info fields
+      dataNascimento: '',
+      genero: '',
+      contatoEmergenciaNome: '',
+      contatoEmergenciaTelefone: ''
     });
   };
 
@@ -423,7 +442,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
   if (!isAuthenticated || !hasValidTokens) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>❌ Autenticação necessária</Text>
+        <Text style={styles.errorText}>Autenticação necessária</Text>
         <Text style={styles.helpText}>Por favor, faça login novamente</Text>
       </View>
     );
@@ -439,7 +458,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
 
         {/* Personal Information Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>👤 Dados do Paciente</Text>
+          <Text style={styles.sectionTitle}>Dados Pessoais</Text>
 
           <Text style={styles.fieldLabel}>Nome Completo *</Text>
           <TextInput
@@ -470,26 +489,16 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
 
           <Text style={styles.fieldLabel}>CPF (opcional)</Text>
           <TextInput
-            style={[styles.input, !validateCpf(patientData.cpf) && patientData.cpf.length > 0 && styles.inputError]}
+            style={[styles.input, !validateCpf(patientData.cpf || '') && (patientData.cpf?.length || 0) > 0 && styles.inputError]}
             placeholder="000.000.000-00"
             value={patientData.cpf}
             onChangeText={(text) => handleFieldChange('cpf', text)}
             keyboardType="numeric"
             maxLength={14} // XXX.XXX.XXX-XX
           />
-          {patientData.cpf.length > 0 && !validateCpf(patientData.cpf) && (
+          {(patientData.cpf?.length || 0) > 0 && !validateCpf(patientData.cpf || '') && (
             <Text style={styles.errorText}>CPF inválido</Text>
           )}
-          <Text style={styles.helpText}>Cadastro de Pessoas Físicas para identificação fiscal</Text>
-
-          <Text style={styles.fieldLabel}>Endereço</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Rua, número, bairro, cidade"
-            value={patientData.endereco}
-            onChangeText={(text) => handleFieldChange('endereco', text)}
-            multiline
-          />
 
           <Text style={styles.fieldLabel}>Data de Nascimento</Text>
           <TextInput
@@ -509,31 +518,82 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
           />
         </View>
 
+        {/* Address Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Endereço</Text>
+
+          <Text style={styles.fieldLabel}>Rua</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: Rua das Flores"
+            value={patientData.enderecoRua}
+            onChangeText={(text) => handleFieldChange('enderecoRua', text)}
+          />
+
+          <Text style={styles.fieldLabel}>Número</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: 123"
+            value={patientData.enderecoNumero}
+            onChangeText={(text) => handleFieldChange('enderecoNumero', text)}
+          />
+
+          <Text style={styles.fieldLabel}>Bairro</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: Centro"
+            value={patientData.enderecoBairro}
+            onChangeText={(text) => handleFieldChange('enderecoBairro', text)}
+          />
+
+          <Text style={styles.fieldLabel}>CEP</Text>
+          <TextInput
+            style={[styles.input, !validateCep(patientData.enderecoCep || '') && (patientData.enderecoCep?.length || 0) > 0 && styles.inputError]}
+            placeholder="00000-000"
+            value={patientData.enderecoCep}
+            onChangeText={(text) => handleFieldChange('enderecoCep', text)}
+            keyboardType="numeric"
+            maxLength={9} // XXXXX-XXX
+          />
+          {(patientData.enderecoCep?.length || 0) > 0 && !validateCep(patientData.enderecoCep || '') && (
+            <Text style={styles.errorText}>CEP deve ter 8 dígitos</Text>
+          )}
+
+          <Text style={styles.fieldLabel}>Estado</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="SP"
+            value={patientData.enderecoUf}
+            onChangeText={(text) => handleFieldChange('enderecoUf', text)}
+            maxLength={2}
+          />
+        </View>
+
         {/* Emergency Contact Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🚨 Contato de Emergência</Text>
+          <Text style={styles.sectionTitle}>Contato de Emergência</Text>
 
           <Text style={styles.fieldLabel}>Nome do Contato</Text>
           <TextInput
             style={styles.input}
             placeholder="Ex: Maria da Silva (mãe)"
-            value={patientData.contatoEmergencia}
-            onChangeText={(text) => handleFieldChange('contatoEmergencia', text)}
+            value={patientData.contatoEmergenciaNome}
+            onChangeText={(text) => handleFieldChange('contatoEmergenciaNome', text)}
           />
 
           <Text style={styles.fieldLabel}>Telefone de Emergência</Text>
           <TextInput
             style={styles.input}
             placeholder="(11) 99999-9999"
-            value={patientData.telefoneEmergencia}
-            onChangeText={(text) => handleFieldChange('telefoneEmergencia', text)}
+            value={patientData.contatoEmergenciaTelefone}
+            onChangeText={(text) => handleFieldChange('contatoEmergenciaTelefone', text)}
             keyboardType="phone-pad"
           />
         </View>
 
         {/* Session Details Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>💰 Detalhes das Sessões</Text>
+          <Text style={styles.sectionTitle}>Detalhes das Sessões</Text>
 
           <Text style={styles.fieldLabel}>Valor da Sessão *</Text>
           <View style={styles.priceInputContainer}>
@@ -541,7 +601,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
             <TextInput
               style={styles.priceInput}
               placeholder="300,00"
-              value={patientData.sessionPriceDisplay}
+              value={patientData.sessionPrice ? (patientData.sessionPrice / 100).toFixed(2).replace('.', ',') : ''}
               onChangeText={(value) => {
                 // Remove everything except digits and comma
                 let cleaned = value.replace(/[^\d,]/g, '');
@@ -564,12 +624,9 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
                 // Reconstruct the formatted value
                 const formatted = parts.length > 1 ? parts[0] + ',' + parts[1] : parts[0];
 
-                // Update both display and actual values
-                setPatientData(prev => ({
-                  ...prev,
-                  sessionPriceDisplay: formatted,
-                  sessionPrice: formatted ? Math.round(parseFloat(formatted.replace(',', '.') || '0') * 100) : 0
-                }));
+                // Update sessionPrice in cents
+                const priceInCents = formatted ? Math.round(parseFloat(formatted.replace(',', '.') || '0') * 100) : 0;
+                handleFieldChange('sessionPrice', priceInCents);
               }}
               keyboardType="numeric"
             />
@@ -598,7 +655,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
 
         {/* Notes Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📝 Observações</Text>
+          <Text style={styles.sectionTitle}>Observações</Text>
 
           <TextInput
             style={[styles.input, styles.textArea]}
@@ -612,9 +669,9 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
 
         <View style={styles.formButtons}>
           <Pressable
-            style={[styles.primaryButton, (!patientData.nome.trim() || !patientData.email.trim() || !patientData.telefone.trim() || patientData.sessionPrice < 1000 || !patientData.lvNotasBillingStartDate.trim() || (patientData.cpf.length > 0 && !validateCpf(patientData.cpf))) && styles.buttonDisabled]}
+            style={[styles.primaryButton, (!patientData.nome?.trim() || !patientData.email?.trim() || !patientData.telefone?.trim() || (patientData.sessionPrice || 0) < 1000 || !patientData.lvNotasBillingStartDate?.trim() || ((patientData.cpf?.length || 0) > 0 && !validateCpf(patientData.cpf || '')) || ((patientData.enderecoCep?.length || 0) > 0 && !validateCep(patientData.enderecoCep || ''))) && styles.buttonDisabled]}
             onPress={handleSavePatient}
-            disabled={!patientData.nome.trim() || !patientData.email.trim() || !patientData.telefone.trim() || patientData.sessionPrice < 1000 || !patientData.lvNotasBillingStartDate.trim() || (patientData.cpf.length > 0 && !validateCpf(patientData.cpf)) || isLoading}
+            disabled={!patientData.nome?.trim() || !patientData.email?.trim() || !patientData.telefone?.trim() || (patientData.sessionPrice || 0) < 1000 || !patientData.lvNotasBillingStartDate?.trim() || ((patientData.cpf?.length || 0) > 0 && !validateCpf(patientData.cpf || '')) || ((patientData.enderecoCep?.length || 0) > 0 && !validateCep(patientData.enderecoCep || '')) || isLoading}
           >
             <Text style={styles.buttonText}>
               {isLoading ? 'Salvando...' : formMode === 'add' ? 'Adicionar Paciente' : 'Salvar Alterações'}
@@ -663,7 +720,7 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
           </View>
         ) : patients.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>📋 Nenhum paciente cadastrado</Text>
+            <Text style={styles.emptyText}>Nenhum paciente cadastrado</Text>
             <Text style={styles.emptySubtext}>
               Adicione seu primeiro paciente usando o botão acima
             </Text>
@@ -673,19 +730,22 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
             {patients.map((patient) => (
               <View key={patient.id} style={styles.patientCard}>
                 <View style={styles.patientInfo}>
-                  <Text style={styles.patientName}>{patient.name}</Text>
-                  <Text style={styles.patientDetail}>📧 {patient.email || 'Email não informado'}</Text>
-                  <Text style={styles.patientDetail}>📱 {patient.telefone || 'Telefone não informado'}</Text>
+                  <Text style={styles.patientName}>{patient.name || patient.nome}</Text>
+                  <Text style={styles.patientDetail}>Email: {patient.email || 'Não informado'}</Text>
+                  <Text style={styles.patientDetail}>Telefone: {patient.telefone || 'Não informado'}</Text>
                   {patient.cpf && (
-                    <Text style={styles.patientDetail}>🆔 CPF: {patient.cpf}</Text>
+                    <Text style={styles.patientDetail}>CPF: {patient.cpf}</Text>
+                  )}
+                  {patient.enderecoRua && (
+                    <Text style={styles.patientDetail}>Endereço: {patient.enderecoRua} {patient.enderecoNumero}, {patient.enderecoBairro}</Text>
                   )}
                   <Text style={styles.patientDetail}>
-                    📆 {patient.lvNotasBillingStartDate
-                      ? new Date(patient.lvNotasBillingStartDate).toLocaleDateString('pt-BR')
-                      : 'Data de início de cobrança não informada'}
+                    Cobrança LV Notas: {patient.lvNotasBillingStartDate
+                      ? formatDateForForm(patient.lvNotasBillingStartDate)
+                      : 'Não informado'}
                   </Text>
                   {patient.sessionPrice && (
-                    <Text style={styles.patientDetail}>💰 R$ {patient.sessionPrice}</Text>
+                    <Text style={styles.patientDetail}>Sessão: R$ {(patient.sessionPrice / 100).toFixed(2).replace('.', ',')}</Text>
                   )}
                 </View>
 
@@ -695,15 +755,15 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
                     onPress={() => handleEditPatient(patient)}
                     disabled={isLoading}
                   >
-                    <Text style={styles.editButtonText}>✏️ Editar</Text>
+                    <Text style={styles.editButtonText}>Editar</Text>
                   </Pressable>
 
                   <Pressable
                     style={styles.deleteButton}
-                    onPress={() => handleDeletePatient(patient.id, patient.name)}
+                    onPress={() => handleDeletePatient(patient.id || '', patient.name || patient.nome || '')}
                     disabled={isLoading}
                   >
-                    <Text style={styles.deleteButtonText}>🗑️ Excluir</Text>
+                    <Text style={styles.deleteButtonText}>Excluir</Text>
                   </Pressable>
                 </View>
               </View>

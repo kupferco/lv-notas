@@ -427,8 +427,8 @@ CREATE TABLE therapist_nfse_config (
     company_address JSONB DEFAULT '{}',            -- Complete address
     
     -- Tax configuration
-    default_service_code VARCHAR(20) DEFAULT '14.01', -- Therapy service code
-    default_tax_rate DECIMAL(5,2) DEFAULT 5.0,        -- ISS rate
+    service_code VARCHAR(20) DEFAULT '14.01', -- Therapy service code
+    tax_rate DECIMAL(5,2) DEFAULT 5.0,        -- ISS rate
     auto_generate_invoices BOOLEAN DEFAULT false,      -- Auto-generate after payment
     
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -541,7 +541,7 @@ X-API-Key: your_api_key
   "taxSettings": {
     "serviceCode": "14.01",
     "taxRate": 5.0,
-    "defaultServiceDescription": "Serviços de psicoterapia"
+    "serviceDescription": "Serviços de psicoterapia"
   }
 }
 

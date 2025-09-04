@@ -12,14 +12,13 @@ export { bankingService } from './banking-service';
 // Re-export types for convenience
 export type { 
   CertificateStatus, 
-  NFSeSettings, 
   CompanyData, 
-  TestInvoiceData, 
   InvoiceResult, 
   ConnectionStatus, 
   ServiceCode, 
   Invoice 
 } from './nfse-service';
+export type { NFSeSettings } from '../../components/nfse/types';
 
 // Re-export for backward compatibility
 import { patientService } from './patient-service';
