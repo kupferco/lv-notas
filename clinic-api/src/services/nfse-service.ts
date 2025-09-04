@@ -527,7 +527,7 @@ export class NFSeService {
           billingPeriod.patient_email,
           result.status, result.invoiceId, result.invoiceNumber, result.status,
           result.pdfUrl, result.xmlUrl,
-          result.error,  // THIS WAS MISSING - add error message
+          result.error,
           JSON.stringify(result), result.issueDate
         ]);
 

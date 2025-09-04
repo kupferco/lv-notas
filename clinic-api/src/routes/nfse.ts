@@ -608,19 +608,24 @@ router.post("/invoice/:invoiceId/cancel", asyncHandler(async (req, res) => {
     const { reason } = req.body;
 
     try {
+        console.log('Cancelling invoice:', invoiceId);
+
+        // Query by internal_ref instead of id
         const result = await pool.query(
-            `SELECT therapist_id FROM nfse_invoices WHERE id = $1`,
-            [invoiceId]
+            `SELECT id, therapist_id FROM nfse_invoices WHERE internal_ref = $1`,
+            [invoiceId]  // invoiceId is now the reference like "LV-04479058000110-1"
         );
 
         if (result.rows.length === 0) {
             return res.status(404).json({ error: "Invoice not found" });
         }
 
-        const therapistId = result.rows[0].therapist_id;
+        const { id: numericInvoiceId, therapist_id: therapistId } = result.rows[0];
+        console.log('Found invoice ID:', numericInvoiceId, 'for therapist:', therapistId);
 
+        // Use the numeric ID for the service call
         const success = await nfseService.cancelInvoice(
-            parseInt(invoiceId),
+            numericInvoiceId,  // Use the numeric database ID
             therapistId,
             reason || 'Cancelamento solicitado pelo usuário'
         );
@@ -670,18 +675,25 @@ router.get("/billing-period/:billingPeriodId/invoice", asyncHandler(async (req, 
 
 // 13. Webhook endpoint
 router.post("/invoice-status-update", asyncHandler(async (req, res) => {
-    const { invoiceId, therapistId, source } = req.body; // source: 'polling' or 'webhook'
+    const { invoiceId, therapistId, source } = req.body;
 
     try {
+        console.log(`=== DEBUG: Starting status update for invoice ${invoiceId} ===`);
+
         // Get fresh status from Focus NFe
         const updatedStatus = await nfseService.getInvoiceStatus(invoiceId, therapistId);
 
+        console.log('Focus NFe returned status:', JSON.stringify(updatedStatus, null, 2));
+        console.log('PDF URL from Focus:', updatedStatus.pdfUrl);
+        console.log('Status from Focus:', updatedStatus.status);
+
         // Update database
-        await pool.query(`
-      UPDATE nfse_invoices 
-      SET status = $1, pdf_url = $2, xml_url = $3, invoice_number = $4, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $5
-    `, [
+        const updateResult = await pool.query(`
+            UPDATE nfse_invoices 
+            SET status = $1, pdf_url = $2, xml_url = $3, invoice_number = $4, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $5
+            RETURNING id, status, pdf_url, xml_url, invoice_number
+        `, [
             updatedStatus.status,
             updatedStatus.pdfUrl,
             updatedStatus.xmlUrl,
@@ -689,8 +701,17 @@ router.post("/invoice-status-update", asyncHandler(async (req, res) => {
             invoiceId
         ]);
 
-        console.log(`Invoice ${invoiceId} updated via ${source}:`, updatedStatus.status);
-        return res.json({ success: true, status: updatedStatus.status });
+        console.log('Database update result:', updateResult.rows[0]);
+        console.log(`=== DEBUG: Completed status update ===`);
+
+        return res.json({
+            success: true,
+            status: updatedStatus.status,
+            debug: {
+                focusResponse: updatedStatus,
+                dbUpdate: updateResult.rows[0]
+            }
+        });
     } catch (error) {
         console.error('Invoice status update error:', error);
         return res.status(500).json({ error: 'Failed to update invoice status' });

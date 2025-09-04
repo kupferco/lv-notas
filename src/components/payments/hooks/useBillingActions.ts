@@ -371,7 +371,7 @@ export const useBillingActions = ({
       console.log(`📱 Preparing WhatsApp message for ${patientSummary.patientName}`);
 
       const patients = await apiService.getPatients(therapistEmail);
-      const fullPatientInfo = patients.find(p => parseInt(p.id) === patientSummary.patientId);
+      const fullPatientInfo = patients.find(p => p.id && parseInt(p.id) === patientSummary.patientId);
 
       if (!fullPatientInfo) {
         Alert.alert('Erro', 'Informações do paciente não encontradas');

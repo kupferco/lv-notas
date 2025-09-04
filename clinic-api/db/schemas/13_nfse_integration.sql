@@ -1,4 +1,4 @@
--- clinic-api/db/schemas/13_nfse_integration_simplified.sql
+-- clinic-api/db/schemas/13_nfse_integration.sql
 -- Simplified NFS-e integration - Focus NFe as single source of truth for company data
 
 -- =============================================================================
@@ -50,7 +50,7 @@ CREATE TABLE therapist_nfse_config (
     service_description TEXT DEFAULT 'Sessão de psicoterapia',
     
     -- Invoice counter for our reference system
-    next_invoice_ref INTEGER DEFAULT 1, -- For generating LV-1, LV-2, etc.
+    next_invoice_ref INTEGER DEFAULT 1, -- For generating LV-CNPJ-1, LV-CNPJ-2, etc.
     
     -- Feature preferences (local UI behavior)
     send_email_to_patient BOOLEAN DEFAULT true,
@@ -72,7 +72,7 @@ CREATE TABLE nfse_invoices (
     patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
     
     -- Our reference system for tracking and retrieval
-    internal_ref VARCHAR(50) NOT NULL UNIQUE, -- Format: LV-1, LV-2, etc.
+    internal_ref VARCHAR(50) NOT NULL UNIQUE, -- Format: LV-CNPJ-1, LV-CNPJ-2, etc.
     ref_number INTEGER NOT NULL, -- The numeric part for ordering
     
     -- Link to billing period
@@ -200,8 +200,8 @@ BEGIN
         RAISE EXCEPTION 'CNPJ not configured for therapist %', p_therapist_id;
     END IF;
     
-    -- Format: LV-04479058000110/1, LV-04479058000110/2, etc.
-    v_ref := 'LV-' || v_cnpj || '/' || v_next_number;
+    -- Format: LV-04479058000110-1, LV-04479058000110-2, etc.
+    v_ref := 'LV-' || v_cnpj || '-' || v_next_number;
     
     RETURN QUERY SELECT v_ref, v_next_number;
 END;
@@ -375,7 +375,7 @@ COMMENT ON TABLE therapist_nfse_config IS 'Minimal local config - Focus NFe stor
 COMMENT ON TABLE nfse_invoices IS 'Invoice audit trail with Focus NFe integration';
 
 COMMENT ON COLUMN therapist_nfse_config.company_cnpj IS 'CNPJ identifier - all company data fetched dynamically from Focus NFe';
-COMMENT ON COLUMN therapist_nfse_config.next_invoice_ref IS 'Counter for LV-<CNPJ>/1, LV-<CNPJ>/2, etc. references';
+COMMENT ON COLUMN therapist_nfse_config.next_invoice_ref IS 'Counter for LV-<CNPJ>-1, LV-<CNPJ>-2, etc. references';
 COMMENT ON COLUMN nfse_invoices.internal_ref IS 'Our tracking reference (LV-X) - also sent as provider_reference';
 COMMENT ON COLUMN nfse_invoices.provider_response IS 'Full Focus NFe response for debugging';
 
@@ -397,7 +397,7 @@ DO $$ BEGIN
     RAISE NOTICE 'WE ONLY STORE LOCALLY:';
     RAISE NOTICE '  • CNPJ (identifier for Focus NFe lookups)';
     RAISE NOTICE '  • Invoice preferences (service codes, tax rates)';
-    RAISE NOTICE '  • Invoice counter (LV-1, LV-2, LV-3...)';
+    RAISE NOTICE '  • Invoice counter (LV-CNPJ-1, LV-CNPJ-2, LV-CNPJ-3...)';
     RAISE NOTICE '  • Invoice audit trail';
     RAISE NOTICE '';
     RAISE NOTICE 'BENEFITS:';

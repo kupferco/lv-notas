@@ -60,19 +60,14 @@ export const PatientActionButtons: React.FC<PatientActionButtonsProps> = ({
       // If issued, show PDF link or cancel option
       return {
         style: styles.issuedInvoiceButton,
-        text: invoice?.pdf_url ? '📄 Ver PDF' : '❌ Cancelar NFS-e',
+        text: '❌ Cancelar NFS-e',
         onPress: () => {
-          if (invoice?.pdf_url) {
-            // Open PDF in new tab
-            window.open(invoice.pdf_url, '_blank');
-          } else {
-            // Show cancel confirmation
-            const confirmed = window.confirm(
-              `Tem certeza que deseja cancelar a NFS-e de ${patient.patientName}?\n\nEsta ação não pode ser desfeita.`
-            );
-            if (confirmed) {
-              onCancelInvoice(patient);
-            }
+          // Show cancel confirmation
+          const confirmed = window.confirm(
+            `Tem certeza que deseja cancelar a NFS-e de ${patient.patientName}?\n\nEsta ação não pode ser desfeita.`
+          );
+          if (confirmed) {
+            onCancelInvoice(patient);
           }
         },
         disabled: isCancellingInvoice

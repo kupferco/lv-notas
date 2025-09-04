@@ -270,7 +270,6 @@ export class FocusNFeProvider implements NFSeProvider {
             const companyData = await this.getCompanyData(companyId);
             const companyToken = await this.getCompanyToken(companyId);
 
-            // FIXED: Use provided reference or fallback to timestamp-based
             const reference = customReference || `lv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
             console.log('Using invoice reference:', reference);
 
@@ -360,8 +359,8 @@ export class FocusNFeProvider implements NFSeProvider {
                 invoiceId: reference,
                 invoiceNumber: response.numero_nfse,
                 status: this.mapStatus(response.status),
-                pdfUrl: response.caminho_pdf_nfse,
-                xmlUrl: response.caminho_xml_nfse,
+                pdfUrl: response.url_danfse,
+                xmlUrl: response.caminho_xml_nota_fiscal,
                 verificationCode: response.codigo_verificacao,
                 accessKey: response.chave_nfse,
                 issueDate: response.data_emissao ? new Date(response.data_emissao) : undefined,
@@ -426,8 +425,8 @@ export class FocusNFeProvider implements NFSeProvider {
                 invoiceId: invoiceId,
                 status: this.mapStatus(response.status),
                 invoiceNumber: response.numero_nfse,
-                pdfUrl: response.caminho_pdf_nfse,
-                xmlUrl: response.caminho_xml_nfse,
+                pdfUrl: response.url_danfse,
+                xmlUrl: response.caminho_xml_nota_fiscal,
                 error: errorMessage, // This will now contain the actual error message
                 lastUpdated: response.data_emissao ? new Date(response.data_emissao) : new Date()
             };

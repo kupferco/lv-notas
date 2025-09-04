@@ -315,7 +315,10 @@ export const useMonthlyBilling = ({
     try {
       setCancellingInvoices(prev => new Set(prev).add(patient.patientId));
 
-      const result = await nfseService.cancelInvoice(invoice.id.toString(), reason);
+      console.log(invoice)
+      console.log(invoice.internal_ref)
+
+      const result = await nfseService.cancelInvoice(invoice.internal_ref.toString(), reason);
       console.log('✅ Invoice cancelled successfully:', result);
 
       // Update the invoice status in our state
