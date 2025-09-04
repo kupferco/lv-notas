@@ -64,7 +64,7 @@ interface NFSeSettingsBody {
     settings: {
         serviceCode: string;
         taxRate: number;
-        defaultServiceDescription: string;
+        serviceDescription: string;
         sendEmailToPatient?: boolean;
         includeSessionDetails?: boolean;
     };
@@ -516,9 +516,9 @@ router.put("/settings", asyncHandler<NFSeSettingsBody>(async (req, res) => {
 
     try {
         await nfseService.updateTherapistSettings(parseInt(therapistId), {
-            default_service_code: settings.serviceCode,
-            default_tax_rate: settings.taxRate,
-            default_service_description: settings.defaultServiceDescription,
+            service_code: settings.serviceCode,
+            tax_rate: settings.taxRate,
+            service_description: settings.serviceDescription,
             send_email_to_patient: settings.sendEmailToPatient,
             include_session_details: settings.includeSessionDetails
         });
@@ -533,7 +533,7 @@ router.put("/settings", asyncHandler<NFSeSettingsBody>(async (req, res) => {
     }
 }));
 
-// 8. Get NFSe settings (simplified)
+// 8. Get NFSe settings (fixed column names)
 router.get("/settings/:therapistId", asyncHandler(async (req, res) => {
     const { therapistId } = req.params;
 
@@ -542,23 +542,22 @@ router.get("/settings/:therapistId", asyncHandler(async (req, res) => {
         const config = await getTherapistConfig(parseInt(therapistId));
         console.log("Debug - config from database:", config);
 
-
         if (!config) {
             return res.status(404).json({
                 error: 'NFS-e configuration not found for this therapist'
             });
         }
 
-        if (!config.default_service_code) {
+        if (!config.service_code) {
             return res.status(500).json({
                 error: 'Service code not configured - database integrity issue'
             });
         }
 
         const settings = {
-            serviceCode: config.default_service_code,
-            taxRate: parseFloat(config.default_tax_rate),
-            defaultServiceDescription: config.default_service_description,
+            serviceCode: config.service_code,
+            taxRate: parseFloat(config.tax_rate),
+            serviceDescription: config.service_description,
             sendEmailToPatient: config.send_email_to_patient !== false,
             includeSessionDetails: config.include_session_details !== false
         };
@@ -644,17 +643,97 @@ router.get("/billing-period/:billingPeriodId/invoice", asyncHandler(async (req, 
     const { billingPeriodId } = req.params;
 
     try {
+        console.log(`🔍 Getting invoice for billing period: ${billingPeriodId}`);
+
         const result = await pool.query(
             `SELECT * FROM get_invoice_status_for_billing_period($1)`,
             [billingPeriodId]
         );
 
+        const invoice = result.rows[0] || null;
+
+        console.log(`📄 Database query result for billing period ${billingPeriodId}:`, {
+            found: !!invoice,
+            id: invoice?.invoice_id,
+            status: invoice?.status,
+            error_message: invoice?.error_message,
+            internal_ref: invoice?.internal_ref
+        });
+
         return res.json({
-            invoice: result.rows[0] || null
+            invoice
         });
     } catch (error) {
         console.error('Get billing period invoice error:', error);
         return res.status(500).json({ error: 'Failed to get invoice details' });
+    }
+}));
+
+// 13. Webhook endpoint
+router.post("/invoice-status-update", asyncHandler(async (req, res) => {
+    const { invoiceId, therapistId, source } = req.body; // source: 'polling' or 'webhook'
+
+    try {
+        // Get fresh status from Focus NFe
+        const updatedStatus = await nfseService.getInvoiceStatus(invoiceId, therapistId);
+
+        // Update database
+        await pool.query(`
+      UPDATE nfse_invoices 
+      SET status = $1, pdf_url = $2, xml_url = $3, invoice_number = $4, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $5
+    `, [
+            updatedStatus.status,
+            updatedStatus.pdfUrl,
+            updatedStatus.xmlUrl,
+            updatedStatus.invoiceNumber,
+            invoiceId
+        ]);
+
+        console.log(`Invoice ${invoiceId} updated via ${source}:`, updatedStatus.status);
+        return res.json({ success: true, status: updatedStatus.status });
+    } catch (error) {
+        console.error('Invoice status update error:', error);
+        return res.status(500).json({ error: 'Failed to update invoice status' });
+    }
+}));
+
+// 14. Get invoice status from database (for frontend polling)
+router.get("/invoice/:invoiceId/status", asyncHandler(async (req, res) => {
+    const { invoiceId } = req.params;
+
+    try {
+        const result = await pool.query(`
+      SELECT 
+        id, internal_ref, status, invoice_number, pdf_url, xml_url,
+        error_message, amount, created_at, updated_at, issued_at
+      FROM nfse_invoices 
+      WHERE id = $1
+    `, [invoiceId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Invoice not found' });
+        }
+
+        const invoice = result.rows[0];
+
+        return res.json({
+            invoiceId: invoice.id,
+            internalRef: invoice.internal_ref,
+            status: invoice.status,
+            invoiceNumber: invoice.invoice_number,
+            pdfUrl: invoice.pdf_url,
+            xmlUrl: invoice.xml_url,
+            errorMessage: invoice.error_message,
+            amount: invoice.amount,
+            createdAt: invoice.created_at,
+            updatedAt: invoice.updated_at,
+            issuedAt: invoice.issued_at
+        });
+
+    } catch (error) {
+        console.error('Get invoice status error:', error);
+        return res.status(500).json({ error: 'Failed to get invoice status' });
     }
 }));
 
@@ -679,5 +758,23 @@ const errorHandler = (error: Error, req: Request, res: Response, next: NextFunct
 };
 
 router.use(errorHandler);
+
+// Start invoice polling service (TODO: Remove when webhooks are implemented)
+let pollingInterval: NodeJS.Timeout | null = null;
+
+const startInvoicePolling = () => {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+    }
+
+    pollingInterval = setInterval(() => {
+        nfseService.checkPendingInvoices();
+    }, 10000);
+
+    console.log('Invoice polling started - checking every 10 seconds');
+};
+
+// Start polling when this module loads
+startInvoicePolling();
 
 export default router;

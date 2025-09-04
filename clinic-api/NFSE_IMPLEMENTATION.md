@@ -111,11 +111,11 @@ const generateInvoice = async (therapistId, billingPeriodId) => {
       endereco: { /* patient address */ }
     },
     servico: {
-      codigo_tributario_municipio: config.default_service_code,
-      item_lista_servico: config.default_item_lista_servico,
+      codigo_tributario_municipio: config.service_code,
+      abrasf_service_code: config.abrasf_service_code,
       discriminacao: buildDescription(sessions),
       valor_servicos: totalAmount,
-      aliquota: config.default_tax_rate,
+      aliquota: config.tax_rate,
       iss_retido: false
     }
   };

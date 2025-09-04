@@ -18,12 +18,7 @@ export const NFSeConfigurationScreen: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [currentStep, setCurrentStep] = useState<number | 'summary'>(0);
   const [certificateStatus, setCertificateStatus] = useState<CertificateStatus | null>(null);
-  const [nfseSettings, setNFSeSettings] = useState<NFSeSettings>({
-    serviceCode: '14.01',
-    taxRate: 5,
-    defaultServiceDescription: 'Serviços de Psicologia',
-    // issWithholding: false
-  });
+  const [nfseSettings, setNFSeSettings] = useState<NFSeSettings | null>(null);
 
   const [uploadingCertificate, setUploadingCertificate] = useState(false);
   const [certificateUploadError, setCertificateUploadError] = useState<string>('');
@@ -78,6 +73,7 @@ export const NFSeConfigurationScreen: React.FC = () => {
     try {
       console.log("🔍 About to call getNFSeSettings for therapist:", therapistId);
       console.log("🔍 API URL should be: /api/nfse/settings/" + therapistId);
+
       // Load both certificate status and settings
       const [certStatus, settingsResponse] = await Promise.all([
         api.nfse.getCertificateStatus(therapistId),
@@ -85,25 +81,31 @@ export const NFSeConfigurationScreen: React.FC = () => {
       ]);
 
       console.log("🔍 Frontend received settingsResponse:", settingsResponse);
-      console.log("🔍 Frontend received settings:", settingsResponse.settings);
       console.log("🔍 Frontend received certStatus:", certStatus);
-      
-      // Update state with loaded data
+
+      // Update certificate status
       setCertificateStatus({
         ...certStatus,
         validationStatus: certStatus.validationStatus as 'idle' | 'validating' | 'validated' | 'error' | undefined
       });
-      setNFSeSettings(settingsResponse.settings);
-      console.log("🔍 State updated with settings:", settingsResponse.settings);
-      console.log("🔍 State updated with certStatus:", certStatus);
+
+      // Handle settings response - only set if we actually got valid settings
+      if (settingsResponse?.settings) {
+        setNFSeSettings(settingsResponse.settings);
+        console.log("🔍 State updated with settings:", settingsResponse.settings);
+      } else {
+        console.log("🔍 No settings found - therapist not configured for NFS-e");
+        setNFSeSettings(null);
+      }
 
       // Determine if fully configured based on what we have
       const isFullyConfigured =
         certStatus?.hasValidCertificate &&
         certStatus?.certificateInfo?.cnpj &&
-        certStatus?.status === 'uploaded';
+        certStatus?.status === 'uploaded' &&
+        settingsResponse?.settings; // Only consider configured if we have both cert AND settings
 
-      if (isFullyConfigured || true) {
+      if (isFullyConfigured) {
         // System is configured - show summary
         setCurrentStep('summary');
         setSetupSteps(prevSteps =>
@@ -116,8 +118,12 @@ export const NFSeConfigurationScreen: React.FC = () => {
           validationStatus: 'validated'
         } : prev);
       } else if (certStatus?.hasValidCertificate) {
-        // Certificate exists - start from step 0 but mark as completed
-        setCurrentStep(0);
+        // Certificate exists but no settings - start from settings step
+        if (settingsResponse?.settings) {
+          setCurrentStep(1); // Go to settings step
+        } else {
+          setCurrentStep(0); // Back to certificate if settings missing
+        }
         setSetupSteps(prevSteps =>
           prevSteps.map((step, index) => ({
             ...step,
@@ -130,6 +136,9 @@ export const NFSeConfigurationScreen: React.FC = () => {
       }
     } catch (error) {
       console.error('Error loading initial data:', error);
+      console.log('🔍 API Error - setting null states');
+      setNFSeSettings(null);
+      setCertificateStatus(null);
       setCurrentStep(0);
     } finally {
       setIsLoading(false);
@@ -167,22 +176,22 @@ export const NFSeConfigurationScreen: React.FC = () => {
         console.log('Auto-registering company with CNPJ:', certificateInfo.cnpj);
 
         try {
-          await api.nfse.registerNFSeCompany(therapistId, {
-            cnpj: certificateInfo.cnpj,
-            companyName: certificateInfo.commonName,
-            tradeName: certificateInfo.commonName,
-            email: user?.email || '',
-            phone: '',
-            municipalRegistration: '',
-            address: {
-              street: '',
-              number: '',
-              neighborhood: '',
-              city: 'São Paulo',
-              state: 'SP',
-              zipCode: ''
-            }
-          });
+          // await api.nfse.registerNFSeCompany(therapistId, {
+          //   cnpj: certificateInfo.cnpj,
+          //   companyName: certificateInfo.commonName,
+          //   tradeName: certificateInfo.commonName,
+          //   email: user?.email || '',
+          //   phone: '',
+          //   municipalRegistration: '',
+          //   address: {
+          //     street: '',
+          //     number: '',
+          //     neighborhood: '',
+          //     city: 'São Paulo',
+          //     state: 'SP',
+          //     zipCode: ''
+          //   }
+          // });
 
           // Update certificate status to show auto-registration
           setCertificateStatus(prev => prev ? {
@@ -351,9 +360,14 @@ export const NFSeConfigurationScreen: React.FC = () => {
   };
 
   const handleSaveSettings = async () => {
+    if (!nfseSettings) {
+      console.error('Cannot save settings: nfseSettings is null');
+      return;
+    }
+
     try {
       setSavingSettings(true);
-      await api.nfse.updateNFSeSettings(therapistId, nfseSettings);
+      await api.nfse.updateNFSeSettings(therapistId, nfseSettings); // Now TypeScript knows nfseSettings is not null
 
       setSetupSteps(prevSteps => {
         const newSteps = [...prevSteps];
@@ -372,6 +386,10 @@ export const NFSeConfigurationScreen: React.FC = () => {
     } finally {
       setSavingSettings(false);
     }
+  };
+
+  const handleUpdateSettings = (settings: NFSeSettings) => {
+    setNFSeSettings(settings);
   };
 
   if (isLoading) {
@@ -420,7 +438,8 @@ export const NFSeConfigurationScreen: React.FC = () => {
   // Show summary view when fully configured
   if (currentStep === 'summary' &&
     certificateStatus?.hasValidCertificate &&
-    certificateStatus?.validationStatus === 'validated') {
+    certificateStatus?.validationStatus === 'validated' &&
+    nfseSettings !== null) {
     return (
       <NFSeConfigurationSummary
         certificateStatus={certificateStatus}
@@ -471,13 +490,27 @@ export const NFSeConfigurationScreen: React.FC = () => {
         />
       )}
 
-      {currentStep === 1 && (
+      {currentStep === 1 && nfseSettings !== null && (
         <ServiceSettingsStep
           settings={nfseSettings}
           savingSettings={savingSettings}
-          onUpdateSettings={setNFSeSettings}
+          onUpdateSettings={handleUpdateSettings}
           onSave={handleSaveSettings}
         />
+      )}
+
+      {currentStep === 1 && nfseSettings === null && (
+        <View style={styles.card}>
+          <Text style={styles.errorText}>
+            Erro: Configurações NFS-e não encontradas. Tente fazer upload do certificado novamente.
+          </Text>
+          <Pressable
+            style={styles.primaryButton}
+            onPress={() => setCurrentStep(0)}
+          >
+            <Text style={styles.primaryButtonText}>Voltar ao Certificado</Text>
+          </Pressable>
+        </View>
       )}
 
       {/* Navigation */}

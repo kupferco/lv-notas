@@ -28,10 +28,10 @@ export function buildInvoiceData({
 
     // Build settings from individual database columns
     const settings = {
-        serviceCode: therapistConfig.default_service_code || "14.01",
-        taxRate: therapistConfig.default_tax_rate || 5,
-        defaultServiceDescription: therapistConfig.default_service_description || "Serviços de Psicologia",
-        itemListaServico: "1401", // Standard code for therapy services
+        serviceCode: therapistConfig.service_code || "05118",
+        taxRate: therapistConfig.tax_rate || 5,
+        serviceDescription: therapistConfig.service_description || "Serviços de Psicologia",
+        abrasfServiceCode: "416", // Standard code for therapy services
         issWithholding: false // Default to false, can be made configurable later
     };
 
@@ -52,7 +52,7 @@ export function buildInvoiceData({
     };
 
     const fullServiceData = {
-        description: serviceData.description || settings.defaultServiceDescription,
+        description: serviceData.description || settings.serviceDescription,
         value: serviceData.value || session.preco || 100,
         quantity: serviceData.quantity || 1,
         taxRate: serviceData.taxRate || settings.taxRate,
@@ -70,7 +70,7 @@ export function buildInvoiceData({
         customerAddress: fullCustomerData.address,
 
         serviceCode: fullServiceData.serviceCode,
-        itemListaServico: settings.itemListaServico,
+        abrasfServiceCode: settings.abrasfServiceCode,
         serviceDescription: fullServiceData.description,
         serviceValue: fullServiceData.value,
         taxRate: fullServiceData.taxRate,

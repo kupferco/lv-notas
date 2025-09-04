@@ -105,7 +105,7 @@ interface NFSeSettings {
   companyRegistered: boolean;
   serviceCode: string;
   taxRate: number;
-  defaultServiceDescription: string;
+  serviceDescription: string;
 }
 ```
 
@@ -172,7 +172,7 @@ interface TherapistNFSeConfig {
   // Tax configuration
   serviceCode: string; // Municipal code for therapy services
   taxRate: number; // ISS rate (2-5% typically)
-  defaultServiceDescription: string;
+  serviceDescription: string;
   
   // Company details
   cnpj: string;

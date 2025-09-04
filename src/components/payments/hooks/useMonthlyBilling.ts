@@ -52,8 +52,8 @@ export const useMonthlyBilling = ({
   const [paymentMatches, setPaymentMatches] = useState<Map<number, any>>(new Map());
   const [loadingMatches, setLoadingMatches] = useState(false);
 
-  // Therapist data
-  const [therapistId, setTherapistId] = useState<string>("1");
+  // Therapist data - FIXED: Don't initialize with hardcoded "1"
+  const [therapistId, setTherapistId] = useState<string>("");
   const [therapistData, setTherapistData] = useState<any>(null);
 
   // Cancel confirmation state
@@ -80,7 +80,7 @@ export const useMonthlyBilling = ({
             setTherapistData(therapist);
             setTherapistId(therapist.id.toString());
           } else {
-            console.warn('⚠️ No therapist found, using default ID');
+            console.warn('⚠️ No therapist found for email:', email);
           }
         } catch (error) {
           console.error('❌ Error fetching therapist data:', error);
@@ -95,13 +95,20 @@ export const useMonthlyBilling = ({
   useEffect(() => {
     if (therapistEmail && user && isAuthenticated) {
       loadBillingSummary();
-      loadCertificateStatus();
     }
   }, [therapistEmail, selectedYear, selectedMonth, user, isAuthenticated]);
 
+  // FIXED: Load certificate status only AFTER therapist ID is set
+  useEffect(() => {
+    if (therapistId && therapistId !== "") {
+      console.log(`📋 Loading certificate status for therapist ID: ${therapistId}`);
+      loadCertificateStatus();
+    }
+  }, [therapistId]);
+
   // Load payment matches when billing data is ready
   useEffect(() => {
-    if (therapistId && therapistId !== "1" && billingSummary.length > 0 && isAuthenticated) {
+    if (therapistId && therapistId !== "" && billingSummary.length > 0 && isAuthenticated) {
       console.log('🔍 Auth and billing data ready, now loading payment matches...');
       loadPaymentMatches();
     }
@@ -113,8 +120,50 @@ export const useMonthlyBilling = ({
     }
   }, [billingSummary, isAuthenticated]);
 
+  // Add polling for processing invoices
+  useEffect(() => {
+    if (!billingSummary.length || !invoiceStatuses.size) return;
+
+    // Find invoices that are currently processing
+    const processingInvoices = billingSummary
+      .filter(patient => patient.billingPeriodId && invoiceStatuses.has(patient.billingPeriodId))
+      .filter(patient => {
+        const invoice = invoiceStatuses.get(patient.billingPeriodId!);
+        return invoice?.invoice_status === 'processing';
+      });
+
+    // Only start polling if there are actually processing invoices
+    if (processingInvoices.length === 0) {
+      console.log('🛑 No processing invoices found - stopping polling');
+      return;
+    }
+
+    console.log(`🔄 Starting polling for ${processingInvoices.length} processing invoices`);
+
+    const pollInterval = setInterval(async () => {
+      console.log(`🔄 Polling ${processingInvoices.length} processing invoices...`);
+
+      for (const patient of processingInvoices) {
+        if (patient.billingPeriodId) {
+          try {
+            await checkInvoiceStatus(patient.billingPeriodId);
+          } catch (error) {
+            console.error(`Error polling invoice status for patient ${patient.patientId}:`, error);
+          }
+        }
+      }
+    }, 15000); // Poll every 15 seconds only for processing invoices
+
+    // Cleanup function
+    return () => {
+      console.log('🛑 Stopping invoice polling');
+      clearInterval(pollInterval);
+    };
+  }, [billingSummary, invoiceStatuses]);
+
   const loadCertificateStatus = async () => {
     try {
+      console.log(`🔍 Calling getCertificateStatus for therapist ID: ${therapistId}`);
       const status = await nfseService.getCertificateStatus(therapistId);
       setCertificateStatus(status);
       console.log('📋 Certificate status loaded:', status);
@@ -196,26 +245,51 @@ export const useMonthlyBilling = ({
   };
 
   // Function to check invoice status for a billing period
+
   const checkInvoiceStatus = async (billingPeriodId: number) => {
     try {
+      console.log(`🔍 Checking invoice status for billing period: ${billingPeriodId}`);
       setLoadingInvoiceStatus(prev => new Set(prev).add(billingPeriodId));
 
       const invoice = await nfseService.getInvoiceForBillingPeriod(billingPeriodId);
 
       if (invoice) {
-        console.log(`📄 Found invoice for billing period ${billingPeriodId}:`, invoice);
-        setInvoiceStatuses(prev => new Map(prev).set(billingPeriodId, invoice));
+        // NORMALIZE THE FIELD NAMES - Map 'status' to 'invoice_status' for UI consistency
+        const normalizedInvoice = {
+          ...invoice,
+          invoice_status: invoice.status || invoice.invoice_status, // Use whichever field exists
+        };
+
+        console.log(`📄 Found invoice for billing period ${billingPeriodId}:`, {
+          id: normalizedInvoice.internal_ref,
+          status: normalizedInvoice.status,
+          invoice_status: normalizedInvoice.invoice_status, // This is what UI looks for
+          error_message: normalizedInvoice.error_message,
+          pdf_url: normalizedInvoice.pdf_url
+        });
+
+        // Update the invoice statuses state with normalized data
+        setInvoiceStatuses(prev => {
+          const newMap = new Map(prev);
+          newMap.set(billingPeriodId, normalizedInvoice);
+          console.log(`📋 Updated invoiceStatuses map. Size: ${newMap.size}`);
+          console.log(`📋 Invoice status for ${billingPeriodId}: ${normalizedInvoice.invoice_status}`);
+          return newMap;
+        });
 
         // If invoice exists and is issued/processing, add to generatedInvoices
-        if (invoice.invoice_status === 'issued' || invoice.invoice_status === 'processing') {
+        if (normalizedInvoice.invoice_status === 'issued' || normalizedInvoice.invoice_status === 'processing') {
           const patient = billingSummary.find(p => p.billingPeriodId === billingPeriodId);
           if (patient) {
+            console.log(`✅ Adding patient ${patient.patientId} to generatedInvoices set`);
             setGeneratedInvoices(prev => new Set(prev).add(patient.patientId));
           }
         }
+      } else {
+        console.log(`❌ No invoice found for billing period ${billingPeriodId}`);
       }
     } catch (error) {
-      console.error(`Error checking invoice status for billing period ${billingPeriodId}:`, error);
+      console.error(`❌ Error checking invoice status for billing period ${billingPeriodId}:`, error);
     } finally {
       setLoadingInvoiceStatus(prev => {
         const newSet = new Set(prev);

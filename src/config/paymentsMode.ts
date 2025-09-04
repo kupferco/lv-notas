@@ -30,7 +30,8 @@ export const messageTemplates = {
 Valor total: {totalAmount}`,
         requestMessage: "Chave PIX: (11) 982212939",
         closing: `Assim que confirmar o pagamento, vc receberá automaticamente a nota fiscal correspondente.
-Obrigada`
+        Por favor, confira para ver se está tudo certo. 
+Obrigada!`
     },
 
     paymentReminder: {

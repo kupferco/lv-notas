@@ -52,42 +52,60 @@ export const PatientCard: React.FC<PatientCardProps> = ({
           <View style={[styles.statusBadge, { backgroundColor: getStatusColor(patient.status || 'can_process') }]}>
             <Text style={styles.statusText}>{getStatusText(patient.status || 'can_process')}</Text>
           </View>
-          {/* Invoice status indicator - check actual invoice status */}
-          {patient.billingPeriodId && invoiceStatuses.has(patient.billingPeriodId) && (
-            <Pressable
-              style={[
-                styles.invoiceIndicator, 
-                getInvoiceIndicatorStyle(invoiceStatuses.get(patient.billingPeriodId)?.invoice_status)
-              ]}
-              onPress={() => {
-                const invoice = invoiceStatuses.get(patient.billingPeriodId!); // Add ! since we checked it exists
-                if (invoice?.invoice_status === 'error') {
-                  alert(
-                    `❌ Erro na NFS-e\n\n${invoice.error_message || 'Erro desconhecido ao gerar nota fiscal'}`
-                  );
-                } else if (invoice?.invoice_status === 'issued') {
-                  alert(
-                    `✅ NFS-e Emitida\n\nNota fiscal emitida com sucesso.\n\nNúmero: ${invoice.invoice_number || 'N/A'}\nData: ${invoice.issue_date || 'N/A'}`
-                  );
-                } else if (invoice?.invoice_status === 'cancelled') {
-                  alert(
-                    `❌ NFS-e Cancelada\n\nNota fiscal cancelada.\n\nMotivo: ${invoice.cancellation_reason || 'Cancelamento solicitado'}`
-                  );
-                }
-              }}
-            >
-              <Text style={styles.invoiceIndicatorText}>
-                {getInvoiceIndicatorText(invoiceStatuses.get(patient.billingPeriodId)?.invoice_status)}
-              </Text>
-            </Pressable>
-          )}
+
+          {/* Invoice status indicator - ONLY for final states (success/error), not processing */}
+          {patient.billingPeriodId && invoiceStatuses.has(patient.billingPeriodId) && (() => {
+            const invoice = invoiceStatuses.get(patient.billingPeriodId!);
+            const status = invoice?.invoice_status;
+
+            // Only show indicator for final states, not processing
+            const shouldShowIndicator = status && ['issued', 'error', 'cancelled'].includes(status);
+
+            if (!shouldShowIndicator) return null;
+
+            return (
+              <Pressable
+                style={[
+                  styles.invoiceIndicator,
+                  getInvoiceIndicatorStyle(status)
+                ]}
+                onPress={() => {
+                  if (status === 'issued') {
+                    // If issued and has PDF, open it
+                    if (invoice?.pdf_url) {
+                      window.open(invoice.pdf_url, '_blank');
+                    } else {
+                      alert(
+                        `✅ NFS-e Emitida\n\nNota fiscal emitida com sucesso.\n\nReferência: ${invoice?.internal_ref || 'N/A'}\nNúmero: ${invoice?.invoice_number || 'Pendente'}\nData: ${invoice?.issue_date || 'N/A'}\n\nPDF será disponibilizado em breve.`
+                      );
+                    }
+                  } else if (status === 'error') {
+                    // Show error details
+                    const errorMsg = invoice?.error_message || 'Erro desconhecido ao gerar nota fiscal';
+                    alert(
+                      `❌ Erro na NFS-e\n\nReferência: ${invoice?.internal_ref || 'N/A'}\n\nDetalhes do erro:\n${errorMsg}\n\nClique em "Gerar NFS-e" para tentar novamente.`
+                    );
+                  } else if (status === 'cancelled') {
+                    // Show cancellation info
+                    alert(
+                      `⚪ NFS-e Cancelada\n\nReferência: ${invoice?.internal_ref || 'N/A'}\n\nMotivo: ${invoice?.cancellation_reason || 'Cancelamento solicitado'}\n\nClique em "Gerar Nova NFS-e" para emitir uma nova nota fiscal.`
+                    );
+                  }
+                }}
+              >
+                <Text style={styles.invoiceIndicatorText}>
+                  {getInvoiceIndicatorText(status)}
+                </Text>
+              </Pressable>
+            );
+          })()}
         </View>
       </View>
 
       {/* DEBUG: Show invoice status */}
       {patient.billingPeriodId && (
         <Text style={{ fontSize: 10, color: '#666', marginVertical: 4 }}>
-          Debug: Billing Period ID: {patient.billingPeriodId} | 
+          Debug: Billing Period ID: {patient.billingPeriodId} |
           Has Invoice: {invoiceStatuses.has(patient.billingPeriodId) ? 'Yes' : 'No'} |
           Invoice Status: {invoiceStatuses.get(patient.billingPeriodId)?.invoice_status || 'N/A'}
         </Text>
@@ -142,8 +160,6 @@ const getInvoiceIndicatorStyle = (status: string) => {
   switch (status) {
     case 'issued':
       return { backgroundColor: '#d4edda', borderColor: '#28a745' };
-    case 'processing':
-      return { backgroundColor: '#cce5ff', borderColor: '#007bff' };
     case 'cancelled':
       return { backgroundColor: '#f8d7da', borderColor: '#dc3545' };
     case 'error':
@@ -156,13 +172,11 @@ const getInvoiceIndicatorStyle = (status: string) => {
 const getInvoiceIndicatorText = (status: string) => {
   switch (status) {
     case 'issued':
-      return '✅ NFS-e Emitida';
-    case 'processing':
-      return '⏳ Processando...';
+      return '📄 Ver PDF';
     case 'cancelled':
-      return '❌ Cancelada';
+      return '⚪ Cancelada';
     case 'error':
-      return '⚠️ Ver Erro';  // Changed to be more action-oriented
+      return '⚠️ Ver Erro';
     default:
       return 'NFS-e';
   }

@@ -7,10 +7,10 @@ import { CertificateStatus, NFSeSettings } from './types';
 
 interface NFSeConfigurationSummaryProps {
   certificateStatus: CertificateStatus;
-  nfseSettings: NFSeSettings;
+  nfseSettings: NFSeSettings | null;
   onUpdateCertificate: () => void;
   onUpdateSettings: () => void;
-//   onTestInvoice: () => void;
+  //   onTestInvoice: () => void;
 }
 
 export const NFSeConfigurationSummary: React.FC<NFSeConfigurationSummaryProps> = ({
@@ -18,8 +18,11 @@ export const NFSeConfigurationSummary: React.FC<NFSeConfigurationSummaryProps> =
   nfseSettings,
   onUpdateCertificate,
   onUpdateSettings,
-//   onTestInvoice
+  //   onTestInvoice
 }) => {
+  if (!nfseSettings) {
+    return <Text>Settings not available</Text>;
+  }
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
@@ -52,7 +55,7 @@ export const NFSeConfigurationSummary: React.FC<NFSeConfigurationSummaryProps> =
         <View style={styles.infoBox}>
           <Text style={styles.infoText}>Código: {nfseSettings.serviceCode}</Text>
           <Text style={styles.infoText}>Alíquota ISS: {nfseSettings.taxRate}%</Text>
-          <Text style={styles.infoText}>Descrição: {nfseSettings.defaultServiceDescription}</Text>
+          <Text style={styles.infoText}>Descrição: {nfseSettings.serviceDescription}</Text>
         </View>
         <Pressable style={styles.secondaryButton} onPress={onUpdateSettings}>
           <Text style={styles.secondaryButtonText}>⚙️ Alterar Configurações</Text>

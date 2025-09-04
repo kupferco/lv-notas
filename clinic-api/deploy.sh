@@ -20,7 +20,7 @@ gcloud run deploy clinic-api \
   --image gcr.io/lv-notas/clinic-api \
   --platform managed \
   --region us-central1 \
-  --set-secrets=SAFE_PROXY_KEY=safe-proxy-key:latest,POSTGRES_PASSWORD=postgres-password:latest \
+  --set-secrets=FOCUS_NFE_MASTER_TOKEN=focus-nfe-master-token:latest,SAFE_PROXY_KEY=safe-proxy-key:latest,POSTGRES_PASSWORD=postgres-password:latest \
   --env-vars-file env.yaml \
   --add-cloudsql-instances lv-notas:us-central1:clinic-db \
   --service-account lv-notas-service-account@lv-notas.iam.gserviceaccount.com

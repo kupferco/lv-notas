@@ -7,7 +7,7 @@ import { SessionSnapshot } from './monthly-billing.js';
 // Keep existing interfaces but simplify implementation
 export interface NFSeProvider {
   registerCompany(companyData: CompanyRegistration, certificateData?: { buffer: Buffer, password: string }): Promise<string>;
-  generateInvoice(companyId: string, data: InvoiceRequest, certificateData?: { buffer: Buffer, password: string }): Promise<InvoiceResult>;
+  generateInvoice(companyId: string, data: InvoiceRequest, certificateData?: { buffer: Buffer, password: string }, customReference?: string): Promise<InvoiceResult>;
   getInvoiceStatus(companyId: string, invoiceId: string): Promise<InvoiceStatus>;
   getCompanyData(cnpj: string): Promise<CompanyData>;
   validateCertificate(certificate: Buffer, password: string): Promise<CertificateValidation>;
@@ -80,7 +80,7 @@ export interface InvoiceRequest {
     cityCode?: string;
   };
   serviceCode: string;
-  itemListaServico?: string;
+  abrasfServiceCode?: string;
   serviceDescription: string;
   serviceValue: number;
   taxRate?: number;
@@ -171,9 +171,9 @@ export class NFSeService {
     company_cnpj: string;
     focus_nfe_company_id?: string,
     certificate_uploaded?: boolean;
-    default_service_code?: string;
-    default_tax_rate?: number;
-    default_service_description?: string;
+    service_code?: string;
+    tax_rate?: number;
+    service_description?: string;
     send_email_to_patient?: boolean;
     include_session_details?: boolean;
   }): Promise<any> {
@@ -203,19 +203,19 @@ export class NFSeService {
         }
       }
 
-      if (configData.default_service_code !== undefined) {
-        updates.push(`default_service_code = $${++paramCount}`);
-        values.push(configData.default_service_code);
+      if (configData.service_code !== undefined) {
+        updates.push(`service_code = $${++paramCount}`);
+        values.push(configData.service_code);
       }
 
-      if (configData.default_tax_rate !== undefined) {
-        updates.push(`default_tax_rate = $${++paramCount}`);
-        values.push(configData.default_tax_rate);
+      if (configData.tax_rate !== undefined) {
+        updates.push(`tax_rate = $${++paramCount}`);
+        values.push(configData.tax_rate);
       }
 
-      if (configData.default_service_description !== undefined) {
-        updates.push(`default_service_description = $${++paramCount}`);
-        values.push(configData.default_service_description);
+      if (configData.service_description !== undefined) {
+        updates.push(`service_description = $${++paramCount}`);
+        values.push(configData.service_description);
       }
 
       if (configData.send_email_to_patient !== undefined) {
@@ -243,7 +243,7 @@ export class NFSeService {
       const result = await pool.query(`
         INSERT INTO therapist_nfse_config (
           therapist_id, company_cnpj, certificate_uploaded,
-          default_service_code, default_tax_rate, default_service_description,
+          service_code, tax_rate, service_description,
           send_email_to_patient, include_session_details
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
@@ -251,9 +251,9 @@ export class NFSeService {
         therapistId,
         configData.company_cnpj,
         configData.certificate_uploaded || false,
-        configData.default_service_code || '07498',
-        configData.default_tax_rate || 2.0,
-        configData.default_service_description || 'Sessão de psicoterapia',
+        configData.service_code || '07498',
+        configData.tax_rate || 2.0,
+        configData.service_description || 'Sessão de psicoterapia',
         configData.send_email_to_patient !== undefined ? configData.send_email_to_patient : true,
         configData.include_session_details !== undefined ? configData.include_session_details : true
       ]);
@@ -263,12 +263,13 @@ export class NFSeService {
   }
 
   /**
- * Update only therapist settings (not CNPJ - for settings endpoint)
- */
+   * Update only therapist settings (not CNPJ - for settings endpoint)
+   * FIXED: Use correct column names from schema
+   */
   async updateTherapistSettings(therapistId: number, settings: {
-    default_service_code?: string;
-    default_tax_rate?: number;
-    default_service_description?: string;
+    service_code?: string;
+    tax_rate?: number;
+    service_description?: string;
     send_email_to_patient?: boolean;
     include_session_details?: boolean;
   }): Promise<any> {
@@ -276,19 +277,19 @@ export class NFSeService {
     const values: any[] = [therapistId];
     let paramCount = 1;
 
-    if (settings.default_service_code !== undefined) {
-      updates.push(`default_service_code = $${++paramCount}`);
-      values.push(settings.default_service_code);
+    if (settings.service_code !== undefined) {
+      updates.push(`service_code = $${++paramCount}`);
+      values.push(settings.service_code);
     }
 
-    if (settings.default_tax_rate !== undefined) {
-      updates.push(`default_tax_rate = $${++paramCount}`);
-      values.push(settings.default_tax_rate);
+    if (settings.tax_rate !== undefined) {
+      updates.push(`tax_rate = $${++paramCount}`);
+      values.push(settings.tax_rate);
     }
 
-    if (settings.default_service_description !== undefined) {
-      updates.push(`default_service_description = $${++paramCount}`);
-      values.push(settings.default_service_description);
+    if (settings.service_description !== undefined) {
+      updates.push(`service_description = $${++paramCount}`);
+      values.push(settings.service_description);
     }
 
     if (settings.send_email_to_patient !== undefined) {
@@ -434,8 +435,9 @@ export class NFSeService {
       }
     }
 
-    // Get next invoice reference
+    // FIXED: Get next invoice reference from database
     const { ref: internalRef, refNumber } = await this.getNextInvoiceRef(therapistId);
+    console.log(`Generated invoice reference: ${internalRef} (number: ${refNumber})`);
 
     // Build service description
     const serviceDescription = this.buildSessionsDescription(sessionSnapshots, totalAmount);
@@ -451,19 +453,36 @@ export class NFSeService {
       customerDocument: customerData?.document || billingPeriod.patient_cpf,
       customerAddress: customerData?.address,
 
-      serviceCode: config.default_service_code || '07498',
-      itemListaServico: config.default_item_lista_servico || '1401',
+      // FIXED: Use municipal service code (not ABRASF)
+      serviceCode: config.service_code || '05118',  // Municipal code for São Paulo psychology
+      abrasfServiceCode: config.abrasf_service_code || '416', // Keep ABRASF for compatibility 
       serviceDescription,
       serviceValue: totalAmount / 100, // Convert cents to reais
-      taxRate: config.default_tax_rate || 2.0,
+      taxRate: config.tax_rate || 2.0,
       taxWithheld: false,
       sessionDate: new Date()
     };
 
+    console.log(invoiceData)
+    console.log(customerData)
+
+    return {
+      invoiceId: 'asdsa',
+      invoiceNumber: '213',
+      status: 'pending',
+      pdfUrl: 'asdsad',
+      xmlUrl: 'asdsad',
+      verificationCode: 'sadas',
+      accessKey: 'sadas',
+      issueDate: new Date(),
+      error: 'sadas',
+      databaseId: 44
+    };
+
     console.log(`Generating invoice ${internalRef} - Therapist: ${therapistId}, Patient: ${patientId}, Period: ${month}/${year}`);
 
-    // Generate invoice with Focus NFe (uses fresh company data)
-    const result = await this.provider.generateInvoice(companyData.cnpj, invoiceData);
+    // FIXED: Pass the internal reference to the provider
+    const result = await this.provider.generateInvoice(companyData.cnpj, invoiceData, undefined, internalRef);
 
     // Store invoice record in our database for audit trail
     if (result.status !== 'error' || true) {
@@ -472,23 +491,25 @@ export class NFSeService {
         const periodEnd = new Date(year, month, 0);
 
         const dbResult = await pool.query(`
-          INSERT INTO nfse_invoices (
-            therapist_id, patient_id, internal_ref, ref_number, provider_reference,
-            billing_period_id, invoice_date, amount, service_description, session_count,
-            patient_name, patient_document, patient_document_type, patient_email,
-            provider_status, provider_invoice_id, invoice_number, status,
-            pdf_url, xml_url, provider_response, issued_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
-          RETURNING id
-        `, [
-          therapistId, patientId, internalRef, refNumber, internalRef, // provider_reference = internal_ref
+  INSERT INTO nfse_invoices (
+    therapist_id, patient_id, internal_ref, ref_number, provider_reference,
+    billing_period_id, invoice_date, amount, service_description, session_count,
+    patient_name, patient_document, patient_document_type, patient_email,
+    provider_status, provider_invoice_id, invoice_number, status,
+    pdf_url, xml_url, error_message, provider_response, issued_at
+  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+  RETURNING id
+`, [
+          therapistId, patientId, internalRef, refNumber, internalRef,
           billingPeriod.id, new Date(), totalAmount / 100, serviceDescription, sessionSnapshots.length,
           billingPeriod.patient_name,
           customerData?.document || billingPeriod.patient_cpf,
           (customerData?.document || billingPeriod.patient_cpf)?.length === 11 ? 'cpf' : 'cnpj',
           billingPeriod.patient_email,
           result.status, result.invoiceId, result.invoiceNumber, result.status,
-          result.pdfUrl, result.xmlUrl, JSON.stringify(result), result.issueDate
+          result.pdfUrl, result.xmlUrl,
+          result.error,  // THIS WAS MISSING - add error message
+          JSON.stringify(result), result.issueDate
         ]);
 
         result.databaseId = dbResult.rows[0].id;
@@ -557,14 +578,15 @@ export class NFSeService {
       await pool.query(`
         UPDATE nfse_invoices 
         SET status = $1, provider_status = $2, pdf_url = $3, xml_url = $4, 
-            invoice_number = $5, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $6
+            invoice_number = $5, error_message = $6, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $7
       `, [
         status.status,
-        status.status, // provider_status = normalized status for now
+        status.status,
         status.pdfUrl || invoice.pdf_url,
         status.xmlUrl || invoice.xml_url,
         status.invoiceNumber || invoice.invoice_number,
+        status.error,
         invoiceId
       ]);
 
@@ -682,6 +704,52 @@ export class NFSeService {
       displayName: 'Focus NFe',
       configured: !!process.env.FOCUS_NFE_MASTER_TOKEN
     };
+  }
+
+  /**
+   * Check pending invoices and update their status via polling
+   */
+  async checkPendingInvoices(): Promise<void> {
+    try {
+      console.log('Checking pending invoices...');
+
+      // Get processing invoices from the last 24 hours
+      const result = await pool.query(`
+      SELECT id, therapist_id, internal_ref FROM nfse_invoices 
+      WHERE status = 'processing' 
+      AND created_at > NOW() - INTERVAL '24 hours'
+    `);
+
+      console.log(`Found ${result.rows.length} processing invoices`);
+
+      for (const invoice of result.rows) {
+        try {
+          // Call the same endpoint webhooks will call
+          const response = await fetch('http://localhost:3000/api/nfse/invoice-status-update', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': process.env.SAFE_PROXY_KEY || ''
+            },
+            body: JSON.stringify({
+              invoiceId: invoice.id,
+              therapistId: invoice.therapist_id,
+              source: 'polling'
+            })
+          });
+
+          if (!response.ok) {
+            console.error(`Failed to update invoice ${invoice.internal_ref}: ${response.status}`);
+          } else {
+            console.log(`Updated invoice ${invoice.internal_ref} via polling`);
+          }
+        } catch (error) {
+          console.error(`Error updating invoice ${invoice.id}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking pending invoices:', error);
+    }
   }
 }
 

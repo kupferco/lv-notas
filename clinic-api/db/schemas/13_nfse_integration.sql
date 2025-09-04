@@ -44,10 +44,10 @@ CREATE TABLE therapist_nfse_config (
     certificate_uploaded_at TIMESTAMP WITH TIME ZONE,
     
     -- Invoice preferences (local business logic only)
-    default_service_code VARCHAR(20) DEFAULT '07498', -- SP psychology code
-    default_item_lista_servico VARCHAR(10) DEFAULT '1401', -- ABRASF code
-    default_tax_rate DECIMAL(5,2) DEFAULT 2.0, -- ISS rate for health services
-    default_service_description TEXT DEFAULT 'Sessão de psicoterapia',
+    service_code VARCHAR(20) DEFAULT '05118', -- SP psychology code
+    abrasf_service_code VARCHAR(10) DEFAULT '416', -- ABRASF code
+    tax_rate DECIMAL(5,2) DEFAULT 2.0, -- ISS rate for health services
+    service_description TEXT DEFAULT 'Sessão de psicoterapia',
     
     -- Invoice counter for our reference system
     next_invoice_ref INTEGER DEFAULT 1, -- For generating LV-1, LV-2, etc.
@@ -178,24 +178,30 @@ WHERE bp.status = 'paid'; -- Only show for paid billing periods
 -- FUNCTIONS - FOCUSED ON CORE OPERATIONS
 -- =============================================================================
 
--- Generate next invoice reference (simple LV-X format)
+-- Generate next invoice reference with CNPJ format: LV-<CNPJ>/<number>
 CREATE OR REPLACE FUNCTION get_next_invoice_ref(p_therapist_id INTEGER) 
 RETURNS TABLE(ref VARCHAR, ref_number INTEGER) AS $$
 DECLARE
     v_next_number INTEGER;
+    v_cnpj VARCHAR(14);
     v_ref VARCHAR;
 BEGIN
-    -- Atomic increment and return
+    -- Get CNPJ and atomic increment counter
     UPDATE therapist_nfse_config 
     SET next_invoice_ref = next_invoice_ref + 1
     WHERE therapist_id = p_therapist_id
-    RETURNING next_invoice_ref - 1 INTO v_next_number;
+    RETURNING next_invoice_ref - 1, company_cnpj INTO v_next_number, v_cnpj;
     
     IF v_next_number IS NULL THEN
         RAISE EXCEPTION 'Therapist % not configured for NFS-e', p_therapist_id;
     END IF;
     
-    v_ref := 'LV-' || v_next_number;
+    IF v_cnpj IS NULL THEN
+        RAISE EXCEPTION 'CNPJ not configured for therapist %', p_therapist_id;
+    END IF;
+    
+    -- Format: LV-04479058000110/1, LV-04479058000110/2, etc.
+    v_ref := 'LV-' || v_cnpj || '/' || v_next_number;
     
     RETURN QUERY SELECT v_ref, v_next_number;
 END;
@@ -369,7 +375,7 @@ COMMENT ON TABLE therapist_nfse_config IS 'Minimal local config - Focus NFe stor
 COMMENT ON TABLE nfse_invoices IS 'Invoice audit trail with Focus NFe integration';
 
 COMMENT ON COLUMN therapist_nfse_config.company_cnpj IS 'CNPJ identifier - all company data fetched dynamically from Focus NFe';
-COMMENT ON COLUMN therapist_nfse_config.next_invoice_ref IS 'Counter for LV-1, LV-2, etc. references';
+COMMENT ON COLUMN therapist_nfse_config.next_invoice_ref IS 'Counter for LV-<CNPJ>/1, LV-<CNPJ>/2, etc. references';
 COMMENT ON COLUMN nfse_invoices.internal_ref IS 'Our tracking reference (LV-X) - also sent as provider_reference';
 COMMENT ON COLUMN nfse_invoices.provider_response IS 'Full Focus NFe response for debugging';
 

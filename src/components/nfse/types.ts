@@ -20,9 +20,8 @@ export interface CertificateStatus {
 export interface NFSeSettings {
   serviceCode: string;
   taxRate: number;
-  defaultServiceDescription: string;
-  // issWithholding: boolean;
-  additionalInfo?: string;
+  serviceDescription: string;
+  additionalInfo?: string; // New field for custom additional information
   isConfigured?: boolean;
 }
 

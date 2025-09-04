@@ -62,13 +62,15 @@ export interface FocusNFeInvoiceData {
         };
     };
     servico: {
-        codigo_tributario_municipio: string;
-        item_lista_servico?: string; // e.g. "1401"
+        aliquota: number; // Required - tax rate
         discriminacao: string;
+        iss_retido: string; // String "false" or "true"
+        item_lista_servico: string; // Federal service code
+        codigo_tributario_municipio: string; // Municipal service code
         valor_servicos: number;
-        aliquota?: number;
-        iss_retido?: boolean;
     };
+    optante_simples_nacional: boolean;
+    incentivo_fiscal: boolean;
 }
 
 export class FocusNFeProvider implements NFSeProvider {
@@ -80,14 +82,14 @@ export class FocusNFeProvider implements NFSeProvider {
     constructor(config?: Partial<FocusNFeConfig>) {
         // Get environment configuration
         const isSandbox = process.env.FOCUS_NFE_SANDBOX === 'true';
-        
+
         this.masterToken = process.env.FOCUS_NFE_MASTER_TOKEN || '';
-        
+
         // Company operations always use production URL (no empresas endpoint in homologação)
         this.companyBaseUrl = process.env.FOCUS_NFE_API_URL_PROD || 'https://api.focusnfe.com.br';
-        
+
         // Invoice operations use sandbox or production based on environment
-        this.invoiceBaseUrl = isSandbox 
+        this.invoiceBaseUrl = isSandbox
             ? (process.env.FOCUS_NFE_API_URL_HOMOLOGACAO || 'https://homologacao.focusnfe.com.br')
             : (process.env.FOCUS_NFE_API_URL_PROD || 'https://api.focusnfe.com.br');
 
@@ -107,6 +109,7 @@ export class FocusNFeProvider implements NFSeProvider {
         console.log(`- Company URL (always prod): ${this.companyBaseUrl}`);
         console.log(`- Invoice URL: ${this.invoiceBaseUrl}`);
         console.log(`- Token: ${this.masterToken ? 'Present' : 'Missing'}`);
+        console.log('Master token (first 5):', this.masterToken?.slice(0, 5) || 'Not found');
     }
 
     /**
@@ -118,7 +121,7 @@ export class FocusNFeProvider implements NFSeProvider {
             console.log(`Fetching company data from Focus NFe for CNPJ: ${cleanCnpj}`);
 
             const response = await this.makeCompanyRequest(
-                'GET', 
+                'GET',
                 `/v2/empresas?cnpj=${cleanCnpj}`
             );
 
@@ -161,7 +164,7 @@ export class FocusNFeProvider implements NFSeProvider {
         try {
             const companyData = await this.getCompanyData(cnpj);
             const token = this.config.sandbox ? companyData.tokens?.sandbox : companyData.tokens?.production;
-            
+
             if (!token) {
                 throw new Error('Company token not found. Company may not be registered or certificates not uploaded.');
             }
@@ -226,7 +229,7 @@ export class FocusNFeProvider implements NFSeProvider {
             formData.append('senha', certificateData.password);
 
             const cleanCnpj = cnpj.replace(/\D/g, '');
-            
+
             // Certificate upload always uses production URL (same as company registration)
             let url = `${this.companyBaseUrl}/v2/empresas/${cleanCnpj}/certificado`;
             if (this.config.sandbox) {
@@ -252,7 +255,8 @@ export class FocusNFeProvider implements NFSeProvider {
     async generateInvoice(
         companyId: string, // This will be the CNPJ
         data: InvoiceRequest,
-        certificateData?: { buffer: Buffer, password: string } // Not needed anymore
+        certificateData?: { buffer: Buffer, password: string }, // Not needed anymore
+        customReference?: string
     ): Promise<InvoiceResult> {
         try {
             console.log('Generating invoice with Focus NFe');
@@ -263,11 +267,13 @@ export class FocusNFeProvider implements NFSeProvider {
                 serviceDescription: data.serviceDescription
             });
 
-            // Get company token dynamically
+            // Get company data to determine Simples Nacional status
+            const companyData = await this.getCompanyData(companyId);
             const companyToken = await this.getCompanyToken(companyId);
 
-            // Generate unique reference ID for Focus NFe
-            const reference = `lv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+            // FIXED: Use provided reference or fallback to timestamp-based
+            const reference = customReference || `lv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+            console.log('Using invoice reference:', reference);
 
             const toDate = (d?: Date) =>
                 (d ? d : new Date()).toISOString().slice(0, 10); // YYYY-MM-DD
@@ -278,12 +284,14 @@ export class FocusNFeProvider implements NFSeProvider {
             const isCPF = customerDoc?.length === 11;
             const isCNPJ = customerDoc?.length === 14;
 
+            // console.log(data)
+
             const focusInvoice: FocusNFeInvoiceData = {
                 data_emissao: toDate(data.sessionDate),
                 prestador: {
-                    cnpj: cleanDocument(data.providerCnpj) || cleanDocument(companyId) || '',
-                    inscricao_municipal: data.providerMunicipalRegistration,
-                    codigo_municipio: data.providerCityCode || '3550308', // Default to São Paulo
+                    cnpj: cleanDocument(companyId) || '',
+                    inscricao_municipal: companyData.municipalRegistration || data.providerMunicipalRegistration,
+                    codigo_municipio: companyData.address.cityCode || data.providerCityCode || '3550308',
                 },
                 tomador: {
                     cpf: isCPF ? customerDoc : undefined,
@@ -294,7 +302,7 @@ export class FocusNFeProvider implements NFSeProvider {
                         ? {
                             logradouro: data.customerAddress.street || 'Rua não informada',
                             numero: data.customerAddress.number || 'S/N',
-                            complemento: data.customerAddress.complement,
+                            complemento: data.customerAddress.complement || '',
                             bairro: data.customerAddress.neighborhood || 'Centro',
                             codigo_municipio: data.customerAddress.cityCode || '3550308',
                             uf: data.customerAddress.state || 'SP',
@@ -303,19 +311,43 @@ export class FocusNFeProvider implements NFSeProvider {
                         : undefined,
                 },
                 servico: {
-                    codigo_tributario_municipio: data.serviceCode || '07498',
-                    item_lista_servico: data.itemListaServico || '1401',
+                    aliquota: 2, // Fixed 2% for psychology services in São Paulo
                     discriminacao: data.serviceDescription,
+                    iss_retido: data.taxWithheld ? "true" : "false", // String format
+                    item_lista_servico: "05118", // Federal psychology service code
+                    codigo_tributario_municipio: data.serviceCode || "07498", // São Paulo municipal code
                     valor_servicos: Number(data.serviceValue) || 0,
-                    aliquota: Number(data.taxRate) || 2,
-                    iss_retido: !!data.taxWithheld,
                 },
+                optante_simples_nacional: true, // Assume Simples Nacional for therapy clinics
+                incentivo_fiscal: false
             };
 
-            console.log('Focus NFe Request Payload:', JSON.stringify(focusInvoice, null, 2));
+            // console.log('Focus NFe Request Payload:', JSON.stringify(focusInvoice, null, 2));
 
             // Build URL - no dry_run for invoice operations (they use proper environment URLs)
             let endpoint = `/v2/nfse?ref=${encodeURIComponent(reference)}`;
+
+            console.log('=== FOCUS NFE INVOICE REQUEST DEBUG ===');
+            console.log('Environment:', process.env.NODE_ENV);
+            console.log('Sandbox mode:', this.config.sandbox);
+            console.log('Invoice URL:', this.invoiceBaseUrl);
+            console.log('Company token:', companyToken ? 'Present' : 'Missing');
+            console.log('Reference:', reference);
+            console.log('Focus NFe Request Payload:', JSON.stringify(focusInvoice, null, 2));
+            console.log('=== END DEBUG ===');
+
+            // SPOOF RESPONSE (JUST FOR CHECKING PAYLOAD)
+            // return {
+            //     invoiceId: 'asdsa',
+            //     invoiceNumber: 'asdsad',
+            //     status: 'pending',
+            //     pdfUrl: 'asdsad',
+            //     xmlUrl: 'asdsad',
+            //     verificationCode: 'asdsad',
+            //     accessKey: 'asdsad',
+            //     issueDate: new Date(),
+            //     error: 'asdsad',
+            // };
 
             // Send request using company token to appropriate environment URL
             const response = await this.makeInvoiceRequest(
@@ -334,15 +366,37 @@ export class FocusNFeProvider implements NFSeProvider {
                 verificationCode: response.codigo_verificacao,
                 accessKey: response.chave_nfse,
                 issueDate: response.data_emissao ? new Date(response.data_emissao) : undefined,
-                error: response.erros ? response.erros[0]?.mensagem : undefined
+                // IMPROVED ERROR EXTRACTION - handle both error responses and success with errors
+                error: response.erros && response.erros.length > 0
+                    ? response.erros.map((err: any) => err.mensagem).join('; ')  // Join multiple errors
+                    : (this.mapStatus(response.status) === 'error' ? 'Erro desconhecido' : undefined)
             };
         } catch (error) {
             console.error('Error generating invoice with Focus NFe:', error);
 
+            let errorMessage = 'Invoice generation failed';
+
+            if (error instanceof Error) {
+                // Check if the error has a response body with Focus NFe error details
+                if (error.message.includes('erros')) {
+                    try {
+                        const match = error.message.match(/erros.*?mensagem.*?"([^"]+)"/);
+                        if (match) {
+                            errorMessage = match[1];
+                        }
+                    } catch (parseError) {
+                        // Fallback to original error message
+                        errorMessage = error.message;
+                    }
+                } else {
+                    errorMessage = error.message;
+                }
+            }
+
             return {
-                invoiceId: '',
+                invoiceId: customReference || '',
                 status: 'error',
-                error: `Invoice generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+                error: errorMessage
             };
         }
     }
@@ -356,13 +410,26 @@ export class FocusNFeProvider implements NFSeProvider {
                 companyToken
             );
 
+            console.log(`📄 Focus NFe getInvoiceStatus response for ${invoiceId}:`, {
+                status: response.status,
+                erros: response.erros,
+                numero_nfse: response.numero_nfse
+            });
+
+            // EXTRACT ERROR MESSAGE PROPERLY FROM ERROS ARRAY
+            let errorMessage = null;
+            if (response.erros && response.erros.length > 0) {
+                errorMessage = response.erros.map((err: any) => err.mensagem).join('; ');
+                console.log(`🚨 Extracted error message: "${errorMessage}"`);
+            }
+
             return {
                 invoiceId: invoiceId,
                 status: this.mapStatus(response.status),
                 invoiceNumber: response.numero_nfse,
                 pdfUrl: response.caminho_pdf_nfse,
                 xmlUrl: response.caminho_xml_nfse,
-                error: response.erros ? response.erros[0]?.mensagem : undefined,
+                error: errorMessage, // This will now contain the actual error message
                 lastUpdated: response.data_emissao ? new Date(response.data_emissao) : new Date()
             };
         } catch (error) {
@@ -412,10 +479,10 @@ export class FocusNFeProvider implements NFSeProvider {
     async cancelInvoice(companyId: string, invoiceId: string, reason: string): Promise<boolean> {
         try {
             const companyToken = await this.getCompanyToken(companyId);
-            
+
             // Use appropriate environment URL for cancellation
             let endpoint = `/v2/nfse/${encodeURIComponent(invoiceId)}`;
-            
+
             const response = await this.makeInvoiceRequest(
                 'DELETE',
                 endpoint,
@@ -469,6 +536,7 @@ export class FocusNFeProvider implements NFSeProvider {
      */
     private async makeCompanyRequest(method: string, endpoint: string, data?: any): Promise<any> {
         const url = `${this.companyBaseUrl}${endpoint}`;
+        this.masterToken = '8JM5vtFKbSe2iohvY7eXsdAXrYsMjOLW';
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
             'Authorization': `Basic ${Buffer.from(this.masterToken + ':').toString('base64')}`,
@@ -476,7 +544,11 @@ export class FocusNFeProvider implements NFSeProvider {
         };
 
         console.log(`Making ${method} company request to: ${url}`);
-        
+        // console.log(555555);
+        // console.log('data (cnpj):', data?.cnpj);
+        // console.log('token (5):', this.masterToken?.slice(0, 5));
+        // console.log(77777);
+
         try {
             const response = await fetch(url, {
                 method,
@@ -486,7 +558,10 @@ export class FocusNFeProvider implements NFSeProvider {
 
             const responseText = await response.text();
             let responseData: any;
-            
+
+            // console.log(response);
+            // console.log(8888888);
+
             try {
                 responseData = JSON.parse(responseText);
             } catch {
@@ -524,7 +599,7 @@ export class FocusNFeProvider implements NFSeProvider {
         };
 
         console.log(`Making ${method} invoice request to: ${url}`);
-        
+
         try {
             const response = await fetch(url, {
                 method,
@@ -534,7 +609,7 @@ export class FocusNFeProvider implements NFSeProvider {
 
             const responseText = await response.text();
             let responseData: any;
-            
+
             try {
                 responseData = JSON.parse(responseText);
             } catch {

@@ -4,7 +4,6 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
 import { BillingSummary } from '../../../types/calendar-only';
 import { CertificateStatus } from '../../../services/api/nfse-service';
-import { shouldShowNFSeButton } from './utils/billingHelpers';
 
 interface PatientActionButtonsProps {
   patient: BillingSummary;
@@ -13,14 +12,14 @@ interface PatientActionButtonsProps {
   certificateStatus: CertificateStatus | null;
   generatingInvoices: Set<number>;
   generatedInvoices: Set<number>;
-  invoiceStatuses: Map<number, any>; // Add this
-  cancellingInvoices: Set<number>; // Add this
-  loadingInvoiceStatus: Set<number>; // Add this
+  invoiceStatuses: Map<number, any>;
+  cancellingInvoices: Set<number>;
+  loadingInvoiceStatus: Set<number>;
   onProcessCharges: (patient: BillingSummary) => void;
   onPaymentButtonPress: (patient: BillingSummary) => void;
   onCancelBilling: (patient: BillingSummary) => void;
   onGenerateInvoice: (patient: BillingSummary) => void;
-  onCancelInvoice: (patient: BillingSummary) => void; // Add this
+  onCancelInvoice: (patient: BillingSummary) => void;
   onViewDetails: (billingPeriodId: number | undefined, patient?: BillingSummary) => void;
 }
 
@@ -45,47 +44,50 @@ export const PatientActionButtons: React.FC<PatientActionButtonsProps> = ({
   const invoice = patient.billingPeriodId ? invoiceStatuses.get(patient.billingPeriodId) : null;
   const isLoadingInvoice = patient.billingPeriodId ? loadingInvoiceStatus.has(patient.billingPeriodId) : false;
   const isCancellingInvoice = cancellingInvoices.has(patient.patientId);
-  
+
   // Determine invoice status
   const invoiceStatus = invoice?.invoice_status;
   const hasIssuedInvoice = invoiceStatus === 'issued';
   const hasProcessingInvoice = invoiceStatus === 'processing';
   const hasCancelledInvoice = invoiceStatus === 'cancelled';
   const hasErrorInvoice = invoiceStatus === 'error';
-  
+
   // Helper to get invoice button style and text
+  // Complete getInvoiceButtonConfig function for PatientActionButtons.tsx
+
   const getInvoiceButtonConfig = () => {
     if (hasIssuedInvoice) {
+      // If issued, show PDF link or cancel option
       return {
-        style: styles.cancelInvoiceButton,
-        text: isCancellingInvoice ? '🔄 Cancelando...' : '❌ Cancelar NFS-e',
+        style: styles.issuedInvoiceButton,
+        text: invoice?.pdf_url ? '📄 Ver PDF' : '❌ Cancelar NFS-e',
         onPress: () => {
-          Alert.alert(
-            'Cancelar Nota Fiscal',
-            `Tem certeza que deseja cancelar a NFS-e de ${patient.patientName}?`,
-            [
-              { text: 'Não', style: 'cancel' },
-              { 
-                text: 'Sim, Cancelar', 
-                style: 'destructive',
-                onPress: () => onCancelInvoice(patient)
-              }
-            ]
-          );
+          if (invoice?.pdf_url) {
+            // Open PDF in new tab
+            window.open(invoice.pdf_url, '_blank');
+          } else {
+            // Show cancel confirmation
+            const confirmed = window.confirm(
+              `Tem certeza que deseja cancelar a NFS-e de ${patient.patientName}?\n\nEsta ação não pode ser desfeita.`
+            );
+            if (confirmed) {
+              onCancelInvoice(patient);
+            }
+          }
         },
         disabled: isCancellingInvoice
       };
     }
-    
+
     if (hasProcessingInvoice) {
       return {
         style: styles.processingInvoiceButton,
         text: '⏳ Processando NFS-e...',
-        onPress: () => {},
+        onPress: () => { },
         disabled: true
       };
     }
-    
+
     if (hasCancelledInvoice) {
       return {
         style: styles.regenerateInvoiceButton,
@@ -94,22 +96,16 @@ export const PatientActionButtons: React.FC<PatientActionButtonsProps> = ({
         disabled: generatingInvoices.has(patient.patientId)
       };
     }
-    
+
     if (hasErrorInvoice) {
       return {
-        style: styles.errorInvoiceButton,
-        text: '⚠️ Erro - Tentar Novamente',
-        onPress: () => {
-          console.log('Retry button clicked for patient:', patient.patientName);
-          console.log('Current invoice status:', invoiceStatus);
-          
-          // Directly call generate without the alert to see if it's working
-          onGenerateInvoice(patient);
-        },
+        style: styles.nfseButton, // Use same style as generate button
+        text: generatingInvoices.has(patient.patientId) ? '📄 Gerando...' : '🧾 Gerar NFS-e',
+        onPress: () => onGenerateInvoice(patient), // Just retry generation
         disabled: generatingInvoices.has(patient.patientId)
       };
     }
-    
+
     // Default: generate invoice button
     return {
       style: styles.nfseButton,
@@ -166,44 +162,47 @@ export const PatientActionButtons: React.FC<PatientActionButtonsProps> = ({
         </>
       )}
 
-      {/* NFS-e button for PAID patients */}
-      {patient.status === 'paid' && certificateStatus?.hasValidCertificate && (
+      {/* NFS-e button for PAID patients - FIXED LOGIC */}
+      {patient.status === 'paid' && (
         <>
-          {isLoadingInvoice ? (
-            <View style={[styles.actionButton, styles.loadingButton]}>
-              <Text style={styles.loadingButtonText}>📋 Verificando...</Text>
-            </View>
-          ) : (
+          {!certificateStatus?.hasValidCertificate ? (
+            // Show certificate warning if no valid certificate
             <Pressable
-              style={[styles.actionButton, getInvoiceButtonConfig().style]}
-              onPress={getInvoiceButtonConfig().onPress}
-              disabled={getInvoiceButtonConfig().disabled}
+              style={[styles.actionButton, styles.certificateWarning]}
+              onPress={() => {
+                Alert.alert(
+                  'Certificado Necessário',
+                  'Configure seu certificado digital para emitir notas fiscais.',
+                  [
+                    { text: 'Cancelar' },
+                    { text: 'Configurar', onPress: () => window.location.href = '/nfse-configuracao' }
+                  ]
+                );
+              }}
             >
-              <Text style={styles.nfseButtonText}>
-                {getInvoiceButtonConfig().text}
-              </Text>
+              <Text style={styles.certificateWarningText}>⚠️ Configurar Certificado</Text>
             </Pressable>
+          ) : (
+            // Show NFS-e button if certificate is valid
+            <>
+              {isLoadingInvoice ? (
+                <View style={[styles.actionButton, styles.loadingButton]}>
+                  <Text style={styles.loadingButtonText}>📋 Verificando...</Text>
+                </View>
+              ) : (
+                <Pressable
+                  style={[styles.actionButton, getInvoiceButtonConfig().style]}
+                  onPress={getInvoiceButtonConfig().onPress}
+                  disabled={getInvoiceButtonConfig().disabled}
+                >
+                  <Text style={styles.nfseButtonText}>
+                    {getInvoiceButtonConfig().text}
+                  </Text>
+                </Pressable>
+              )}
+            </>
           )}
         </>
-      )}
-
-      {/* Certificate Warning for paid patients without valid certificate */}
-      {patient.status === 'paid' && !certificateStatus?.hasValidCertificate && (
-        <Pressable
-          style={[styles.actionButton, styles.certificateWarning]}
-          onPress={() => {
-            Alert.alert(
-              'Certificado Necessário',
-              'Configure seu certificado digital para emitir notas fiscais.',
-              [
-                { text: 'Cancelar' },
-                { text: 'Configurar', onPress: () => window.location.href = '/nfse-configuracao' }
-              ]
-            );
-          }}
-        >
-          <Text style={styles.certificateWarningText}>⚠️ Certificado</Text>
-        </Pressable>
       )}
 
       {/* Always show "Ver Detalhes" button for all payment states */}
@@ -215,11 +214,6 @@ export const PatientActionButtons: React.FC<PatientActionButtonsProps> = ({
       </Pressable>
     </View>
   );
-};
-
-// Helper functions
-const getInvoiceButtonConfig = () => {
-  // ... existing function code
 };
 
 const styles = StyleSheet.create({
@@ -321,5 +315,10 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  issuedInvoiceButton: {
+    backgroundColor: '#28a745',
+    borderColor: '#1e7e34',
+    borderWidth: 1,
   },
 });
