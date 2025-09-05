@@ -60,6 +60,10 @@ router.get("/summary", asyncHandler(async (req, res) => {
         // console.log('Headers x-calendar-token:', req.headers['x-calendar-token'] ? 'Present' : 'Missing');
         // console.log('Headers x-google-access-token:', req.headers['x-google-access-token'] ? 'Present' : 'Missing');
 
+        // console.log(444444)
+        // console.log(summary)
+        // console.log(55555)
+
         return res.json({
             year,
             month,

@@ -3,6 +3,7 @@
 import pool from '../config/database.js';
 import { FocusNFeProvider } from './providers/focus-nfe-provider.js';
 import { SessionSnapshot } from './monthly-billing.js';
+import { EnvironmentConfig } from '../config/environment.js';
 
 // Keep existing interfaces but simplify implementation
 export interface NFSeProvider {
@@ -749,8 +750,8 @@ export class NFSeService {
   }
 
   /**
-   * Check pending invoices and update their status via polling
-   */
+ * Check pending invoices and update their status via polling
+ */
   async checkPendingInvoices(): Promise<void> {
     try {
       console.log('Checking pending invoices...');
@@ -764,14 +765,19 @@ export class NFSeService {
 
       console.log(`Found ${result.rows.length} processing invoices`);
 
+      // Get the correct API base URL based on environment
+      const apiBaseUrl = EnvironmentConfig.getApiBaseUrl();
+      const apiKey = EnvironmentConfig.getInternalApiKey();
+
+      console.log(`Using API base URL: ${apiBaseUrl}`);
+
       for (const invoice of result.rows) {
         try {
-          // Call the same endpoint webhooks will call
-          const response = await fetch('http://localhost:3000/api/nfse/invoice-status-update', {
+          const response = await fetch(`${apiBaseUrl}/api/nfse/invoice-status-update`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'X-API-Key': process.env.SAFE_PROXY_KEY || ''
+              'X-API-Key': apiKey
             },
             body: JSON.stringify({
               invoiceId: invoice.id,
