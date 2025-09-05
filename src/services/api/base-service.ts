@@ -151,24 +151,43 @@ const validateRequired = (value: any, fieldName: string): void => {
 // Error handling helpers
 const handleApiError = (error: Error, context: string): never => {
   console.error(`❌ ${context} error:`, error);
-  
-  if (error.message.includes('Authentication required')) {
+
+  let cleanErrorMessage = error.message;
+
+  // Try to extract clean error message from API response
+  if (error.message.includes('Bad Request -') || error.message.includes('{')) {
+    try {
+      // Find the JSON part in the error message
+      const jsonStart = error.message.indexOf('{');
+      if (jsonStart !== -1) {
+        const jsonPart = error.message.substring(jsonStart);
+        const errorData = JSON.parse(jsonPart);
+        // Extract the actual error message
+        cleanErrorMessage = errorData.error || errorData.message || error.message;
+      }
+    } catch (parseError) {
+      // If JSON parsing fails, keep the original message
+      cleanErrorMessage = error.message;
+    }
+  }
+
+  if (cleanErrorMessage.includes('Authentication required')) {
     throw new Error('You must be logged in to perform this action');
   }
-  
-  if (error.message.includes('404')) {
+
+  if (cleanErrorMessage.includes('404')) {
     throw new Error('The requested resource was not found');
   }
-  
-  if (error.message.includes('403')) {
+
+  if (cleanErrorMessage.includes('403')) {
     throw new Error('You do not have permission to perform this action');
   }
-  
-  if (error.message.includes('500')) {
+
+  if (cleanErrorMessage.includes('500')) {
     throw new Error('Server error. Please try again later.');
   }
-  
-  throw error;
+
+  throw new Error(cleanErrorMessage);
 };
 
 export const baseApiService = {
@@ -176,22 +195,22 @@ export const baseApiService = {
   getAuthHeaders,
   makeApiCall,
   makeApiBlobCall,
-  
+
   // Authentication helpers
   canMakeAuthenticatedCall,
   getCurrentTherapistEmail,
-  
+
   // Validation helpers
   validateEmail,
   validateRequired,
-  
+
   // Error handling
   handleApiError,
-  
+
   // Constants
   API_URL,
   API_KEY,
-  
+
   // Test connection
   async testConnection(): Promise<{ message: string }> {
     if (!canMakeAuthenticatedCall()) {

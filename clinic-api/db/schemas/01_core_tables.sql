@@ -84,7 +84,7 @@ CREATE INDEX idx_patients_therapist_id ON patients(therapist_id);
 CREATE INDEX idx_patients_therapist_billing ON patients(therapist_id, lv_notas_billing_start_date);
 
 -- CPF index with unique constraint (allowing NULLs)
-CREATE UNIQUE INDEX idx_patients_cpf ON patients(cpf) WHERE cpf IS NOT NULL;
+-- CREATE UNIQUE INDEX idx_patients_cpf ON patients(cpf) WHERE cpf IS NOT NULL; (NOT ANYMORE – I'm now allowing multiple patients to use the same CPF)
 
 -- Email indexes for lookups
 CREATE INDEX idx_therapists_email ON therapists(email);

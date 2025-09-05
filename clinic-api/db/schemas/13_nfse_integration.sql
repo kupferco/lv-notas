@@ -62,7 +62,7 @@ CREATE TABLE therapist_nfse_config (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     
     UNIQUE(therapist_id),
-    UNIQUE(company_cnpj)
+    -- UNIQUE(company_cnpj) (Removing this constrain so multiple therapists can use the same CNPJ and certificate)
 );
 
 -- NFS-e invoice records (our audit trail)

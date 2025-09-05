@@ -434,6 +434,12 @@ export class NFSeService {
     }
 
     const billingPeriod = billingResult.rows[0];
+
+    // Validate required customer data for NFS-e
+    if (!billingPeriod.patient_cpf || !billingPeriod.patient_cpf.trim()) {
+      throw new Error('CPF do paciente é obrigatório para emissão de NFS-e. Por favor, atualize os dados do paciente com um CPF válido.');
+    }
+
     let sessionSnapshots = billingPeriod.session_snapshots || [];
     let totalAmount = billingPeriod.total_amount;
 
@@ -537,7 +543,7 @@ export class NFSeService {
           billingPeriod.id, new Date(), totalAmount / 100, serviceDescription, sessionSnapshots.length,
           billingPeriod.patient_name,
           billingPeriod.patient_cpf,
-          billingPeriod.patient_cpf?.length === 11 ? 'cpf' : 'cnpj',
+          billingPeriod.patient_cpf.length === 11 ? 'cpf' : 'cnpj',
           billingPeriod.patient_email,
           result.status, result.invoiceId, result.invoiceNumber, result.status,
           result.pdfUrl, result.xmlUrl,

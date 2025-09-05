@@ -185,13 +185,13 @@ router.post("/", asyncHandler(async (req, res) => {
         [formattedCpf, therapistId]
       );
 
-      if (cpfCheckResult.rows.length > 0) {
-        return res.status(400).json({
-          error: "CPF já cadastrado para outro paciente",
-          existingPatient: cpfCheckResult.rows[0].nome,
-          cpf: formattedCpf
-        });
-      }
+      // if (cpfCheckResult.rows.length > 0) {
+      //   return res.status(400).json({
+      //     error: "CPF já cadastrado para outro paciente",
+      //     existingPatient: cpfCheckResult.rows[0].nome,
+      //     cpf: formattedCpf
+      //   });
+      // }
     }
 
     // Format dates for database (DD/MM/YYYY -> YYYY-MM-DD)
@@ -451,13 +451,13 @@ router.put("/:id", asyncHandler(async (req, res) => {
         [formattedCpf, id]
       );
 
-      if (cpfCheckResult.rows.length > 0) {
-        return res.status(400).json({
-          error: "CPF já cadastrado para outro paciente",
-          existingPatient: cpfCheckResult.rows[0].nome,
-          cpf: formattedCpf
-        });
-      }
+      // if (cpfCheckResult.rows.length > 0) {
+      //   return res.status(400).json({
+      //     error: "CPF já cadastrado para outro paciente",
+      //     existingPatient: cpfCheckResult.rows[0].nome,
+      //     cpf: formattedCpf
+      //   });
+      // }
     }
 
     const result = await pool.query(
