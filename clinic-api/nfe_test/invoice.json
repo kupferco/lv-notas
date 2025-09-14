@@ -1,0 +1,37 @@
+{
+  "data_emissao": "2025-07-16T11:13:00-03:00",
+  "natureza_operacao": 1,
+  "optante_simples_nacional": true,
+  "regime_especial_tributacao": 6,
+  "status": 1,
+  "prestador": {
+    "cnpj": "00000000000000",
+    "inscricao_municipal": "123445",
+    "codigo_municipio": 3550308
+  },
+  "tomador": {
+    "cnpj": "11.111.111/0001-11",
+    "cpf": "000.000.000-00",
+    "razao_social": "Fictício Tomador",
+    "email": "test@example.com",
+    "telefone": "11 1111-1111",
+    "endereco": {
+      "logradouro": "Rua Fictícia",
+      "numero": "2",
+      "complemento": "ap02", 
+      "bairro": "Centro",
+      "codigo_municipio": 3550308,
+      "uf": "SP",
+      "cep": "82900-010"
+    }
+  },
+  "servico": {
+    "discriminacao": "Nota emitida em caráter de TESTE de integração com Webservice",
+    "valor_servicos": 1.0,
+    "aliquota": 2,
+    "item_lista_servico": "12.17",
+    "codigo_cnae": "9329899",
+    "codigo_tributario_municipio": "452000100",
+    "iss_retido": false
+  }
+}

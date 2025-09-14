@@ -184,13 +184,13 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
     if (!cpf) return true; // CPF is optional
 
     const cleanCpf = cpf.replace(/\D/g, '');
-    
+
     // Must have exactly 11 digits
     if (cleanCpf.length !== 11) return false;
-    
+
     // Check for common invalid CPFs (all same digits)
     if (/^(\d)\1{10}$/.test(cleanCpf)) return false;
-    
+
     // Basic CPF algorithm validation
     let sum = 0;
     for (let i = 0; i < 9; i++) {
@@ -325,23 +325,62 @@ export const PatientManagement: React.FC<PatientManagementProps> = ({
       await loadPatients();
       resetForm();
 
+      // Updated error handling for PatientManagement.tsx handleSavePatient function
+
     } catch (error: any) {
       console.error('Error saving patient:', error);
 
       let errorMessage = 'Erro ao salvar paciente. Tente novamente.';
-      if (error.message && error.message.includes('404')) {
-        errorMessage = 'Terapeuta não encontrado. Verifique se você está logado corretamente.';
-      } else if (error.message && error.message.includes('400')) {
-        errorMessage = 'Dados inválidos. Verifique se todos os campos obrigatórios foram preenchidos.';
-      } else if (error.message && error.message.includes('email already exists')) {
-        errorMessage = 'Este email já está cadastrado para outro paciente.';
-      } else if (error.message && error.message.includes('CPF já cadastrado')) {
-        errorMessage = 'Este CPF já está cadastrado para outro paciente.';
-      } else if (error.message && error.message.includes('CPF inválido')) {
-        errorMessage = 'CPF inválido. Verifique o número digitado.';
-      } else if (error.message && error.message.includes('CEP deve ter 8 dígitos')) {
-        errorMessage = 'CEP inválido. Deve ter 8 dígitos.';
+
+      // Check if it's an API error with response details
+      if (error.response) {
+        // Error from fetch response
+        if (error.response.status === 400) {
+          const responseText = await error.response.text();
+          console.log('API Error Response:', responseText);
+
+          if (responseText.includes('duplicate key value violates unique constraint') ||
+            responseText.includes('cpf') ||
+            responseText.includes('CPF')) {
+            errorMessage = 'Este CPF já está cadastrado para outro paciente.';
+          } else if (responseText.includes('email')) {
+            errorMessage = 'Este email já está cadastrado para outro paciente.';
+          } else {
+            // Try to parse JSON error message
+            try {
+              const errorData = JSON.parse(responseText);
+              if (errorData.error) {
+                errorMessage = errorData.error;
+              }
+            } catch {
+              errorMessage = 'Dados inválidos. Verifique se todos os campos obrigatórios foram preenchidos.';
+            }
+          }
+        } else if (error.response.status === 404) {
+          errorMessage = 'Terapeuta não encontrado. Verifique se você está logado corretamente.';
+        }
+      } else if (error.message) {
+        // Check error message for specific patterns
+        const msg = error.message.toLowerCase();
+
+        if (msg.includes('cpf') && (msg.includes('duplicate') || msg.includes('já cadastrado') || msg.includes('unique'))) {
+          errorMessage = 'Este CPF já está cadastrado para outro paciente.';
+        } else if (msg.includes('email') && (msg.includes('duplicate') || msg.includes('já cadastrado') || msg.includes('unique'))) {
+          errorMessage = 'Este email já está cadastrado para outro paciente.';
+        } else if (msg.includes('404')) {
+          errorMessage = 'Terapeuta não encontrado. Verifique se você está logado corretamente.';
+        } else if (msg.includes('400')) {
+          errorMessage = 'Dados inválidos. Verifique se todos os campos obrigatórios foram preenchidos.';
+        } else if (msg.includes('cpf inválido')) {
+          errorMessage = 'CPF inválido. Verifique o número digitado.';
+        } else if (msg.includes('cep deve ter 8 dígitos')) {
+          errorMessage = 'CEP inválido. Deve ter 8 dígitos.';
+        } else if (error.message !== 'Failed to fetch' && error.message.length < 200) {
+          // Use the actual error message if it's reasonable length and not generic
+          errorMessage = error.message;
+        }
       }
+
       alert(errorMessage);
     } finally {
       setIsLoading(false);

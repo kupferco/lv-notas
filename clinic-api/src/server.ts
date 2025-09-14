@@ -144,7 +144,6 @@ const setupRoutes = () => {
         }
     });
 
-    // Add this endpoint to server.ts
     app.post('/api/update-webhook-url', async (req: Request, res: Response) => {
         try {
             const { webhookUrl } = req.body;
@@ -154,15 +153,37 @@ const setupRoutes = () => {
                 return;
             }
 
-            // Dynamically update the running server's environment
-            process.env.WEBHOOK_URL = webhookUrl;
-            process.env.WEBHOOK_URL_LOCAL = webhookUrl;
+            if (process.env.NODE_ENV === 'development') {
+                // Re-read .env file to get latest values
+                try {
+                    const envContent = await readFile('.env', 'utf-8');
+                    const envLines = envContent.split('\n');
 
-            console.log("🔄 Dynamically updated WEBHOOK_URL:", webhookUrl);
+                    for (const line of envLines) {
+                        const trimmedLine = line.trim();
+                        if (trimmedLine.startsWith('WEBHOOK_URL=')) {
+                            process.env.WEBHOOK_URL = trimmedLine.split('=')[1];
+                        }
+                        if (trimmedLine.startsWith('WEBHOOK_URL_LOCAL=')) {
+                            process.env.WEBHOOK_URL_LOCAL = trimmedLine.split('=')[1];
+                        }
+                    }
+                    console.log("Reloaded environment from .env file");
+                } catch (error) {
+                    // Fallback to manual update
+                    process.env.WEBHOOK_URL = webhookUrl;
+                    process.env.WEBHOOK_URL_LOCAL = webhookUrl;
+                }
+            } else {
+                process.env.WEBHOOK_URL = webhookUrl;
+                process.env.WEBHOOK_URL_LOCAL = webhookUrl;
+            }
+
+            console.log("Webhook URL updated:", process.env.WEBHOOK_URL);
 
             res.json({
                 message: 'Webhook URL updated successfully',
-                newUrl: webhookUrl
+                newUrl: process.env.WEBHOOK_URL
             });
         } catch (error: any) {
             console.error('Error updating webhook URL:', error);
@@ -520,8 +541,33 @@ const initializeApp = async () => {
 
     // Start server
     const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-        console.log(`🌐 Server running on port ${PORT}`);
+
+    // Add this after your server starts listening (after the app.listen call)
+    const server = app.listen(PORT, async () => {
+        console.log(`\n\n===========================\n\n🌐 Server running on port ${PORT}\n\n===========================\n\n`);
+
+        // In development, check if we need to reload webhook URL from .env
+        if (process.env.NODE_ENV === 'development') {
+            // Wait a moment for server to be fully ready
+            setTimeout(async () => {
+                try {
+                    const response = await fetch(`http://localhost:${PORT}/api/update-webhook-url`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ webhookUrl: process.env.WEBHOOK_URL })
+                    });
+
+                    if (response.ok) {
+                        console.log("Reloaded webhook URL from .env on startup");
+                    } else {
+                        console.log("Could not reload webhook URL on startup");
+                    }
+                } catch (error) {
+                    // Server might not be ready yet, that's okay
+                    console.log("Webhook URL reload skipped (server not ready)");
+                }
+            }, 1000);
+        }
     });
 };
 

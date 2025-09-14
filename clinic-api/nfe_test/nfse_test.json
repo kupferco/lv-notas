@@ -1,0 +1,32 @@
+{
+  "data_emissao": "2025-01-15",
+  "prestador": {
+    "cnpj": "04479058000110",
+    "inscricao_municipal": "30254027",
+    "codigo_municipio": "3550308"
+  },
+  "tomador": {
+    "cnpj": "00000000000191",
+    "razao_social": "NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL",
+    "email": "test@example.com",
+    "endereco": {
+      "logradouro": "Rua Teste",
+      "numero": "123",
+      "bairro": "Centro",
+      "complemento": "",
+      "codigo_municipio": "3550308",
+      "uf": "SP",
+      "cep": "01310-100"
+    }
+  },
+  "servico": {
+    "aliquota": 2,
+    "discriminacao": "Atendimento psicológico nods dias <lista dos dia>\n\nPsicólogo(a) Maria Cristina Kupfer\nCRP 06/1503\n\nCNAES Lugar de Vida 4490703\n\nNesta prestação de serviços incorrerá carga tributária de 5,65%",
+    "iss_retido": "false",
+    "item_lista_servico": "05118",
+    "codigo_tributario_municipio": "07498",
+    "valor_servicos": 300
+  },
+  "optante_simples_nacional": true,
+  "incentivo_fiscal": false
+}

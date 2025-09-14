@@ -413,19 +413,26 @@ router.post("/invoice/generate", asyncHandler(async (req, res) => {
         }
 
         // Generate invoice using the simplified service
-        const result = await nfseService.generateInvoiceForSessions(
-            parseInt(therapistId),
-            parseInt(patientId),
-            parseInt(year),
-            parseInt(month),
-            sessionIds,
-        );
+        try {
+            const result = await nfseService.generateInvoiceForSessions(
+                parseInt(therapistId),
+                parseInt(patientId),
+                parseInt(year),
+                parseInt(month),
+                sessionIds,
+            );
 
-        return res.json({
-            message: `${environmentTestMode ? 'Test' : 'Production'} invoice generated successfully`,
-            invoice: result,
-            testMode: environmentTestMode
-        });
+            return res.json({
+                message: `${environmentTestMode ? 'Test' : 'Production'} invoice generated successfully`,
+                invoice: result,
+                testMode: environmentTestMode
+            });
+        } catch (serviceError) {
+            console.error('Service error during invoice generation:', serviceError);
+            return res.status(400).json({
+                error: serviceError instanceof Error ? serviceError.message : 'Unknown error during invoice generation'
+            });
+        }
     } catch (error) {
         console.error('Invoice generation error:', error);
         return res.status(400).json({

@@ -46,4 +46,4 @@ yarn-error.*
 *.pem
 *.enc
 
-*/nfe_test
+*/nfe_test/*.pfx
