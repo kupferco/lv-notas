@@ -1,0 +1,16 @@
+{
+  "name": "pluggy-test-app",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Minimal app to test Pluggy Connect widget and transaction retrieval",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0"
+  }
+}
