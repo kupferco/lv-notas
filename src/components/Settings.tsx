@@ -29,6 +29,10 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
   const [showImportWizard, setShowImportWizard] = useState(false);
   const [nfseConfigured, setNfseConfigured] = useState(false);
 
+  // Tax Rate
+  const [incomeTaxRate, setIncomeTaxRate] = useState<number>(0);
+  const [isUpdatingTaxRate, setIsUpdatingTaxRate] = useState(false);
+
   // Get settings from context
   const {
     paymentMode,
@@ -122,11 +126,13 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
 
   const loadTherapistData = async () => {
     console.log("🔄 loadTherapistData called");
+    let therapistData: Therapist | null = null; // Declare at function scope
+
     try {
       console.log("Loading therapist data for:", therapistEmail);
       console.log("Google access token available:", !!localStorage.getItem('google_access_token'));
 
-      const therapistData = await apiService.getTherapistByEmail(therapistEmail);
+      therapistData = await apiService.getTherapistByEmail(therapistEmail);
       console.log("Therapist data loaded:", therapistData);
       console.log("Calendar ID:", therapistData?.googleCalendarId);
       console.log("Calendar ID type:", typeof therapistData?.googleCalendarId);
@@ -149,6 +155,13 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
       }
     } finally {
       setIsLoading(false);
+    }
+
+    // This needs to be AFTER the try/catch block and therapistData needs to be declared at function scope
+    if (therapistData?.incomeTaxRate !== undefined) {
+      setIncomeTaxRate(therapistData.incomeTaxRate);
+    } else {
+      setIncomeTaxRate(0);
     }
   };
 
@@ -361,6 +374,36 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
     }
   };
 
+  const handleTaxRateChange = async (newRate: number) => {
+    if (newRate < 0 || newRate > 100) {
+      window.alert("Taxa deve estar entre 0% e 100%");
+      return;
+    }
+
+    setIsUpdatingTaxRate(true);
+    try {
+      console.log(`🔄 Updating tax rate: ${incomeTaxRate}% → ${newRate}%`);
+
+      // Update therapist's tax rate via API
+      await apiService.updateTherapistTaxRate(therapistEmail, newRate);
+
+      setIncomeTaxRate(newRate);
+
+      // Update local therapist state
+      if (therapist) {
+        setTherapist({ ...therapist, incomeTaxRate: newRate });
+      }
+
+      window.alert(`Taxa de imposto atualizada para ${newRate}%`);
+      console.log(`✅ Tax rate updated successfully to ${newRate}%`);
+    } catch (error) {
+      console.error("Error updating tax rate:", error);
+      window.alert("Erro ao atualizar taxa de imposto. Tente novamente.");
+    } finally {
+      setIsUpdatingTaxRate(false);
+    }
+  };
+
   // Toggle options for the new settings
   const paymentModeOptions = [
     { label: 'Simples', value: 'simple' },
@@ -433,6 +476,84 @@ export const Settings: React.FC<SettingsProps> = ({ therapistEmail, onLogout }) 
             <Text style={styles.devBadgeText}>Modo Desenvolvimento</Text>
           </View>
         )}
+      </View>
+
+      {/* Tax Configuration Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>💰 Configuração de Impostos</Text>
+
+        <View style={styles.infoRow}>
+          <Text style={styles.label}>Taxa Atual:</Text>
+          <Text style={[styles.value, styles.taxRateValue]}>
+            {incomeTaxRate.toFixed(1)}%
+          </Text>
+        </View>
+
+        <Text style={styles.helpText}>
+          Configure sua taxa de imposto de renda para cálculos automáticos nos relatórios mensais.
+          Esta taxa será aplicada sobre o total de receitas para mostrar o valor aproximado de impostos a pagar.
+        </Text>
+
+        <View style={styles.taxRateContainer}>
+          <Text style={styles.taxRateLabel}>Nova taxa de imposto (%):</Text>
+
+          <View style={styles.taxRateInputContainer}>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              value={incomeTaxRate}
+              onChange={(e) => setIncomeTaxRate(parseFloat(e.target.value) || 0)}
+              style={styles.taxRateInput}
+              placeholder="0.0"
+            />
+
+            <Pressable
+              style={[
+                styles.taxRateButton,
+                isUpdatingTaxRate && styles.buttonDisabled
+              ]}
+              onPress={() => handleTaxRateChange(incomeTaxRate)}
+              disabled={isUpdatingTaxRate}
+            >
+              <Text style={styles.taxRateButtonText}>
+                {isUpdatingTaxRate ? "Salvando..." : "Salvar"}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.taxRatePresets}>
+          <Text style={styles.presetsLabel}>Valores comuns:</Text>
+          <View style={styles.presetButtons}>
+            {[0, 11, 16, 22.5, 27.5].map((rate) => (
+              <Pressable
+                key={rate}
+                style={[
+                  styles.presetButton,
+                  incomeTaxRate === rate && styles.presetButtonActive
+                ]}
+                onPress={() => setIncomeTaxRate(rate)}
+              >
+                <Text style={[
+                  styles.presetButtonText,
+                  incomeTaxRate === rate && styles.presetButtonTextActive
+                ]}>
+                  {rate}%
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <Text style={[styles.helpText, { marginTop: 10 }]}>
+          💡 Para Person Física: Isento (0%), ou conforme sua faixa de renda (7.5%, 15%, 22.5%, 27.5%)
+          {"\n"}
+          💡 Para MEI: Normalmente isento de IR (0%)
+          {"\n"}
+          💡 Para Simples Nacional: Varia conforme faturamento (6% a 33%)
+        </Text>
       </View>
 
       {/* LEGACY SETTINGS - COMMENTED OUT FOR FUTURE REFERENCE
@@ -1011,5 +1132,83 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     textAlign: "center",
+  },
+  taxRateValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#28a745',
+  },
+  taxRateContainer: {
+    marginTop: 15,
+    marginBottom: 15,
+  },
+  taxRateLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#495057',
+    marginBottom: 8,
+  },
+  taxRateInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  taxRateInput: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#ced4da',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    fontSize: 16,
+    backgroundColor: '#fff',
+    // outline: 'none',
+  },
+  taxRateButton: {
+    backgroundColor: '#6200ee',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+    minWidth: 80,
+  },
+  taxRateButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  taxRatePresets: {
+    marginTop: 15,
+  },
+  presetsLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#6c757d',
+    marginBottom: 8,
+  },
+  presetButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  presetButton: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+  },
+  presetButtonActive: {
+    backgroundColor: '#6200ee',
+    borderColor: '#6200ee',
+  },
+  presetButtonText: {
+    fontSize: 12,
+    color: '#495057',
+    fontWeight: '500',
+  },
+  presetButtonTextActive: {
+    color: '#fff',
   },
 });

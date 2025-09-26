@@ -84,6 +84,34 @@ export const therapistService = {
   },
 
   // ==========================================
+  // NEW: TAX RATE MANAGEMENT
+  // ==========================================
+
+  async updateTherapistTaxRate(email: string, taxRate: number): Promise<void> {
+    if (!canMakeAuthenticatedCall()) {
+      throw new Error("Authentication required for API calls");
+    }
+
+    try {
+      validateRequired(email, 'Therapist email');
+      validateEmail(email);
+      
+      if (typeof taxRate !== 'number' || taxRate < 0 || taxRate > 100) {
+        throw new Error('Tax rate must be a number between 0 and 100');
+      }
+
+      console.log("📞 updateTherapistTaxRate API call:", { email, taxRate });
+      await makeApiCall(`/api/therapists/${encodeURIComponent(email)}/tax-rate`, {
+        method: "PUT",
+        body: JSON.stringify({ taxRate }),
+      });
+      console.log("✅ updateTherapistTaxRate success");
+    } catch (error) {
+      return handleApiError(error as Error, 'updateTherapistTaxRate');
+    }
+  },
+
+  // ==========================================
   // THERAPIST SETTINGS METHODS
   // ==========================================
 

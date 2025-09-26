@@ -79,7 +79,7 @@ router.get("/summary", asyncHandler(async (req, res) => {
 }));
 
 // GET /api/monthly-billing/export-csv?therapistEmail=&year=&month=
-// Fixed CSV export with correct table names and session dates column
+// CSV export with income tax calculation
 router.get("/export-csv", asyncHandler(async (req, res) => {
     const therapistEmail = req.query.therapistEmail as string;
     const year = parseInt(req.query.year as string) || new Date().getFullYear();
@@ -107,6 +107,13 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
         // Filter out patients with zero sessions
         const patientsWithSessions = summary.filter(patient => patient.sessionCount > 0);
 
+        // Get therapist's income tax rate
+        const therapistResult = await pool.query(
+            'SELECT income_tax_rate FROM therapists WHERE email = $1',
+            [therapistEmail]
+        );
+        const incomeTaxRate = therapistResult.rows[0]?.income_tax_rate || 0.00;
+
         // Get detailed patient info for CSV
         const csvData = await Promise.all(
             patientsWithSessions.map(async (billingSummary) => {
@@ -128,7 +135,7 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
 
                 const patient = patientResult.rows[0];
 
-                // Get payment details if billing period exists (using correct table name)
+                // Get payment details if billing period exists
                 let paymentDate = '';
                 let paymentMethod = '';
                 let paymentReference = '';
@@ -154,10 +161,9 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
                     }
                 }
 
-                // ✨ NEW: Get session dates from billing period or billing summary
+                // Get session dates from billing period or billing summary
                 let sessionDates = '';
                 if (billingSummary.billingPeriodId) {
-                    // Get session snapshots from stored billing period
                     const sessionResult = await pool.query(
                         'SELECT session_snapshots FROM monthly_billing_periods WHERE id = $1',
                         [billingSummary.billingPeriodId]
@@ -171,12 +177,15 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
                             .join(' / ');
                     }
                 } else if (billingSummary.sessionSnapshots) {
-                    // Use session snapshots from billing summary (not processed yet)
                     sessionDates = billingSummary.sessionSnapshots
                         .map(session => new Date(session.date).getDate())
                         .sort((a: number, b: number) => a - b)
                         .join(' / ');
                 }
+
+                // Calculate income tax amount
+                const totalAmountDecimal = billingSummary.totalAmount / 100;
+                const incomeTaxAmount = (totalAmountDecimal * incomeTaxRate / 100);
 
                 return {
                     patientName: patient?.name || billingSummary.patientName || 'Nome não encontrado',
@@ -184,9 +193,10 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
                     telefone: patient?.telefone || '',
                     cpf: patient?.cpf || '',
                     sessionCount: billingSummary.sessionCount,
-                    sessionDates, // ✨ NEW: Session dates formatted as "2 / 8 / 22"
+                    sessionDates,
                     sessionPrice: patient?.session_price ? (patient.session_price / 100).toFixed(2) : '',
-                    totalAmount: (billingSummary.totalAmount / 100).toFixed(2),
+                    totalAmount: totalAmountDecimal.toFixed(2),
+                    incomeTaxAmount: incomeTaxAmount.toFixed(2), // NEW: Income tax calculation
                     status: getStatusText(billingSummary.status || 'can_process'),
                     paymentDate,
                     paymentMethod,
@@ -208,16 +218,17 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
             }
         }
 
-        // ✨ UPDATED: CSV headers with new session dates column
+        // Updated CSV headers with new income tax column
         const csvHeaders = [
             'Nome Completo',
             'Email',
             'Telefone',
             'CPF',
             'Número de Sessões',
-            'Datas das Sessões', // ✨ NEW: Session dates column
+            'Datas das Sessões',
             'Valor por Sessão',
             'Valor Total',
+            `Imposto de Renda (${incomeTaxRate}%)`, // NEW: Dynamic tax rate in header
             'Status do Pagamento',
             'Data do Pagamento',
             'Método de Pagamento',
@@ -226,16 +237,17 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
             'Início Cobrança LV Notas'
         ];
 
-        // ✨ UPDATED: CSV rows with new session dates column
+        // Updated CSV rows with new income tax column
         const csvRows = csvData.map(row => [
             `"${row.patientName}"`,
             `"${row.email}"`,
             `"${row.telefone}"`,
             `"${row.cpf}"`,
             row.sessionCount.toString(),
-            `"${row.sessionDates}"`, // ✨ NEW: Session dates data
+            `"${row.sessionDates}"`,
             `"${row.sessionPrice}"`,
             `"${row.totalAmount}"`,
+            `"${row.incomeTaxAmount}"`, // NEW: Income tax amount
             `"${row.status}"`,
             `"${row.paymentDate}"`,
             `"${row.paymentMethod}"`,
@@ -244,11 +256,12 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
             `"${row.billingStartDate}"`
         ]);
 
-        // Sum the total amounts
+        // Calculate totals
         const totalAmountSum = csvData.reduce((acc, row) => acc + parseFloat(row.totalAmount), 0).toFixed(2);
+        const totalTaxSum = csvData.reduce((acc, row) => acc + parseFloat(row.incomeTaxAmount), 0).toFixed(2);
 
-        // ✨ UPDATED: Summary row with empty session dates column
-        csvRows.push(['', '', '', '', '', '', 'TOTAL', totalAmountSum, '', '', '', '', '', '']);
+        // Summary row with totals (updated for new column)
+        csvRows.push(['', '', '', '', '', '', 'TOTAL', totalAmountSum, totalTaxSum, '', '', '', '', '', '']);
 
         // Add UTF-8 BOM for proper Excel encoding
         const BOM = '\uFEFF';
@@ -264,18 +277,7 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
         res.setHeader('Cache-Control', 'no-cache');
 
         console.log(`📊 CSV export generated: ${csvData.length} patients with sessions for ${month}/${year}`);
-
-        // Add this temporary debug code after csvData is created
-        console.log('=== CSV DEBUG ===');
-        console.log('Number of patients:', csvData.length);
-        csvData.forEach((patient, index) => {
-            console.log(`Patient ${index + 1}:`, {
-                name: patient.patientName,
-                sessionDates: patient.sessionDates,
-                sessionCount: patient.sessionCount
-            });
-        });
-        console.log('=== END CSV DEBUG ===');
+        console.log(`💰 Total income tax (${incomeTaxRate}%): R$ ${totalTaxSum}`);
 
         return res.send(csvContent);
 
@@ -289,7 +291,7 @@ router.get("/export-csv", asyncHandler(async (req, res) => {
 }));
 
 // GET /api/monthly-billing/export-excel?therapistEmail=&year=&month=
-// Excel export with correct table names and session dates column
+// Excel export with income tax calculation
 router.get("/export-excel", asyncHandler(async (req, res) => {
     const therapistEmail = req.query.therapistEmail as string;
     const year = parseInt(req.query.year as string) || new Date().getFullYear();
@@ -317,8 +319,15 @@ router.get("/export-excel", asyncHandler(async (req, res) => {
         // Filter out patients with zero sessions
         const patientsWithSessions = summary.filter(patient => patient.sessionCount > 0);
 
-        // Get detailed patient info for CSV
-        const csvData = await Promise.all(
+        // Get therapist's income tax rate
+        const therapistResult = await pool.query(
+            'SELECT income_tax_rate FROM therapists WHERE email = $1',
+            [therapistEmail]
+        );
+        const incomeTaxRate = therapistResult.rows[0]?.income_tax_rate || 0.00;
+
+        // Get detailed patient info for Excel
+        const excelData = await Promise.all(
             patientsWithSessions.map(async (billingSummary) => {
                 // Get patient details from database
                 const patientResult = await pool.query(
@@ -338,7 +347,7 @@ router.get("/export-excel", asyncHandler(async (req, res) => {
 
                 const patient = patientResult.rows[0];
 
-                // Get payment details if billing period exists (using correct table name)
+                // Get payment details if billing period exists
                 let paymentDate = '';
                 let paymentMethod = '';
                 let paymentReference = '';
@@ -364,15 +373,14 @@ router.get("/export-excel", asyncHandler(async (req, res) => {
                     }
                 }
 
-                // ✨ NEW: Get session dates from billing period or billing summary
+                // Get session dates from billing period or billing summary
                 let sessionDates = '';
                 if (billingSummary.billingPeriodId) {
-                    // Get session snapshots from stored billing period
                     const sessionResult = await pool.query(
                         'SELECT session_snapshots FROM monthly_billing_periods WHERE id = $1',
                         [billingSummary.billingPeriodId]
                     );
-                    
+
                     if (sessionResult.rows.length > 0 && sessionResult.rows[0].session_snapshots) {
                         const sessions = sessionResult.rows[0].session_snapshots;
                         sessionDates = sessions
@@ -381,12 +389,15 @@ router.get("/export-excel", asyncHandler(async (req, res) => {
                             .join(' / ');
                     }
                 } else if (billingSummary.sessionSnapshots) {
-                    // Use session snapshots from billing summary (not processed yet)
                     sessionDates = billingSummary.sessionSnapshots
                         .map(session => new Date(session.date).getDate())
                         .sort((a: number, b: number) => a - b)
                         .join(' / ');
                 }
+
+                // Calculate income tax amount
+                const totalAmountDecimal = billingSummary.totalAmount / 100;
+                const incomeTaxAmount = (totalAmountDecimal * incomeTaxRate / 100);
 
                 return {
                     patientName: patient?.name || billingSummary.patientName || 'Nome não encontrado',
@@ -394,9 +405,10 @@ router.get("/export-excel", asyncHandler(async (req, res) => {
                     telefone: patient?.telefone || '',
                     cpf: patient?.cpf || '',
                     sessionCount: billingSummary.sessionCount,
-                    sessionDates, // ✨ NEW: Session dates formatted as "2 / 8 / 22"
+                    sessionDates,
                     sessionPrice: patient?.session_price ? (patient.session_price / 100).toFixed(2) : '',
-                    totalAmount: (billingSummary.totalAmount / 100).toFixed(2),
+                    totalAmount: totalAmountDecimal.toFixed(2),
+                    incomeTaxAmount: incomeTaxAmount.toFixed(2), // NEW: Income tax calculation
                     status: getStatusText(billingSummary.status || 'can_process'),
                     paymentDate,
                     paymentMethod,
@@ -418,16 +430,17 @@ router.get("/export-excel", asyncHandler(async (req, res) => {
             }
         }
 
-        // ✨ UPDATED: Excel headers with new session dates column
+        // Updated Excel headers with new income tax column
         const excelHeaders = [
             'Nome Completo',
             'Email',
             'Telefone',
             'CPF',
             'Número de Sessões',
-            'Datas das Sessões', // ✨ NEW: Session dates column
+            'Datas das Sessões',
             'Valor por Sessão',
             'Valor Total',
+            `Imposto de Renda (${incomeTaxRate}%)`, // NEW: Dynamic tax rate in header
             'Status do Pagamento',
             'Data do Pagamento',
             'Método de Pagamento',
@@ -436,16 +449,17 @@ router.get("/export-excel", asyncHandler(async (req, res) => {
             'Início Cobrança LV Notas'
         ];
 
-        // ✨ UPDATED: Excel data with new session dates column
-        const excelData = csvData.map(row => [
+        // Updated Excel data with new income tax column
+        const excelRows = excelData.map(row => [
             row.patientName,
             row.email,
             row.telefone,
             row.cpf,
             row.sessionCount,
-            row.sessionDates, // ✨ NEW: Session dates data
+            row.sessionDates,
             row.sessionPrice,
             row.totalAmount,
+            row.incomeTaxAmount, // NEW: Income tax amount
             row.status,
             row.paymentDate,
             row.paymentMethod,
@@ -453,18 +467,19 @@ router.get("/export-excel", asyncHandler(async (req, res) => {
             row.therapyStartDate,
             row.billingStartDate
         ]);
-        
-        // Sum the total amounts
-        const totalAmountSum = csvData.reduce((acc, row) => acc + parseFloat(row.totalAmount), 0).toFixed(2);
 
-        // ✨ UPDATED: Summary row with empty session dates column
-        excelData.push(['', '', '', '', '', '', 'TOTAL', totalAmountSum, '', '', '', '', '', '']);
+        // Calculate totals
+        const totalAmountSum = excelData.reduce((acc, row) => acc + parseFloat(row.totalAmount), 0).toFixed(2);
+        const totalTaxSum = excelData.reduce((acc, row) => acc + parseFloat(row.incomeTaxAmount), 0).toFixed(2);
+
+        // Summary row with totals
+        excelRows.push(['', '', '', '', '', '', 'TOTAL', totalAmountSum, totalTaxSum, '', '', '', '', '', '']);
 
         // Create Excel workbook and worksheet
         const workbook = XLSX.utils.book_new();
-        const worksheet = XLSX.utils.aoa_to_sheet([excelHeaders, ...excelData]);
+        const worksheet = XLSX.utils.aoa_to_sheet([excelHeaders, ...excelRows]);
 
-        // Set column widths for better readability
+        // Set column widths for better readability (updated for new column)
         const columnWidths = [
             { wch: 25 }, // Nome Completo
             { wch: 30 }, // Email
@@ -474,6 +489,7 @@ router.get("/export-excel", asyncHandler(async (req, res) => {
             { wch: 20 }, // Datas das Sessões
             { wch: 15 }, // Valor por Sessão
             { wch: 12 }, // Valor Total
+            { wch: 18 }, // Imposto de Renda (NEW)
             { wch: 18 }, // Status do Pagamento
             { wch: 15 }, // Data do Pagamento
             { wch: 18 }, // Método de Pagamento
@@ -483,7 +499,7 @@ router.get("/export-excel", asyncHandler(async (req, res) => {
         ];
         worksheet['!cols'] = columnWidths;
 
-        // Style the header row (optional - makes it bold)
+        // Style the header row
         const headerRange = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
         for (let col = headerRange.s.c; col <= headerRange.e.c; col++) {
             const cellRef = XLSX.utils.encode_cell({ r: 0, c: col });
@@ -499,10 +515,10 @@ router.get("/export-excel", asyncHandler(async (req, res) => {
         XLSX.utils.book_append_sheet(workbook, worksheet, 'Cobrança Mensal');
 
         // Generate Excel buffer
-        const excelBuffer = XLSX.write(workbook, { 
-            type: 'buffer', 
+        const excelBuffer = XLSX.write(workbook, {
+            type: 'buffer',
             bookType: 'xlsx',
-            compression: true 
+            compression: true
         });
 
         // Set response headers for Excel file download
@@ -513,26 +529,15 @@ router.get("/export-excel", asyncHandler(async (req, res) => {
         res.setHeader('Content-Length', excelBuffer.length.toString());
         res.setHeader('Cache-Control', 'no-cache');
 
-        console.log(`📊 Excel export generated: ${csvData.length} patients with sessions for ${month}/${year}`);
-
-        // Add this temporary debug code after csvData is created
-        console.log('=== EXCEL DEBUG ===');
-        console.log('Number of patients:', csvData.length);
-        csvData.forEach((patient, index) => {
-            console.log(`Patient ${index + 1}:`, {
-                name: patient.patientName,
-                sessionDates: patient.sessionDates,
-                sessionCount: patient.sessionCount
-            });
-        });
-        console.log('=== END EXCEL DEBUG ===');
+        console.log(`📊 Excel export generated: ${excelData.length} patients with sessions for ${month}/${year}`);
+        console.log(`💰 Total income tax (${incomeTaxRate}%): R$ ${totalTaxSum}`);
 
         return res.send(excelBuffer);
 
     } catch (error) {
-        console.error('Error generating CSV export:', error);
+        console.error('Error generating Excel export:', error);
         return res.status(500).json({
-            error: "Failed to generate CSV export",
+            error: "Failed to generate Excel export",
             details: error instanceof Error ? error.message : 'Unknown error'
         });
     }

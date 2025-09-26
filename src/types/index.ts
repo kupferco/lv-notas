@@ -50,6 +50,7 @@ export interface Therapist {
   email: string;
   phone?: string;
   googleCalendarId?: string;
+  incomeTaxRate?: number;
 }
 
 export interface OnboardingState {

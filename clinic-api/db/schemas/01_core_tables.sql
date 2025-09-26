@@ -31,6 +31,7 @@ CREATE TABLE therapists (
     -- Billing configuration
     billing_cycle VARCHAR(20) DEFAULT 'monthly', -- 'per_session', 'weekly', 'monthly', 'ad_hoc'
     default_session_price DECIMAL(10,2),
+    income_tax_rate DECIMAL(5,2) DEFAULT 0.00, -- NEW: Taxa de imposto de renda (%)
     -- Onboarding tracking
     onboarding_completed BOOLEAN DEFAULT false,
     onboarding_started_at TIMESTAMP WITH TIME ZONE,
@@ -112,6 +113,7 @@ COMMENT ON COLUMN patients.contato_emergencia_nome IS 'Emergency contact name';
 COMMENT ON COLUMN patients.contato_emergencia_telefone IS 'Emergency contact phone number';
 COMMENT ON TABLE therapists IS 'Core therapist accounts with billing and onboarding configuration';
 COMMENT ON TABLE patients IS 'Patient records with dual date system, CPF support, address for NFS-e, and emergency contact information';
+COMMENT ON COLUMN therapists.income_tax_rate IS 'Taxa de imposto de renda sobre a receita bruta mensal (ex: 16.00 para 16%)';
 
 -- Success message
 DO $$ BEGIN
