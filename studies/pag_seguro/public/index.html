@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIX Test - PagSeguro Integration</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1, h2 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .result {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #2196F3;
+        }
+        .payment-link {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #ffc107;
+        }
+        .payment-link a {
+            color: #856404;
+            font-weight: bold;
+            text-decoration: none;
+            word-break: break-all;
+        }
+        .status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .status.waiting { background: #fff3cd; color: #856404; }
+        .status.paid { background: #d4edda; color: #155724; }
+        .status.declined { background: #f8d7da; color: #721c24; }
+        .debug {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .step {
+            margin: 20px 0;
+            padding: 20px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+        }
+        .step h3 {
+            margin-top: 0;
+            color: #007bff;
+        }
+        .whatsapp-btn {
+            background: #25d366;
+            color: white;
+        }
+        .whatsapp-btn:hover {
+            background: #1da851;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏥 PIX Payment Test - PagSeguro Integration</h1>
+        <p><strong>Goal:</strong> Test the complete PIX payment flow with WhatsApp links and split payments</p>
+    </div>
+
+    <!-- Step 1: Register Therapist -->
+    <div class="container step">
+        <h3>Step 1: Register Therapist</h3>
+        <p>First, register a therapist to receive split payments</p>
+        
+        <div class="form-group">
+            <label>Name:</label>
+            <input type="text" id="therapistName" value="Dr. João Silva" placeholder="Therapist name">
+        </div>
+        <div class="form-group">
+            <label>Email:</label>
+            <input type="email" id="therapistEmail" value="joao@email.com" placeholder="therapist@email.com">
+        </div>
+        <div class="form-group">
+            <label>CPF:</label>
+            <input type="text" id="therapistCPF" value="12345678901" placeholder="CPF (numbers only)">
+        </div>
+        <div class="form-group">
+            <label>PIX Key:</label>
+            <input type="text" id="therapistPixKey" value="joao@email.com" placeholder="PIX key (email, phone, or random key)">
+        </div>
+        <div class="form-group">
+            <label>Therapist Share (%):</label>
+            <input type="number" id="therapistShare" value="90" min="1" max="99" placeholder="90">
+        </div>
+        
+        <button onclick="registerTherapist()">Register Therapist</button>
+        
+        <div id="therapistResult"></div>
+    </div>
+
+    <!-- Step 2: Create Payment -->
+    <div class="container step">
+        <h3>Step 2: Create R$ 1,00 Test Payment</h3>
+        <p>Create a split payment that will automatically divide between therapist and platform</p>
+        
+        <div class="form-group">
+            <label>Select Therapist:</label>
+            <select id="selectedTherapist">
+                <option value="">Select a therapist...</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Patient Name:</label>
+            <input type="text" id="patientName" value="Maria Silva" placeholder="Patient name">
+        </div>
+        <div class="form-group">
+            <label>Patient WhatsApp (optional):</label>
+            <input type="text" id="patientPhone" value="5511999999999" placeholder="5511999999999">
+        </div>
+        <div class="form-group">
+            <label>Amount (cents):</label>
+            <input type="number" id="paymentAmount" value="100" placeholder="100 = R$ 1,00">
+        </div>
+        
+        <button onclick="createPayment()">Create PIX Payment</button>
+        
+        <div id="paymentResult"></div>
+    </div>
+
+    <!-- Step 3: Test Payment -->
+    <div class="container step">
+        <h3>Step 3: Test Payment Flow</h3>
+        <p>Simulate payment confirmation to test webhook</p>
+        
+        <div class="form-group">
+            <label>Payment ID:</label>
+            <input type="text" id="testPaymentId" placeholder="Enter payment ID to test">
+        </div>
+        
+        <button onclick="testWebhook('PAID')">✅ Simulate Payment Success</button>
+        <button onclick="testWebhook('DECLINED')">❌ Simulate Payment Decline</button>
+        <button onclick="checkPaymentStatus()">🔍 Check Status</button>
+        
+        <div id="testResult"></div>
+    </div>
+
+    <!-- Debug Panel -->
+    <div class="container">
+        <h2>🔧 Debug Panel</h2>
+        <button onclick="loadDebugData()">Refresh Debug Data</button>
+        <button onclick="clearDebugData()">Clear All Data</button>
+        
+        <div id="debugData" class="debug"></div>
+    </div>
+
+    <script>
+        let therapists = [];
+        let currentPayment = null;
+
+        // Register therapist with PagSeguro
+        async function registerTherapist() {
+            const data = {
+                name: document.getElementById('therapistName').value,
+                email: document.getElementById('therapistEmail').value,
+                cpf: document.getElementById('therapistCPF').value,
+                pixKey: document.getElementById('therapistPixKey').value,
+                sharePercentage: parseInt(document.getElementById('therapistShare').value)
+            };
+
+            try {
+                const response = await fetch('/api/therapist', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('therapistResult').innerHTML = `
+                        <div class="success">
+                            ✅ Therapist registered successfully!
+                            <br><strong>ID:</strong> ${result.therapist.id}
+                            <br><strong>PagSeguro Recipient ID:</strong> ${result.therapist.recipientId}
+                        </div>
+                    `;
+                    
+                    // Update therapist dropdown
+                    updateTherapistDropdown();
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                document.getElementById('therapistResult').innerHTML = `
+                    <div class="error">❌ Error: ${error.message}</div>
+                `;
+            }
+        }
+
+        // Create PIX payment
+        async function createPayment() {
+            const data = {
+                therapistId: document.getElementById('selectedTherapist').value,
+                patientName: document.getElementById('patientName').value,
+                patientPhone: document.getElementById('patientPhone').value,
+                amount: parseInt(document.getElementById('paymentAmount').value)
+            };
+
+            if (!data.therapistId) {
+                alert('Please select a therapist first');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/payment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    currentPayment = result.payment;
+                    document.getElementById('testPaymentId').value = result.payment.id;
+                    
+                    let html = `
+                        <div class="success">
+                            ✅ Payment created successfully!
+                            <br><strong>Payment ID:</strong> ${result.payment.id}
+                            <br><strong>Amount:</strong> ${result.payment.amount}
+                            <br><strong>Status:</strong> <span class="status ${result.payment.status.toLowerCase()}">${result.payment.status}</span>
+                        </div>
+                        
+                        <div class="result">
+                            <strong>💰 Split Details:</strong>
+                            <br>Therapist receives: ${result.payment.splits.therapist}
+                            <br>Platform receives: ${result.payment.splits.platform}
+                        </div>
+                        
+                        <div class="payment-link">
+                            <strong>💳 Payment Link:</strong>
+                            <br><a href="${result.payment.paymentUrl}" target="_blank">${result.payment.paymentUrl}</a>
+                        </div>
+                    `;
+                    
+                    if (result.payment.whatsappLink) {
+                        html += `
+                            <div style="margin-top: 15px;">
+                                <a href="${result.payment.whatsappLink}" target="_blank" class="whatsapp-btn" style="text-decoration: none; padding: 12px 20px; border-radius: 5px; display: inline-block;">
+                                    📱 Open WhatsApp Link
+                                </a>
+                            </div>
+                        `;
+                    }
+                    
+                    document.getElementById('paymentResult').innerHTML = html;
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                document.getElementById('paymentResult').innerHTML = `
+                    <div class="error">❌ Error: ${error.message}</div>
+                `;
+            }
+        }
+
+        // Test webhook
+        async function testWebhook(status) {
+            const paymentId = document.getElementById('testPaymentId').value;
+            
+            if (!paymentId) {
+                alert('Please enter a payment ID');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/test-webhook', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ paymentId, status })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('testResult').innerHTML = `
+                        <div class="success">
+                            ✅ ${result.message}
+                            <br><strong>New Status:</strong> <span class="status ${status.toLowerCase()}">${status}</span>
+                            ${status === 'PAID' ? '<br><strong>💰 Both therapist and platform received their splits!</strong>' : ''}
+                        </div>
+                    `;
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                document.getElementById('testResult').innerHTML = `
+                    <div class="error">❌ Error: ${error.message}</div>
+                `;
+            }
+        }
+
+        // Check payment status
+        async function checkPaymentStatus() {
+            const paymentId = document.getElementById('testPaymentId').value;
+            
+            if (!paymentId) {
+                alert('Please enter a payment ID');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/payment/${paymentId}`);
+                const result = await response.json();
+                
+                if (result.payment) {
+                    document.getElementById('testResult').innerHTML = `
+                        <div class="result">
+                            <strong>Payment Status:</strong>
+                            <br><strong>ID:</strong> ${result.payment.id}
+                            <br><strong>Status:</strong> <span class="status ${result.payment.status.toLowerCase()}">${result.payment.status}</span>
+                            <br><strong>Patient:</strong> ${result.payment.patientName}
+                            <br><strong>Created:</strong> ${new Date(result.payment.created).toLocaleString()}
+                            ${result.payment.updated ? '<br><strong>Updated:</strong> ' + new Date(result.payment.updated).toLocaleString() : ''}
+                        </div>
+                    `;
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                document.getElementById('testResult').innerHTML = `
+                    <div class="error">❌ Error: ${error.message}</div>
+                `;
+            }
+        }
+
+        // Update therapist dropdown
+        async function updateTherapistDropdown() {
+            try {
+                const response = await fetch('/api/debug');
+                const data = await response.json();
+                
+                const select = document.getElementById('selectedTherapist');
+                select.innerHTML = '<option value="">Select a therapist...</option>';
+                
+                data.therapists.forEach(therapist => {
+                    const option = document.createElement('option');
+                    option.value = therapist.id;
+                    option.textContent = `${therapist.name} (${therapist.sharePercentage}% share)`;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error updating therapist dropdown:', error);
+            }
+        }
+
+        // Load debug data
+        async function loadDebugData() {
+            try {
+                const response = await fetch('/api/debug');
+                const data = await response.json();
+                
+                document.getElementById('debugData').innerHTML = `
+                    <strong>Therapists (${data.therapists.length}):</strong>
+                    <pre>${JSON.stringify(data.therapists, null, 2)}</pre>
+                    
+                    <strong>Payments (${data.payments.length}):</strong>
+                    <pre>${JSON.stringify(data.payments, null, 2)}</pre>
+                    
+                    <strong>Recent Webhooks (${data.webhookLogs.length}):</strong>
+                    <pre>${JSON.stringify(data.webhookLogs, null, 2)}</pre>
+                `;
+            } catch (error) {
+                document.getElementById('debugData').innerHTML = `Error loading debug data: ${error.message}`;
+            }
+        }
+
+        // Clear debug data
+        function clearDebugData() {
+            if (confirm('Are you sure you want to clear all test data?')) {
+                location.reload();
+            }
+        }
+
+        // Load initial data
+        window.onload = function() {
+            updateTherapistDropdown();
+            loadDebugData();
+        };
+    </script>
+</body>
+</html>
