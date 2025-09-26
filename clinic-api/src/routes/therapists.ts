@@ -2,8 +2,8 @@
 import express, { Router, Request, Response, NextFunction } from "express";
 import { ParamsDictionary } from "express-serve-static-core";
 import pool from "../config/database.js";
-import { 
-  Therapist, 
+import {
+  Therapist,
   TherapistOnboarding,
   OnboardingStatusResponse,
   BillingCycleChangeRequest,
@@ -49,18 +49,24 @@ const asyncHandler = (
 // GET /api/therapists/:email - Get therapist by email
 router.get("/:email", asyncHandler(async (req, res) => {
   const { email } = req.params;
-  
+
   try {
     const result = await pool.query(
-      'SELECT id, nome as name, email, google_calendar_id as "googleCalendarId", created_at FROM therapists WHERE email = $1',
+      'SELECT id, nome as name, email, google_calendar_id as "googleCalendarId", income_tax_rate, created_at FROM therapists WHERE email = $1',
       [email]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Therapist not found" });
     }
-    
-    return res.json(result.rows[0]);
+
+    const therapist = result.rows[0];
+
+    // Format the response to include incomeTaxRate
+    return res.json({
+      ...therapist,
+      incomeTaxRate: parseFloat(therapist.income_tax_rate || 0)
+    });
   } catch (error) {
     console.error("Error fetching therapist:", error);
     return res.status(500).json({ error: "Internal server error" });
@@ -70,22 +76,22 @@ router.get("/:email", asyncHandler(async (req, res) => {
 // POST /api/therapists - Create new therapist
 router.post("/", asyncHandler(async (req: Request<ParamsDictionary, any, CreateTherapistBody>, res) => {
   const { name, email, googleCalendarId } = req.body;
-  
+
   if (!name || !email) {
     return res.status(400).json({ error: "Name and email are required" });
   }
-  
+
   try {
     // Check if therapist already exists
     const existingResult = await pool.query(
       "SELECT id FROM therapists WHERE email = $1",
       [email]
     );
-    
+
     if (existingResult.rows.length > 0) {
       return res.status(409).json({ error: "Therapist already exists" });
     }
-    
+
     // Create new therapist
     const result = await pool.query(
       `INSERT INTO therapists (nome, email, google_calendar_id) 
@@ -93,7 +99,7 @@ router.post("/", asyncHandler(async (req: Request<ParamsDictionary, any, CreateT
        RETURNING id, nome as name, email, google_calendar_id as googleCalendarId, created_at`,
       [name, email, googleCalendarId || null]
     );
-    
+
     return res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error("Error creating therapist:", error);
@@ -105,11 +111,11 @@ router.post("/", asyncHandler(async (req: Request<ParamsDictionary, any, CreateT
 router.put("/:email/calendar", asyncHandler(async (req: Request<ParamsDictionary, any, UpdateCalendarBody>, res) => {
   const { email } = req.params;
   const { googleCalendarId } = req.body;
-  
+
   if (!googleCalendarId) {
     return res.status(400).json({ error: "Google Calendar ID is required" });
   }
-  
+
   try {
     const result = await pool.query(
       `UPDATE therapists 
@@ -118,11 +124,11 @@ router.put("/:email/calendar", asyncHandler(async (req: Request<ParamsDictionary
        RETURNING id, nome as name, email, google_calendar_id as googleCalendarId, created_at`,
       [googleCalendarId, email]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Therapist not found" });
     }
-    
+
     return res.json(result.rows[0]);
   } catch (error) {
     console.error("Error updating therapist calendar:", error);
@@ -137,7 +143,7 @@ router.put("/:email/calendar", asyncHandler(async (req: Request<ParamsDictionary
 // GET /api/therapists/:email/full - Get complete therapist data with billing info
 router.get("/:email/full", asyncHandler(async (req, res) => {
   const { email } = req.params;
-  
+
   try {
     const result = await pool.query(
       `SELECT 
@@ -150,11 +156,11 @@ router.get("/:email/full", asyncHandler(async (req, res) => {
        WHERE email = $1`,
       [email]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Therapist not found" });
     }
-    
+
     return res.json(result.rows[0]);
   } catch (error) {
     console.error("Error fetching full therapist data:", error);
@@ -188,24 +194,24 @@ router.get("/:email/onboarding-status", asyncHandler(async (req, res) => {
     );
 
     const onboarding_steps = stepsResult.rows as TherapistOnboarding[];
-    
+
     // Calculate progress
     const totalSteps = 6; // calendar_selection, event_import, patient_creation, appointment_linking, dual_date_setup, billing_configuration
     const completedSteps = onboarding_steps.filter(step => step.completed).length;
     const progress_percentage = Math.round((completedSteps / totalSteps) * 100);
-    
+
     // Determine current step
     const incompleteSteps = onboarding_steps.filter(step => !step.completed);
     const current_step = incompleteSteps.length > 0 ? incompleteSteps[0].step : 'completed';
-    
+
     // Determine next step
     const stepOrder: OnboardingStep[] = [
-      'calendar_selection', 'event_import', 'patient_creation', 
+      'calendar_selection', 'event_import', 'patient_creation',
       'appointment_linking', 'dual_date_setup', 'billing_configuration'
     ];
     const currentIndex = stepOrder.indexOf(current_step as OnboardingStep);
-    const next_step = currentIndex >= 0 && currentIndex < stepOrder.length - 1 
-      ? stepOrder[currentIndex + 1] 
+    const next_step = currentIndex >= 0 && currentIndex < stepOrder.length - 1
+      ? stepOrder[currentIndex + 1]
       : undefined;
 
     const response: OnboardingStatusResponse = {
@@ -230,7 +236,7 @@ router.post("/:email/onboarding-step", asyncHandler(async (req, res) => {
   const { step, data, completed = true } = req.body;
 
   if (!isOnboardingStep(step)) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       error: "Invalid onboarding step",
       valid_steps: ['calendar_selection', 'event_import', 'patient_creation', 'appointment_linking', 'dual_date_setup', 'billing_configuration']
     });
@@ -312,7 +318,7 @@ router.put("/:email/billing-cycle", asyncHandler(async (req, res) => {
   const { billingCycle, sessionPrice, effectiveDate, reason } = req.body as BillingCycleChangeRequest;
 
   if (!isBillingCycle(billingCycle)) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       error: "Invalid billing cycle",
       valid_options: ['monthly', 'weekly', 'per_session', 'ad_hoc']
     });
@@ -382,6 +388,69 @@ router.get("/:email/billing-history", asyncHandler(async (req, res) => {
   } catch (error) {
     console.error("Error fetching billing history:", error);
     return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+
+// PUT /api/therapists/:email/tax-rate
+// Update therapist's income tax rate
+router.put("/:email/tax-rate", asyncHandler(async (req, res) => {
+  const { email } = req.params;
+  const { taxRate } = req.body;
+
+  // Validation
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  if (taxRate === undefined || taxRate === null) {
+    return res.status(400).json({ error: "Tax rate is required" });
+  }
+
+  if (typeof taxRate !== 'number' || taxRate < 0 || taxRate > 100) {
+    return res.status(400).json({
+      error: "Tax rate must be a number between 0 and 100"
+    });
+  }
+
+  try {
+    console.log(`Updating tax rate for ${email} to ${taxRate}%`);
+
+    // Update therapist's tax rate in database (removed updated_at reference)
+    const result = await pool.query(
+      `UPDATE therapists 
+       SET income_tax_rate = $1 
+       WHERE email = $2 
+       RETURNING id, nome, email, income_tax_rate`,
+      [taxRate, email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: "Therapist not found"
+      });
+    }
+
+    const updatedTherapist = result.rows[0];
+
+    console.log(`Tax rate updated successfully for ${email}: ${taxRate}%`);
+
+    return res.json({
+      message: "Tax rate updated successfully",
+      therapist: {
+        id: updatedTherapist.id,
+        name: updatedTherapist.nome,
+        email: updatedTherapist.email,
+        incomeTaxRate: parseFloat(updatedTherapist.income_tax_rate)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating therapist tax rate:', error);
+    return res.status(500).json({
+      error: "Failed to update tax rate",
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 }));
 

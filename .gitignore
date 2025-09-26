@@ -48,3 +48,5 @@ yarn-error.*
 *.enc
 
 */nfe_test/*.pfx
+
+/clinic-api/db/migrations
